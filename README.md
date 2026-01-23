@@ -73,8 +73,8 @@ graph TD
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/distributed-synthesis.git
-cd distributed-synthesis
+git clone https://github.com/capogreco/local.assembly.fm.git
+cd local.assembly.fm
 
 # Cache dependencies
 deno cache server.ts
