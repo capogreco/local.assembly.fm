@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>local.assembly.fm</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: "IBM Plex Mono", "Fira Mono", monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100dvh;
+      gap: 1rem;
+    }
+    #status {
+      font-size: 1.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+    #status.connected { color: #e0e0e0; }
+    #status.disconnected { color: #666; }
+    #health {
+      font-size: 0.85rem;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div id="status" class="disconnected">disconnected</div>
+  <div id="health"></div>
+  <script src="main.js"></script>
+</body>
+</html>
