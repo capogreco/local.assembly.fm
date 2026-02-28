@@ -58,63 +58,68 @@ graph TD
 * **Offline-First:** Runs entirely on a local LAN; no ISP required.
 
 
-## 🛠 Prerequisites
+## Prerequisites
 
-* **Runtime:** [Deno](https://deno.land/) (v1.40+)
+* **Runtime:** [Deno 2](https://deno.land/) (tested with v2.7.1)
 * **Hardware:**
-* Server machine (MacBook Pro / NUC / Linux)
-* Dedicated WiFi 6 Access Point(s)
-* Router for DHCP
+  * Intel NUC (or similar) as server
+  * Netgear GS305PP PoE switch
+  * 2x Ubiquiti U6+ access points
+  * FritzBox 7490 (DHCP only)
 
 
-## 🚀 Getting Started
+## Getting Started
 
-### 1. Installation
-
-```bash
-# Clone the repo
-git clone https://github.com/capogreco/local.assembly.fm.git
-cd local.assembly.fm
-
-# Cache dependencies
-deno cache server.ts
-
-```
-
-### 2. Development Mode (Localhost)
-
-For testing on a single machine:
+### Development (localhost)
 
 ```bash
-# Start the server on port 8000
 deno task dev
-
 ```
 
-Open `http://localhost:8000` in multiple browser tabs to simulate clients.
+Opens `https://localhost:8443`. Self-signed TLS certs auto-generate on first run.
 
-### 3. Production Mode (The Show)
+### Network Setup (performance LAN)
 
-**Network Setup:**
+The server runs on an isolated local network — no internet required.
 
-1. **Router:** Set IP to `192.168.178.1`. Disable WiFi. Enable DHCP range `192.168.178.100 - 250`.
-2. **Server:** Set Static IP to `192.168.178.10`.
-3. **DNS:** (Optional) Map `synth.local` to `192.168.178.10` in the router settings.
+```
+NUC (server)                    Phones
+192.168.178.10 ──→ GS305PP ──→ U6+ APs ···WiFi "assembly"···→ audience
+                      │
+                   FritzBox
+                   192.168.178.1 (DHCP)
+```
 
-**Run the Server:**
+**Bring up the NUC ethernet** (required after every boot or cable change due to igc driver bug):
+```bash
+sudo modprobe -r igc && sudo modprobe igc
+sudo ip addr add 192.168.178.10/24 dev enp86s0
+sudo ip link set enp86s0 up
+```
+
+**Start the server:**
+```bash
+deno task dev
+```
+
+**Connect phones:**
+1. Join WiFi SSID `assembly`
+2. Disable cellular data (or use airplane mode + WiFi) — otherwise the phone routes traffic over cellular
+3. Open `https://192.168.178.10:8443` and accept the cert warning
+
+### AP Adoption (one-time setup)
+
+The U6+ APs need to be adopted via a UniFi controller. A temporary Docker setup is in `unifi/`:
 
 ```bash
-# Allow network access and read permissions
-# deno run --allow-net --allow-read server.ts
-deno task start
+cd unifi && sudo docker compose up -d
 ```
 
-**Onboarding Audience:**
+Open `https://localhost:8443`, adopt the APs, create WiFi network "assembly". Then shut it down — APs retain their config:
 
-1. Audience joins WiFi: `radical_synthesis` (No Password).
-2. Audience scans QR Code pointing to `http://192.168.178.10` (or `http://synth.local`).
-  - could captive portal -> main browser work somehow?
-3. **Crucial:** Users must tap "Start" to unlock the AudioContext.
+```bash
+sudo docker compose down
+```
 
 
 ## 🎵 Performance Control
