@@ -103,3 +103,38 @@ to Internet Router mode. **Never use IP client mode on the FritzBox for this set
 Pixel 9 on Brave: `https://local.assembly.fm:8443` loads with valid cert,
 tap-to-start works, formant synthesis audible with server-driven parameter changes,
 screen stays awake, WebSocket auto-reconnects.
+
+### CNA (Captive Network Assistant) deep dive
+
+The captive portal flow required significant iteration to get right on both platforms.
+
+**iOS CNA limitations discovered:**
+- WKWebView blocks WebSocket connections entirely
+- AudioWorklet requires a secure context — won't work over HTTP
+- Links tapped inside the CNA navigate within the CNA, don't open Safari
+- URL schemes (`x-safari-https://`, etc.) are all blocked by Apple
+
+**Solution: SSE (Server-Sent Events) fallback**
+- SSE uses standard HTTP GET — works in both iOS and Android CNA WebViews
+- Data flow is one-directional (server → clients), so SSE is sufficient
+- `main.js` tries WebSocket first, falls back to SSE after 2s timeout or error
+- Server tracks both WS and SSE clients, `broadcast()` sends to all
+
+**Final captive portal flow:**
+- **Android**: `/generate_204` probe → 302 redirect to `https://local.assembly.fm:8443`
+  → Chrome Custom Tab loads synth client → SSE connects → audio + params working
+- **iOS**: `/hotspot-detect.html` probe → 302 redirect to HTTPS → CNA loads synth
+  client over HTTPS → SSE connects → audio + params working. CNA stays open (IP not
+  authenticated) so the synth keeps running inside it.
+- **Typed URL fallback**: any URL typed in browser → HTTP catch-all serves synth
+  client → redirects or serves directly
+
+**Port redirects** (iptables on Linux):
+- Port 80 → 8080 (captive portal probes)
+- Port 443 → 8443 (so `local.assembly.fm` works without port number)
+
+### Final verification
+- Pixel 9: CNA opens automatically, tap to start, audio + SSE working
+- iPhone 10: CNA opens automatically, tap to start, audio + SSE working
+- Both phones: Wake Lock active, synth responds to server parameter changes
+- Multiple phones connected simultaneously

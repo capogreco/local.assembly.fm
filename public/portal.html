@@ -16,6 +16,7 @@
       justify-content: center;
       height: 100dvh;
       gap: 2rem;
+      text-align: center;
     }
     h1 {
       font-size: 1.2rem;
@@ -24,23 +25,28 @@
       text-transform: uppercase;
       color: #888;
     }
-    a {
-      font-size: 2.5rem;
-      font-weight: 400;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-      color: #e0e0e0;
-      text-decoration: none;
-      padding: 1rem 3rem;
-      border: 1px solid #444;
+    p {
+      font-size: 0.95rem;
+      color: #666;
+      line-height: 1.8;
+      letter-spacing: 0.1em;
     }
-    a:active {
-      background: #333;
+    .url {
+      color: #e0e0e0;
+      font-size: 1.3rem;
+      letter-spacing: 0.15em;
+    }
+    .hint {
+      font-size: 0.8rem;
+      color: #555;
     }
   </style>
 </head>
 <body>
   <h1>assembly</h1>
-  <a href="https://local.assembly.fm:8443">enter</a>
+  <p>tap <span style="color:#e0e0e0">Done</span> above<br>then open your browser</p>
+  <p class="url">local.assembly.fm</p>
+  <!-- silent auth ping so WiFi stays connected after CNA dismisses -->
+  <img src="/portal" style="display:none" alt="">
 </body>
 </html>

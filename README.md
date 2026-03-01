@@ -102,9 +102,10 @@ sudo ip link set enp86s0 up
 sudo dnsmasq --bind-interfaces --conf-file=/etc/dnsmasq.d/assembly.conf
 ```
 
-**Port 80 redirect** (captive portal probes → Deno HTTP listener):
+**Port redirects** (captive portal + HTTPS without port number):
 ```bash
 sudo iptables -t nat -A PREROUTING -i enp86s0 -p tcp --dport 80 -j REDIRECT --to-port 8080
+sudo iptables -t nat -A PREROUTING -i enp86s0 -p tcp --dport 443 -j REDIRECT --to-port 8443
 ```
 
 **Start the server:**
@@ -113,10 +114,10 @@ deno task dev
 ```
 
 **Connect phones:**
-1. Join WiFi SSID `assembly`
-2. Disable cellular data (or use airplane mode + WiFi) — otherwise the phone routes traffic over cellular
-3. Captive portal should appear automatically → tap "ENTER" → opens `https://local.assembly.fm:8443`
-4. Tap "TAP TO START" → audio begins
+1. Put phone in airplane mode, turn WiFi back on
+2. Join WiFi SSID `assembly`
+3. Captive portal appears automatically → tap "TAP TO START" → audio begins
+4. Fallback: open browser, type `local.assembly.fm`
 
 ### TLS Certificates (Let's Encrypt)
 

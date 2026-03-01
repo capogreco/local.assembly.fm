@@ -51,35 +51,53 @@ async function serveFile(path: string): Promise<Response> {
   }
 }
 
-// --- WebSocket clients ---
+// --- Client tracking ---
 
 let nextClientId = 1;
-const clients = new Map<number, WebSocket>();
+const wsClients = new Map<number, WebSocket>();
+
+type SSESend = (data: Record<string, unknown>) => void;
+const sseClients = new Map<number, SSESend>();
+
+function totalClients(): number {
+  return wsClients.size + sseClients.size;
+}
 
 function broadcast(msg: Record<string, unknown>): void {
   const data = JSON.stringify(msg);
-  for (const [, socket] of clients) {
+
+  for (const [, socket] of wsClients) {
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(data);
     }
   }
+
+  for (const [, send] of sseClients) {
+    send(msg);
+  }
 }
 
 function broadcastClientCount(): void {
-  broadcast({ type: "count", clients: clients.size });
+  broadcast({ type: "count", clients: totalClients() });
 }
 
-function handleWs(req: Request): Response {
+// --- WebSocket handler ---
+
+const authenticatedIPs = new Set<string>();
+
+function handleWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   const { socket, response } = Deno.upgradeWebSocket(req);
   const id = nextClientId++;
+  const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
 
   socket.addEventListener("open", () => {
-    clients.set(id, socket);
-    console.log(`Client ${id} connected (${clients.size} total)`);
+    wsClients.set(id, socket);
+    authenticatedIPs.add(clientIP);
+    console.log(`WS ${id} connected from ${clientIP} (${totalClients()} total)`);
     socket.send(JSON.stringify({
       type: "welcome",
       id,
-      clients: clients.size,
+      clients: totalClients(),
     }));
     broadcastClientCount();
   });
@@ -96,86 +114,140 @@ function handleWs(req: Request): Response {
   });
 
   socket.addEventListener("close", () => {
-    clients.delete(id);
-    console.log(`Client ${id} disconnected (${clients.size} total)`);
+    wsClients.delete(id);
+    authenticatedIPs.delete(clientIP);
+    console.log(`WS ${id} disconnected (${totalClients()} total)`);
     broadcastClientCount();
   });
 
   return response;
 }
 
-// --- Captive portal (HTTP on port 8080) ---
+// --- SSE handler ---
 
-const authenticatedIPs = new Set<string>();
+function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
+  const id = nextClientId++;
+  const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
+  const encoder = new TextEncoder();
 
-function getClientIP(req: Request, info: Deno.ServeHandlerInfo): string {
-  return (info.remoteAddr as Deno.NetAddr).hostname;
+  const stream = new ReadableStream({
+    start(controller) {
+      const send: SSESend = (data) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // stream closed
+        }
+      };
+
+      sseClients.set(id, send);
+      console.log(`SSE ${id} connected from ${clientIP} (${totalClients()} total)`);
+      send({ type: "welcome", id, clients: totalClients() });
+      broadcastClientCount();
+    },
+    cancel() {
+      sseClients.delete(id);
+      console.log(`SSE ${id} disconnected (${totalClients()} total)`);
+      broadcastClientCount();
+    },
+  });
+
+  // Also clean up if the request is aborted
+  req.signal.addEventListener("abort", () => {
+    sseClients.delete(id);
+    console.log(`SSE ${id} aborted (${totalClients()} total)`);
+    broadcastClientCount();
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      "connection": "keep-alive",
+    },
+  });
 }
+
+// --- Captive portal (HTTP on port 8080) ---
 
 function portalHandler(
   req: Request,
   info: Deno.ServeHandlerInfo,
 ): Response | Promise<Response> {
   const url = new URL(req.url);
-  const clientIP = getClientIP(req, info);
+  const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
 
-  // Apple captive portal probe
-  if (url.pathname === "/hotspot-detect.html") {
+  // Known captive portal probe paths
+  const probes = [
+    "/hotspot-detect.html",  // Apple
+    "/generate_204",         // Google/Android
+    "/canonical.html",       // Firefox
+    "/connecttest.txt",      // Microsoft
+  ];
+
+  if (probes.includes(url.pathname)) {
     if (authenticatedIPs.has(clientIP)) {
+      // Already authenticated — return expected success so OS stays connected
+      if (url.pathname === "/generate_204") {
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === "/connecttest.txt") {
+        return new Response("Microsoft Connect Test", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
       return new Response("<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", {
         headers: { "content-type": "text/html" },
       });
     }
-    return Response.redirect(`http://${HOST_IP}:${HTTP_PORT}/portal`, 302);
-  }
 
-  // Google/Android captive portal probe
-  if (url.pathname === "/generate_204") {
-    if (authenticatedIPs.has(clientIP)) {
-      return new Response(null, { status: 204 });
+    // Apple CNA: redirect to HTTPS so AudioWorklet works (requires secure context)
+    // Don't authenticate — keep network "captive" so CNA stays open
+    if (url.pathname === "/hotspot-detect.html") {
+      console.log(`CNA (Apple): redirecting ${clientIP} to HTTPS`);
+      return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}`, 302);
     }
-    return Response.redirect(`http://${HOST_IP}:${HTTP_PORT}/portal`, 302);
+
+    // Android/others: redirect to HTTPS (Android Custom Tab = full browser)
+    console.log(`CNA: redirecting ${clientIP} to HTTPS via ${url.pathname}`);
+    return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}`, 302);
   }
 
-  // Firefox captive portal probe
-  if (url.pathname === "/canonical.html") {
-    if (authenticatedIPs.has(clientIP)) {
-      return new Response("<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", {
-        headers: { "content-type": "text/html" },
-      });
-    }
-    return Response.redirect(`http://${HOST_IP}:${HTTP_PORT}/portal`, 302);
+  // SSE endpoint
+  if (url.pathname === "/events") {
+    return handleSSE(req, info);
   }
 
-  // Microsoft captive portal probe
-  if (url.pathname === "/connecttest.txt") {
-    if (authenticatedIPs.has(clientIP)) {
-      return new Response("Microsoft Connect Test", {
-        headers: { "content-type": "text/plain" },
-      });
-    }
-    return Response.redirect(`http://${HOST_IP}:${HTTP_PORT}/portal`, 302);
+  // WebSocket upgrade on HTTP port
+  if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+    return handleWs(req, info);
   }
 
-  // Portal page
-  if (url.pathname === "/portal") {
-    authenticatedIPs.add(clientIP);
-    console.log(`Portal: authenticated ${clientIP}`);
-    return serveFile("/portal.html");
+  // Static assets needed by the synth client served over HTTP
+  const ext = url.pathname.split(".").pop()?.toLowerCase();
+  if (ext && ["js", "css", "json", "png", "ico"].includes(ext)) {
+    return serveFile(url.pathname);
   }
 
-  // Everything else → redirect to HTTPS app
-  return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}`, 302);
+  // Everything else (typed-in URLs) → serve synth client
+  console.log(`HTTP: serving synth client to ${clientIP}`);
+  return serveFile("/index.html");
 }
 
 // --- HTTPS handler ---
 
-function httpsHandler(req: Request): Response | Promise<Response> {
+function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promise<Response> {
   if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-    return handleWs(req);
+    return handleWs(req, info);
   }
 
   const url = new URL(req.url);
+
+  // SSE endpoint
+  if (url.pathname === "/events") {
+    return handleSSE(req, info);
+  }
+
   const path = url.pathname === "/" ? "/index.html" : url.pathname;
   return serveFile(path);
 }
@@ -217,7 +289,7 @@ Deno.serve(
     cert: await Deno.readTextFile(CERT_FILE),
     key: await Deno.readTextFile(KEY_FILE),
   },
-  httpsHandler,
+  (req: Request, info: Deno.ServeHandlerInfo) => httpsHandler(req, info),
 );
 
 startTestMode();
