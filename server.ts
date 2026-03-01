@@ -314,8 +314,8 @@ function startTestMode(): void {
       zingAmount: 0.5 + Math.sin(t * 0.2) * 0.3,
       zingMorph: 0.5 + Math.cos(t * 0.4) * 0.3,
       symmetry: 0.5 + Math.sin(t * 0.15) * 0.2,
-      orbitX: Math.sin(t * 0.08) * 0.4,
-      orbitY: t * 0.14,
+      orbitAngle: (t * 0.3) % (Math.PI * 2),
+      orbitThrust: 0.3 + Math.sin(t * 0.1) * 0.2,
     });
   }, 100);
 }

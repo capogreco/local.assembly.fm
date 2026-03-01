@@ -83,8 +83,8 @@ function handleMessage(msg) {
       if (workletNode) {
         workletNode.port.postMessage(msg);
       }
-      if (setOrbit && (msg.orbitX !== undefined || msg.orbitY !== undefined)) {
-        setOrbit(msg.orbitX, msg.orbitY);
+      if (setOrbit && (msg.orbitAngle !== undefined || msg.orbitThrust !== undefined)) {
+        setOrbit(msg.orbitAngle, msg.orbitThrust);
       }
       break;
 

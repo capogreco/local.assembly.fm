@@ -116,19 +116,42 @@ void main() {
     return m;
   }
 
-  function mat4RotateY(angle) {
-    const c = Math.cos(angle), s = Math.sin(angle);
-    const m = mat4Identity();
-    m[0] = c;   m[2] = -s;
-    m[8] = s;   m[10] = c;
-    return m;
+  // --- Quaternion math ([x, y, z, w]) ---
+
+  function quatFromAxisAngle(ax, ay, az, angle) {
+    const half = angle * 0.5;
+    const s = Math.sin(half);
+    return [ax * s, ay * s, az * s, Math.cos(half)];
   }
 
-  function mat4RotateX(angle) {
-    const c = Math.cos(angle), s = Math.sin(angle);
-    const m = mat4Identity();
-    m[5] = c;   m[6] = s;
-    m[9] = -s;  m[10] = c;
+  function quatMultiply(a, b) {
+    return [
+      a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
+      a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
+      a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
+      a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2],
+    ];
+  }
+
+  function quatNormalize(q) {
+    const len = Math.sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+    if (len > 0) { q[0] /= len; q[1] /= len; q[2] /= len; q[3] /= len; }
+    return q;
+  }
+
+  function quatToMat4(q) {
+    const [x, y, z, w] = q;
+    const m = new Float32Array(16);
+    m[0]  = 1 - 2*(y*y + z*z);
+    m[1]  = 2*(x*y + w*z);
+    m[2]  = 2*(x*z - w*y);
+    m[4]  = 2*(x*y - w*z);
+    m[5]  = 1 - 2*(x*x + z*z);
+    m[6]  = 2*(y*z + w*x);
+    m[8]  = 2*(x*z + w*y);
+    m[9]  = 2*(y*z - w*x);
+    m[10] = 1 - 2*(x*x + y*y);
+    m[15] = 1;
     return m;
   }
 
@@ -159,10 +182,14 @@ void main() {
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
 
-  // --- Orbit state ---
+  // --- Orbit state (quaternion + velocity) ---
 
-  let orbitX = 0, orbitY = 0;
-  let userRotX = 0, userRotY = 0;
+  const orientation = [0, 0, 0, 1]; // quaternion [x,y,z,w]
+  const angVel = [0, 0, 0];         // angular velocity (rad/s) in world space
+  let thrustAngle = 0;               // screen-space thrust direction (rad)
+  let thrustMag = 0;                 // thrust magnitude (rad/s²)
+  const DRAG_TAU = 3.0;             // velocity decay time constant (seconds)
+  let lastTime = 0;
   let dragging = false;
   let lastPtrX = 0, lastPtrY = 0;
 
@@ -171,12 +198,21 @@ void main() {
     lastPtrX = e.clientX;
     lastPtrY = e.clientY;
     canvas.setPointerCapture(e.pointerId);
+    angVel[0] = angVel[1] = angVel[2] = 0;
   });
 
   canvas.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    userRotY += (e.clientX - lastPtrX) * 0.01;
-    userRotX += (e.clientY - lastPtrY) * 0.01;
+    const dx = (e.clientX - lastPtrX) * 0.01;
+    const dy = (e.clientY - lastPtrY) * 0.01;
+    const q = quatMultiply(
+      quatFromAxisAngle(0, 1, 0, dx),
+      quatFromAxisAngle(1, 0, 0, dy)
+    );
+    const r = quatMultiply(q, orientation);
+    orientation[0] = r[0]; orientation[1] = r[1];
+    orientation[2] = r[2]; orientation[3] = r[3];
+    quatNormalize(orientation);
     lastPtrX = e.clientX;
     lastPtrY = e.clientY;
   });
@@ -221,11 +257,37 @@ void main() {
       frameData
     );
 
-    // Build MVP: perspective × view × rotateY
+    // Physics: thrust → angular velocity → orientation
+    if (lastTime === 0) lastTime = time;
+    const dt = Math.min((time - lastTime) / 1000, 0.05);
+    lastTime = time;
+
+    if (!dragging && thrustMag > 0) {
+      angVel[0] += -Math.sin(thrustAngle) * thrustMag * dt;
+      angVel[1] += Math.cos(thrustAngle) * thrustMag * dt;
+    }
+
+    const decay = Math.exp(-dt / DRAG_TAU);
+    angVel[0] *= decay;
+    angVel[1] *= decay;
+    angVel[2] *= decay;
+
+    const speed = Math.sqrt(angVel[0]*angVel[0] + angVel[1]*angVel[1] + angVel[2]*angVel[2]);
+    if (speed > 0.0001) {
+      const r = quatMultiply(
+        quatFromAxisAngle(angVel[0]/speed, angVel[1]/speed, angVel[2]/speed, speed * dt),
+        orientation
+      );
+      orientation[0] = r[0]; orientation[1] = r[1];
+      orientation[2] = r[2]; orientation[3] = r[3];
+      quatNormalize(orientation);
+    }
+
+    // Build MVP
     const aspect = canvas.width / canvas.height;
     const proj = mat4Perspective(Math.PI / 6, aspect, 0.1, 100);
     const view = mat4Translate(0, 0, -3);
-    const model = mat4Multiply(mat4RotateX(orbitX + userRotX), mat4RotateY(orbitY + userRotY));
+    const model = quatToMat4(orientation);
     const mvp = mat4Multiply(proj, mat4Multiply(view, model));
 
     // Draw
@@ -251,8 +313,8 @@ void main() {
 
   requestAnimationFrame(render);
 
-  return function setOrbit(x, y) {
-    if (x !== undefined) orbitX = x;
-    if (y !== undefined) orbitY = y;
+  return function setOrbit(angle, thrust) {
+    if (angle !== undefined) thrustAngle = angle;
+    if (thrust !== undefined) thrustMag = thrust;
   };
 }
