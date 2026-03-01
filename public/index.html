@@ -2,37 +2,60 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>local.assembly.fm</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: #1a1a1a;
       color: #e0e0e0;
-      font-family: "IBM Plex Mono", "Fira Mono", monospace;
+      font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      height: 100dvh;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100dvh;
-      gap: 1rem;
+      cursor: pointer;
+      z-index: 10;
     }
-    #status {
+    #overlay span {
       font-size: 1.4rem;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
-      letter-spacing: 0.15em;
+      color: #888;
     }
-    #status.connected { color: #e0e0e0; }
-    #status.disconnected { color: #666; }
-    #health {
-      font-size: 0.85rem;
-      color: #666;
+    #overlay.hidden { display: none; }
+    #status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 0.8rem 1rem;
+      font-size: 0.75rem;
+      color: #555;
+      display: flex;
+      justify-content: space-between;
+      letter-spacing: 0.1em;
     }
+    #status-bar.connected { color: #666; }
+    #status-bar.disconnected { color: #444; }
   </style>
 </head>
 <body>
-  <div id="status" class="disconnected">disconnected</div>
-  <div id="health"></div>
+  <div id="overlay">
+    <span>tap to start</span>
+  </div>
+  <div id="status-bar" class="disconnected">
+    <span id="conn-status">disconnected</span>
+    <span id="client-count"></span>
+  </div>
   <script src="main.js"></script>
 </body>
 </html>

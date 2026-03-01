@@ -54,7 +54,7 @@ graph TD
 
 * **Low-Latency Sync:** Implements a custom NTP-style handshake to synchronize the `AudioContext` clock of 100+ devices to a central server time (typically <10ms variance).
 * **Distributed Audio Engine:** All DSP (synthesis) happens on the client side to save bandwidth. The server only sends lightweight control messages (JSON).
-* **Captive Portal Evasion:** Designed to bypass "Captive Network Assistants" (CNA) to ensure full WebAudio access in the main browser.
+* **Captive Portal:** Phones joining the WiFi land on a portal page automatically; tapping "ENTER" opens the synth client in the real browser.
 * **Offline-First:** Runs entirely on a local LAN; no ISP required.
 
 
@@ -76,7 +76,7 @@ graph TD
 deno task dev
 ```
 
-Opens `https://localhost:8443`. Self-signed TLS certs auto-generate on first run.
+Opens `https://localhost:8443`.
 
 ### Network Setup (performance LAN)
 
@@ -87,7 +87,7 @@ NUC (server)                    Phones
 192.168.178.10 ──→ GS305PP ──→ U6+ APs ···WiFi "assembly"···→ audience
                       │
                    FritzBox
-                   192.168.178.1 (DHCP)
+                   192.168.178.1 (DHCP, DNS → .10)
 ```
 
 **Bring up the NUC ethernet** (required after every boot or cable change due to igc driver bug):
@@ -95,6 +95,16 @@ NUC (server)                    Phones
 sudo modprobe -r igc && sudo modprobe igc
 sudo ip addr add 192.168.178.10/24 dev enp86s0
 sudo ip link set enp86s0 up
+```
+
+**Start dnsmasq** (resolves all DNS to server IP for captive portal + TLS):
+```bash
+sudo dnsmasq --bind-interfaces --conf-file=/etc/dnsmasq.d/assembly.conf
+```
+
+**Port 80 redirect** (captive portal probes → Deno HTTP listener):
+```bash
+sudo iptables -t nat -A PREROUTING -i enp86s0 -p tcp --dport 80 -j REDIRECT --to-port 8080
 ```
 
 **Start the server:**
@@ -105,7 +115,24 @@ deno task dev
 **Connect phones:**
 1. Join WiFi SSID `assembly`
 2. Disable cellular data (or use airplane mode + WiFi) — otherwise the phone routes traffic over cellular
-3. Open `https://192.168.178.10:8443` and accept the cert warning
+3. Captive portal should appear automatically → tap "ENTER" → opens `https://local.assembly.fm:8443`
+4. Tap "TAP TO START" → audio begins
+
+### TLS Certificates (Let's Encrypt)
+
+Uses a real CA-signed cert for `local.assembly.fm` — no browser warnings. dnsmasq resolves the domain to `192.168.178.10` on the LAN.
+
+**Renew** (every 90 days, needs internet):
+```bash
+sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm
+# Add the TXT record _acme-challenge.local in Namecheap Advanced DNS
+# Then copy certs:
+sudo cp /etc/letsencrypt/live/local.assembly.fm/fullchain.pem cert.pem
+sudo cp /etc/letsencrypt/live/local.assembly.fm/privkey.pem key.pem
+sudo chown $(whoami) cert.pem key.pem
+```
+
+Current cert expires: **2026-05-30**
 
 ### AP Adoption (one-time setup)
 

@@ -45,3 +45,61 @@ to a local-only WiFi network. Airplane mode + WiFi is the workaround.
 Phone (Pixel 9) connected to "assembly" WiFi, opened `https://192.168.178.10:8443`,
 saw charcoal UI, WebSocket connected, health pings working. Server correctly logs
 connect/disconnect with client count.
+
+## 2026-03-01 — Step 2: Captive Portal + Synth Engine
+
+### What we built
+- **Captive portal**: HTTP listener on port 8080 handles Apple/Google/Firefox/Microsoft
+  probe URLs. Redirects to portal page, tracks authenticated IPs, returns expected
+  responses on subsequent probes so the OS doesn't disconnect WiFi.
+- **Portal page**: No-JS `portal.html` — works in iOS CNA. "ENTER" link opens the
+  real browser at `https://local.assembly.fm:8443`.
+- **Synth client**: Tap-to-start overlay, AudioContext init, AudioWorklet loading,
+  WebSocket parameter forwarding to worklet, Screen Wake Lock with visibility re-acquire.
+- **Formant + zing DSP**: Ported from `reference/voice.assembly.fm` (~1564 lines →
+  ~260 lines). Kept full DSP core: vowel bilinear interpolation, Le Brun cross-fade
+  carriers, FM formant synthesis, zing ring mod/AM morphing, symmetry phase warping,
+  UPL harmonic generation. Removed HRG/RBG generators, phasor worklet dependency,
+  envelope interpolation modes, multi-channel output, vibrato/noise.
+- **Server broadcast**: Client IDs, welcome messages, client count broadcasts,
+  test mode cycling parameters every 100ms.
+- **Configurable host**: `HOST_IP` and `HOST_DOMAIN` env vars.
+
+### Let's Encrypt certs
+Self-signed certs cause a scary warning page on phones. Switched to Let's Encrypt
+with DNS-01 challenge via Namecheap. dnsmasq resolves `local.assembly.fm` →
+`192.168.178.10` on the LAN, so the CA-signed cert matches. Clean lock icon, no
+warnings on any browser.
+
+```
+sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm
+```
+
+Add TXT record `_acme-challenge.local` in Namecheap, then copy certs to project root.
+
+### dnsmasq setup
+Config at `/etc/dnsmasq.d/assembly.conf`:
+```
+interface=enp86s0
+address=/#/192.168.178.10
+```
+`systemd-resolved` holds port 53 on loopback, so dnsmasq needs `--bind-interfaces`.
+FritzBox DHCP hands out `192.168.178.10` as DNS server.
+
+### FritzBox misadventure
+Switched FritzBox to "IP client" mode — this killed DHCP and the device became
+unreachable on `.1`. The 7490 has no hardware reset button. Factory reset via phone
+dial (`#991*15901590*`) didn't work. Recovered via emergency IP `169.254.1.1`
+(needed `sudo ip addr add 169.254.1.2/16 dev enp86s0` on NUC first). Switched back
+to Internet Router mode. **Never use IP client mode on the FritzBox for this setup.**
+
+### Browser notes
+- **Brave/Chrome (Android)**: Audio works great, clean playback
+- **Firefox (Android)**: AudioWorklet glitchy — likely Firefox's less optimized
+  AudioWorklet implementation on Android. Not our target browser.
+- Wake Lock working on both
+
+### Verification
+Pixel 9 on Brave: `https://local.assembly.fm:8443` loads with valid cert,
+tap-to-start works, formant synthesis audible with server-driven parameter changes,
+screen stays awake, WebSocket auto-reconnects.
