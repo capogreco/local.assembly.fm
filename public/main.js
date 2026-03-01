@@ -42,7 +42,7 @@ async function handleStart() {
 
 function onMessage(msg) {
   if (msg.type === "params") {
-    if (!genState) genState = createGeneratorState(conn.getClientId() || 0);
+    if (!genState) genState = createGeneratorState();
     const resolved = processMessage(msg, genState);
     instance.worklet.port.postMessage(resolved);
     if (setOrbit && (resolved.orbitAngle !== undefined || resolved.orbitThrust !== undefined)) {

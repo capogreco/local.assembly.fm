@@ -33,6 +33,8 @@ function storeProgram(msg) {
       if (val.base !== undefined) currentProgram[key].base = val.base;
       if (val.nums !== undefined) currentProgram[key].nums = [...val.nums];
       if (val.dens !== undefined) currentProgram[key].dens = [...val.dens];
+      if (val.min !== undefined) currentProgram[key].min = val.min;
+      if (val.max !== undefined) currentProgram[key].max = val.max;
     }
   }
 }
@@ -67,7 +69,7 @@ async function buildInstances() {
     inst.splitter.connect(panner, 0);
     panner.connect(masterGain);
     inst.panner = panner;
-    inst.genState = createGeneratorState(i);
+    inst.genState = createGeneratorState();
     instances.push(inst);
   }
 

@@ -176,7 +176,7 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
       trackConnect(clientIP, id);
       console.log(`SSE ${id} connected from ${clientIP} (${totalClients()} total)`);
       send({ type: "welcome", id, clients: totalClients() });
-      send(testProgram);
+      send(getInitialProgram());
       broadcastClientCount();
     },
     cancel() {
@@ -304,9 +304,6 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
 
 // --- Test mode: generator-based parameter broadcast ---
 
-// Initial generator program — sent to each new client
-const SEVEN = [1, 2, 3, 4, 5, 6];
-
 const testProgram: Record<string, unknown> = {
   type: "params",
   frequency: {
@@ -316,28 +313,32 @@ const testProgram: Record<string, unknown> = {
     numCommand: "shuffle",
     denCommand: "shuffle",
   },
-  vowelX:    { nums: SEVEN, dens: [6], numCommand: "shuffle" },
-  vowelY:    { nums: SEVEN, dens: [6], numCommand: "shuffle" },
-  zingAmount:{ nums: SEVEN, dens: [6], numCommand: "shuffle" },
-  zingMorph: { nums: SEVEN, dens: [6], numCommand: "shuffle" },
-  symmetry:  { nums: [1, 2, 3, 4, 5], dens: [6], numCommand: "shuffle" },
+  vowelX:    { min: 0.15, max: 0.85, command: "scatter" },
+  vowelY:    { min: 0.15, max: 0.85, command: "scatter" },
+  zingAmount:{ min: 0.1,  max: 0.8,  command: "scatter" },
+  zingMorph: { min: 0.1,  max: 0.9,  command: "scatter" },
+  symmetry:  { min: 0.2,  max: 0.8,  command: "scatter" },
   amplitude: 0.1,
   orbitAngle: 0,
   orbitThrust: 0.3,
 };
 
+function getInitialProgram(): Record<string, unknown> {
+  return testInterval ? testProgram : buildParamsFromShared();
+}
+
 function sendInitialProgram(send: (data: string) => void): void {
-  send(JSON.stringify(testProgram));
+  send(JSON.stringify(getInitialProgram()));
 }
 
 // Shuffle schedule — stagger commands so params change at different times
-const shuffleSchedule: { tick: number; param: string }[] = [
-  { tick: 50,  param: "frequency" },   //  5s — both num and den
-  { tick: 80,  param: "vowelX" },      //  8s
-  { tick: 110, param: "vowelY" },      // 11s
-  { tick: 140, param: "zingAmount" },   // 14s
-  { tick: 160, param: "zingMorph" },    // 16s
-  { tick: 180, param: "symmetry" },     // 18s
+const shuffleSchedule: { tick: number; param: string; kind: "hrg" | "range" }[] = [
+  { tick: 50,  param: "frequency",  kind: "hrg" },     //  5s
+  { tick: 80,  param: "vowelX",     kind: "range" },    //  8s
+  { tick: 110, param: "vowelY",     kind: "range" },    // 11s
+  { tick: 140, param: "zingAmount", kind: "range" },    // 14s
+  { tick: 160, param: "zingMorph",  kind: "range" },    // 16s
+  { tick: 180, param: "symmetry",   kind: "range" },    // 18s
 ];
 const CYCLE_LENGTH = 200; // 20s full cycle
 
@@ -361,10 +362,10 @@ function startTestMode(): void {
     };
     for (const entry of shuffleSchedule) {
       if (phase === entry.tick) {
-        if (entry.param === "frequency") {
+        if (entry.kind === "hrg") {
           msg[entry.param] = { numCommand: "shuffle", denCommand: "shuffle" };
         } else {
-          msg[entry.param] = { numCommand: "shuffle" };
+          msg[entry.param] = { command: "scatter" };
         }
       }
     }
@@ -377,8 +378,6 @@ function stopTestMode(): void {
   if (!testInterval) return;
   clearInterval(testInterval);
   testInterval = null;
-  // Silence all clients
-  broadcast({ type: "params", amplitude: 0.0 });
   console.log("Test mode: stopped");
 }
 
@@ -466,9 +465,370 @@ async function gridSend(msg: Uint8Array): Promise<void> {
   await gridSocket.send(msg, { hostname: "127.0.0.1", port: gridPort, transport: "udp" });
 }
 
-function gridLed(x: number, y: number, s: number): void {
-  gridSend(oscMessage(`${GRID_PREFIX}/grid/led/set`, x, y, s));
+// --- Grid Controller State ---
+
+interface HrgRowState {
+  integers: Set<number>;
+  behaviour: string;
 }
+
+interface RangeRowState {
+  min: number;
+  max: number;
+  behaviour: string;
+}
+
+type RowState = HrgRowState | RangeRowState;
+
+interface RowDef {
+  param: string;
+  type: "hrg-num" | "hrg-den" | "range";
+}
+
+interface PageDef {
+  name: string;
+  rows: RowDef[];
+}
+
+const pages: PageDef[] = [
+  { name: "pitch", rows: [
+    { param: "frequency", type: "hrg-num" },
+    { param: "frequency", type: "hrg-den" },
+  ]},
+  { name: "timbre", rows: [
+    { param: "vowelX",     type: "range" },
+    { param: "vowelY",     type: "range" },
+    { param: "zingAmount", type: "range" },
+    { param: "zingMorph",  type: "range" },
+    { param: "symmetry",   type: "range" },
+  ]},
+];
+
+function rowKey(param: string, type: string): string {
+  if (type === "hrg-num") return `${param}:num`;
+  if (type === "hrg-den") return `${param}:den`;
+  return param;
+}
+
+const sharedRows = new Map<string, RowState>();
+const stagedRows = new Map<string, RowState>();
+const hrgBases = new Map<string, number>();
+let activePageHeld: number | null = null;
+let soundOn = false;
+
+const HRG_BEHAVIOURS = ["increment", "decrement", "shuffle"];
+const RANGE_BEHAVIOURS = ["scatter", "walk", "converge"];
+
+function effectiveRow(key: string): RowState | undefined {
+  return stagedRows.get(key) ?? sharedRows.get(key);
+}
+
+function ensureStaged(key: string, type: string): RowState {
+  if (!stagedRows.has(key)) {
+    const shared = sharedRows.get(key);
+    if (shared) {
+      if ("integers" in shared) {
+        stagedRows.set(key, { integers: new Set(shared.integers), behaviour: shared.behaviour });
+      } else {
+        stagedRows.set(key, { min: shared.min, max: shared.max, behaviour: shared.behaviour });
+      }
+    } else if (type === "range") {
+      stagedRows.set(key, { min: 0, max: 11, behaviour: "static" });
+    } else {
+      stagedRows.set(key, { integers: new Set([1]), behaviour: "static" });
+    }
+  }
+  return stagedRows.get(key)!;
+}
+
+function hasStagedChanges(): boolean {
+  return stagedRows.size > 0;
+}
+
+function pageHasStagedChanges(pageIdx: number): boolean {
+  const page = pages[pageIdx];
+  if (!page) return false;
+  for (const row of page.rows) {
+    if (stagedRows.has(rowKey(row.param, row.type))) return true;
+  }
+  return false;
+}
+
+function populateFromProgram(prog: Record<string, unknown>): void {
+  sharedRows.clear();
+  stagedRows.clear();
+  hrgBases.clear();
+  for (const [key, val] of Object.entries(prog)) {
+    if (key === "type" || typeof val !== "object" || val === null) continue;
+    const v = val as Record<string, unknown>;
+    if (v.nums !== undefined || v.dens !== undefined) {
+      if (v.base !== undefined) hrgBases.set(key, v.base as number);
+      if (v.nums !== undefined) {
+        sharedRows.set(`${key}:num`, {
+          integers: new Set(v.nums as number[]),
+          behaviour: (v.numCommand as string) || "static",
+        });
+      }
+      if (v.dens !== undefined) {
+        sharedRows.set(`${key}:den`, {
+          integers: new Set(v.dens as number[]),
+          behaviour: (v.denCommand as string) || "static",
+        });
+      }
+    } else if (v.min !== undefined || v.max !== undefined) {
+      sharedRows.set(key, {
+        min: Math.round(((v.min as number) ?? 0) * 11),
+        max: Math.round(((v.max as number) ?? 1) * 11),
+        behaviour: (v.command as string) || "static",
+      });
+    }
+  }
+  if (typeof prog.amplitude === "number") {
+    soundOn = (prog.amplitude as number) > 0;
+  }
+}
+
+function buildParamsFromShared(): Record<string, unknown> {
+  const msg: Record<string, unknown> = { type: "params" };
+  const hrgParams = new Set<string>();
+  for (const [key] of sharedRows) {
+    const m = key.match(/^(.+):(num|den)$/);
+    if (m) hrgParams.add(m[1]);
+  }
+  for (const param of hrgParams) {
+    const numRow = sharedRows.get(`${param}:num`);
+    const denRow = sharedRows.get(`${param}:den`);
+    const obj: Record<string, unknown> = { base: hrgBases.get(param) || 220 };
+    if (numRow && "integers" in numRow) {
+      obj.nums = [...numRow.integers].sort((a, b) => a - b);
+    }
+    if (denRow && "integers" in denRow) {
+      obj.dens = [...denRow.integers].sort((a, b) => a - b);
+    }
+    msg[param] = obj;
+  }
+  for (const [key, row] of sharedRows) {
+    if ("min" in row) {
+      msg[key] = { min: row.min / 11, max: row.max / 11 };
+    }
+  }
+  msg.amplitude = soundOn ? 0.1 : 0.0;
+  return msg;
+}
+
+function existingBehaviour(key: string): string {
+  return (effectiveRow(key) as { behaviour?: string } | undefined)?.behaviour ?? "static";
+}
+
+function handleParamPress(x: number, y: number): void {
+  const page = pages[activePageHeld!];
+  if (y >= page.rows.length) return;
+  const def = page.rows[y];
+  const key = rowKey(def.param, def.type);
+
+  // Count held buttons in this row (cols 0-11)
+  const rowHeld: number[] = [];
+  for (const h of heldKeys) {
+    const [hx, hy] = h.split(",").map(Number);
+    if (hy === y && hx < 12) rowHeld.push(hx);
+  }
+
+  if (rowHeld.length === 1) {
+    // First press — clear row, set single value
+    if (def.type === "range") {
+      stagedRows.set(key, { min: x, max: x, behaviour: existingBehaviour(key) });
+    } else {
+      stagedRows.set(key, { integers: new Set([x + 1]), behaviour: existingBehaviour(key) });
+    }
+  } else if (rowHeld.length === 2) {
+    // Second press — set range between the two held buttons
+    const lo = Math.min(rowHeld[0], rowHeld[1]);
+    const hi = Math.max(rowHeld[0], rowHeld[1]);
+    if (def.type === "range") {
+      stagedRows.set(key, { min: lo, max: hi, behaviour: existingBehaviour(key) });
+    } else {
+      const ints = new Set<number>();
+      for (let c = lo; c <= hi; c++) ints.add(c + 1);
+      stagedRows.set(key, { integers: ints, behaviour: existingBehaviour(key) });
+    }
+  }
+  renderGrid();
+}
+
+// --- Grid LED Rendering ---
+
+function gridLedRow(xOffset: number, y: number, levels: number[]): void {
+  gridSend(oscMessage(`${GRID_PREFIX}/grid/led/level/row`, xOffset, y, ...levels));
+}
+
+function renderGrid(): void {
+  const buf: number[][] = Array.from({ length: 8 }, () => new Array(16).fill(0));
+
+  // Rows 0-5 + behaviour cols: only visible when a page is held
+  if (activePageHeld !== null) {
+    const page = pages[activePageHeld];
+    for (let r = 0; r < page.rows.length && r < 6; r++) {
+      const def = page.rows[r];
+      const key = rowKey(def.param, def.type);
+      const eff = effectiveRow(key);
+      if (!eff) continue;
+
+      const isStaged = stagedRows.has(key);
+      const level = isStaged ? 15 : 4;
+
+      if ("integers" in eff) {
+        for (let col = 0; col < 12; col++) {
+          if (eff.integers.has(col + 1)) buf[r][col] = level;
+        }
+        for (let i = 0; i < 3; i++) {
+          if (eff.behaviour === HRG_BEHAVIOURS[i]) buf[r][12 + i] = level;
+        }
+      } else {
+        for (let col = eff.min; col <= eff.max; col++) {
+          buf[r][col] = level;
+        }
+        for (let i = 0; i < 3; i++) {
+          if (eff.behaviour === RANGE_BEHAVIOURS[i]) buf[r][12 + i] = level;
+        }
+      }
+    }
+  }
+
+  // Fixed buttons (always visible)
+  buf[0][15] = hasStagedChanges() ? 15 : 0;  // SEND
+  buf[1][15] = 4;                              // INCREMENT
+  buf[7][15] = soundOn ? 15 : 0;              // ON/OFF
+
+  // Page selectors (y=7, always visible)
+  for (let i = 0; i < pages.length; i++) {
+    if (i === activePageHeld) {
+      buf[7][i] = 15;  // held page is bright
+    } else {
+      buf[7][i] = pageHasStagedChanges(i) ? 15 : 4;
+    }
+  }
+
+  for (let y = 0; y < 8; y++) {
+    gridLedRow(0, y, buf[y].slice(0, 8));
+    gridLedRow(8, y, buf[y].slice(8, 16));
+  }
+}
+
+// --- Grid Button Handlers ---
+
+function handleSend(): void {
+  if (!hasStagedChanges()) return;
+  if (testInterval) stopTestMode();
+
+  for (const [key, row] of stagedRows) {
+    if ("integers" in row) {
+      sharedRows.set(key, { integers: new Set(row.integers), behaviour: row.behaviour });
+    } else {
+      sharedRows.set(key, { min: row.min, max: row.max, behaviour: row.behaviour });
+    }
+  }
+  stagedRows.clear();
+
+  broadcast(buildParamsFromShared());
+  renderGrid();
+  console.log("Grid: SEND");
+}
+
+function handleIncrement(): void {
+  const msg: Record<string, unknown> = { type: "params" };
+  let hasCommands = false;
+
+  for (const page of pages) {
+    for (const rowDef of page.rows) {
+      const key = rowKey(rowDef.param, rowDef.type);
+      const eff = effectiveRow(key);
+      if (!eff) continue;
+
+      if ("integers" in eff && eff.behaviour !== "static") {
+        if (!msg[rowDef.param]) msg[rowDef.param] = {};
+        const cmdKey = rowDef.type === "hrg-num" ? "numCommand" : "denCommand";
+        (msg[rowDef.param] as Record<string, unknown>)[cmdKey] = eff.behaviour;
+        hasCommands = true;
+      } else if ("min" in eff && eff.behaviour !== "static") {
+        msg[rowDef.param] = { command: eff.behaviour };
+        hasCommands = true;
+      }
+    }
+  }
+
+  if (hasCommands) broadcast(msg);
+
+  // Flash INCREMENT LED
+  gridSend(oscMessage(`${GRID_PREFIX}/grid/led/level/set`, 15, 1, 15));
+  setTimeout(() => {
+    gridSend(oscMessage(`${GRID_PREFIX}/grid/led/level/set`, 15, 1, 4));
+  }, 100);
+}
+
+function handleOnOff(): void {
+  soundOn = !soundOn;
+  broadcast({ type: "params", amplitude: soundOn ? 0.1 : 0.0 });
+  renderGrid();
+  console.log(`Grid: sound ${soundOn ? "on" : "off"}`);
+}
+
+function handleBehaviourCol(x: number, y: number): void {
+  const page = pages[activePageHeld!];
+  if (y >= page.rows.length) return;
+  const def = page.rows[y];
+  const key = rowKey(def.param, def.type);
+  const row = ensureStaged(key, def.type);
+  const behaviours = def.type === "range" ? RANGE_BEHAVIOURS : HRG_BEHAVIOURS;
+  const behaviour = behaviours[x - 12];
+  row.behaviour = row.behaviour === behaviour ? "static" : behaviour;
+  renderGrid();
+}
+
+const heldKeys = new Set<string>();
+
+function handleGridKey(x: number, y: number, s: number): void {
+  if (s === 1) {
+    heldKeys.add(`${x},${y}`);
+
+    // Fixed buttons (col 15)
+    if (x === 15) {
+      if (y === 0) { handleSend(); return; }
+      if (y === 1) { handleIncrement(); return; }
+      if (y === 7) { handleOnOff(); return; }
+      return;
+    }
+
+    // Page selectors (y=7) — momentary hold
+    if (y === 7 && x < pages.length) {
+      activePageHeld = x;
+      renderGrid();
+      console.log(`Grid: page ${pages[x].name} held`);
+      return;
+    }
+
+    // Ignore param presses when no page held
+    if (activePageHeld === null) return;
+
+    const page = pages[activePageHeld];
+    if (y >= page.rows.length) return;
+
+    if (x < 12) {
+      handleParamPress(x, y);
+    } else if (x >= 12 && x <= 14) {
+      handleBehaviourCol(x, y);
+    }
+  } else {
+    heldKeys.delete(`${x},${y}`);
+
+    // Page release — momentary
+    if (y === 7 && x === activePageHeld) {
+      activePageHeld = null;
+      renderGrid();
+    }
+  }
+}
+
+// --- Grid Init ---
 
 async function initGrid(): Promise<void> {
   try {
@@ -478,7 +838,6 @@ async function initGrid(): Promise<void> {
     return;
   }
 
-  // Ask serialosc for device list
   const discover = oscMessage("/serialosc/list", "127.0.0.1", GRID_LISTEN_PORT);
   try {
     await gridSocket.send(discover, { hostname: "127.0.0.1", port: SERIALOSC_PORT, transport: "udp" });
@@ -489,23 +848,19 @@ async function initGrid(): Promise<void> {
 
   console.log("Grid: listening for serialosc on UDP " + GRID_LISTEN_PORT);
 
-  // Listen for OSC messages
   (async () => {
     for await (const [data] of gridSocket!) {
       const msg = parseOsc(data);
       if (!msg) continue;
 
       if (msg.address === "/serialosc/device") {
-        // Device found: id, type, port
         gridPort = msg.args[2] as number;
         console.log(`Grid: found ${msg.args[0]} (${msg.args[1]}) on port ${gridPort}`);
-        // Configure: set our port and prefix
         await gridSend(oscMessage("/sys/port", GRID_LISTEN_PORT));
         await gridSend(oscMessage("/sys/host", "127.0.0.1"));
         await gridSend(oscMessage("/sys/prefix", GRID_PREFIX));
-        // Light up top-right LED to show test mode state
-        gridLed(15, 0, testInterval ? 1 : 0);
-        // Request device info
+        populateFromProgram(testProgram);
+        renderGrid();
         await gridSend(oscMessage("/sys/info"));
       }
 
@@ -515,21 +870,11 @@ async function initGrid(): Promise<void> {
 
       if (msg.address === `${GRID_PREFIX}/grid/key`) {
         const [x, y, s] = msg.args as number[];
-        // Top-right button: toggle test mode on press
-        if (x === 15 && y === 0 && s === 1) {
-          if (testInterval) {
-            stopTestMode();
-            gridLed(15, 0, 0);
-          } else {
-            startTestMode();
-            gridLed(15, 0, 1);
-          }
-        }
+        handleGridKey(x, y, s);
       }
     }
   })();
 
-  // Subscribe to device add/remove notifications
   const notify = oscMessage("/serialosc/notify", "127.0.0.1", GRID_LISTEN_PORT);
   await gridSocket.send(notify, { hostname: "127.0.0.1", port: SERIALOSC_PORT, transport: "udp" });
 }

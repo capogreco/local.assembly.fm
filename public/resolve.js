@@ -2,32 +2,14 @@
  * Generator Resolver — resolves generator objects to numbers
  *
  * Each generator param: base * nums[numIdx] / dens[denIdx]
- * Indices are seeded per-client for harmonic differentiation.
+ * Indices are randomized per-client for harmonic differentiation.
  * Commands move indices independently across clients.
  */
 
-// --- Seeded RNG ---
-
-function hash(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  }
-  return h >>> 0;
-}
-
-function seededIndex(seed, len) {
-  return seed % len;
-}
-
-function paramSeed(clientId, paramName) {
-  return hash(`${clientId}:${paramName}`);
-}
-
 // --- Generator state ---
 
-function createGeneratorState(clientId) {
-  return { _clientId: clientId };
+function createGeneratorState() {
+  return {};
 }
 
 function executeCommand(command, array, currentIdx) {
@@ -51,20 +33,55 @@ function executeCommand(command, array, currentIdx) {
   }
 }
 
-function processGenerator(paramName, gen, state) {
-  const clientId = state._clientId;
-
+function processRangeGenerator(paramName, gen, state) {
   if (!state[paramName]) {
-    // First encounter — initialize arrays and seed indices
+    const t = Math.random();
+    const minVal = gen.min !== undefined ? gen.min : 0;
+    const maxVal = gen.max !== undefined ? gen.max : 1;
+    state[paramName] = {
+      type: "range",
+      min: minVal,
+      max: maxVal,
+      value: minVal + t * (maxVal - minVal),
+    };
+  } else {
+    const ps = state[paramName];
+    if (gen.min !== undefined) ps.min = gen.min;
+    if (gen.max !== undefined) ps.max = gen.max;
+    ps.value = Math.max(ps.min, Math.min(ps.max, ps.value));
+  }
+
+  const ps = state[paramName];
+  if (gen.command) {
+    switch (gen.command) {
+      case "scatter":
+        ps.value = ps.min + Math.random() * (ps.max - ps.min);
+        break;
+      case "walk": {
+        const step = (ps.max - ps.min) * (0.05 + Math.random() * 0.1);
+        ps.value += (Math.random() < 0.5 ? -1 : 1) * step;
+        ps.value = Math.max(ps.min, Math.min(ps.max, ps.value));
+        break;
+      }
+      case "converge":
+        ps.value += ((ps.min + ps.max) / 2 - ps.value) * 0.3;
+        break;
+    }
+  }
+  return ps.value;
+}
+
+function processGenerator(paramName, gen, state) {
+  if (!state[paramName]) {
+    // First encounter — initialize arrays and randomize indices
     const nums = gen.nums || [1];
     const dens = gen.dens || [1];
-    const seed = paramSeed(clientId, paramName);
     state[paramName] = {
       base: gen.base !== undefined ? gen.base : 1,
       nums: nums,
       dens: dens,
-      numIdx: seededIndex(seed, nums.length),
-      denIdx: seededIndex(hash(`${seed}:den`), dens.length),
+      numIdx: Math.floor(Math.random() * nums.length),
+      denIdx: Math.floor(Math.random() * dens.length),
     };
   } else {
     // Subsequent — update arrays/base if provided
@@ -72,11 +89,11 @@ function processGenerator(paramName, gen, state) {
     if (gen.base !== undefined) ps.base = gen.base;
     if (gen.nums !== undefined) {
       ps.nums = gen.nums;
-      ps.numIdx = ps.numIdx % ps.nums.length;
+      ps.numIdx = Math.floor(Math.random() * ps.nums.length);
     }
     if (gen.dens !== undefined) {
       ps.dens = gen.dens;
-      ps.denIdx = ps.denIdx % ps.dens.length;
+      ps.denIdx = Math.floor(Math.random() * ps.dens.length);
     }
   }
 
@@ -102,7 +119,11 @@ function processMessage(msg, generatorState) {
     if (typeof val === "number") {
       resolved[key] = val;
     } else if (typeof val === "object" && val !== null) {
-      resolved[key] = processGenerator(key, val, generatorState);
+      if (val.min !== undefined || val.max !== undefined || val.command !== undefined) {
+        resolved[key] = processRangeGenerator(key, val, generatorState);
+      } else {
+        resolved[key] = processGenerator(key, val, generatorState);
+      }
     }
   }
 
