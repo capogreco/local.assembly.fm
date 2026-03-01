@@ -138,3 +138,10 @@ The captive portal flow required significant iteration to get right on both plat
 - iPhone 10: CNA opens automatically, tap to start, audio + SSE working
 - Both phones: Wake Lock active, synth responds to server parameter changes
 - Multiple phones connected simultaneously
+
+### SSE-first connection model
+Flipped transport priority: SSE connects first (instant, works everywhere including
+iOS CNA), then attempts WebSocket upgrade in the background. If WS succeeds, SSE is
+closed and transport switches over. If WS fails (e.g. iOS CNA), stays on SSE with
+no delay or disruption. Status bar shows current transport: "disconnected" / "sse" / "ws".
+This eliminates the previous 2-second timeout penalty for CNA clients.

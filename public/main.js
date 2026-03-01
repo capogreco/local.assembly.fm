@@ -106,36 +106,74 @@ overlay.addEventListener("click", () => {
   handleStart();
 }, { once: true });
 
-// --- Connection: WebSocket with SSE fallback ---
+// --- Connection: SSE default, upgrade to WebSocket if available ---
 
-const isHTTPS = location.protocol === "https:";
+function setStatus(label) {
+  connStatus.textContent = label;
+  statusBar.className = label === "disconnected" ? "disconnected" : "connected";
+  if (label === "disconnected") clientCount.textContent = "";
+}
 
 function connect() {
-  // Try WebSocket first
-  const wsProto = isHTTPS ? "wss:" : "ws:";
+  connectSSE();
+}
+
+// --- SSE (default transport) ---
+
+function connectSSE() {
+  const eventsUrl = `${location.protocol}//${location.host}/events`;
+  sse = new EventSource(eventsUrl);
+
+  sse.addEventListener("open", () => {
+    setStatus("sse");
+    // Try upgrading to WebSocket
+    tryWebSocket();
+  });
+
+  sse.addEventListener("message", (e) => {
+    try {
+      handleMessage(JSON.parse(e.data));
+    } catch {
+      // ignore malformed
+    }
+  });
+
+  sse.addEventListener("error", () => {
+    setStatus("disconnected");
+    if (sse.readyState === EventSource.CLOSED) {
+      sse = null;
+      setTimeout(connectSSE, 2000);
+    }
+  });
+}
+
+// --- WebSocket upgrade (optional) ---
+
+function tryWebSocket() {
+  const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${wsProto}//${location.host}`;
 
   try {
     ws = new WebSocket(wsUrl);
   } catch {
-    // WebSocket constructor failed — go straight to SSE
-    connectSSE();
-    return;
+    return; // stay on SSE
   }
 
-  // Give WebSocket 2 seconds to connect, otherwise fall back to SSE
   const wsTimeout = setTimeout(() => {
     if (ws.readyState !== WebSocket.OPEN) {
-      console.log("WebSocket timeout, falling back to SSE");
       ws.close();
-      connectSSE();
+      ws = null;
     }
   }, 2000);
 
   ws.addEventListener("open", () => {
     clearTimeout(wsTimeout);
-    connStatus.textContent = "connected";
-    statusBar.className = "connected";
+    // WebSocket connected — close SSE, switch over
+    if (sse) {
+      sse.close();
+      sse = null;
+    }
+    setStatus("ws");
 
     healthInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -154,56 +192,16 @@ function connect() {
 
   ws.addEventListener("error", () => {
     clearTimeout(wsTimeout);
-    console.log("WebSocket error, falling back to SSE");
-    connectSSE();
+    ws = null;
+    // Fall back to SSE if not already connected
+    if (!sse) connectSSE();
   });
 
   ws.addEventListener("close", () => {
     clearTimeout(wsTimeout);
-    connStatus.textContent = "disconnected";
-    statusBar.className = "disconnected";
-    clientCount.textContent = "";
     clearInterval(healthInterval);
-    // Only reconnect if SSE hasn't taken over
-    if (!sse) {
-      setTimeout(connect, 2000);
-    }
-  });
-}
-
-// --- SSE fallback ---
-
-function connectSSE() {
-  // Close any existing WebSocket
-  if (ws && ws.readyState !== WebSocket.CLOSED) {
-    ws.close();
-  }
-  ws = null;
-
-  const eventsUrl = `${location.protocol}//${location.host}/events`;
-  sse = new EventSource(eventsUrl);
-
-  sse.addEventListener("open", () => {
-    connStatus.textContent = "connected";
-    statusBar.className = "connected";
-  });
-
-  sse.addEventListener("message", (e) => {
-    try {
-      handleMessage(JSON.parse(e.data));
-    } catch {
-      // ignore malformed
-    }
-  });
-
-  sse.addEventListener("error", () => {
-    connStatus.textContent = "disconnected";
-    statusBar.className = "disconnected";
-    clientCount.textContent = "";
-    // EventSource auto-reconnects, but if it's permanently dead, retry
-    if (sse.readyState === EventSource.CLOSED) {
-      sse = null;
-      setTimeout(connectSSE, 2000);
-    }
+    ws = null;
+    // Reconnect via SSE first, then try WS upgrade again
+    if (!sse) connectSSE();
   });
 }
