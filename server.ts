@@ -341,10 +341,15 @@ const shuffleSchedule: { tick: number; param: string }[] = [
 ];
 const CYCLE_LENGTH = 200; // 20s full cycle
 
+let testInterval: number | null = null;
+
 function startTestMode(): void {
+  if (testInterval) return;
+  // Send initial program to all connected clients
+  broadcast(testProgram);
   let t = 0;
   let ticks = 0;
-  setInterval(() => {
+  testInterval = setInterval(() => {
     t += 0.02;
     ticks++;
     const phase = ticks % CYCLE_LENGTH;
@@ -365,6 +370,168 @@ function startTestMode(): void {
     }
     broadcast(msg);
   }, 100);
+  console.log("Test mode: started");
+}
+
+function stopTestMode(): void {
+  if (!testInterval) return;
+  clearInterval(testInterval);
+  testInterval = null;
+  // Silence all clients
+  broadcast({ type: "params", amplitude: 0.0 });
+  console.log("Test mode: stopped");
+}
+
+// --- Monome Grid (OSC via serialosc) ---
+
+function oscString(s: string): Uint8Array {
+  const bytes = new TextEncoder().encode(s + "\0");
+  const padded = Math.ceil(bytes.length / 4) * 4;
+  const buf = new Uint8Array(padded);
+  buf.set(bytes);
+  return buf;
+}
+
+function oscInt(n: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setInt32(0, n);
+  return buf;
+}
+
+function oscMessage(address: string, ...args: (string | number)[]): Uint8Array {
+  const parts: Uint8Array[] = [oscString(address)];
+  let typetag = ",";
+  const argParts: Uint8Array[] = [];
+  for (const a of args) {
+    if (typeof a === "number") {
+      typetag += "i";
+      argParts.push(oscInt(a));
+    } else {
+      typetag += "s";
+      argParts.push(oscString(a));
+    }
+  }
+  parts.push(oscString(typetag));
+  parts.push(...argParts);
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+function parseOsc(data: Uint8Array): { address: string; args: (string | number)[] } | null {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let off = 0;
+
+  function readString(): string {
+    const start = off;
+    while (off < data.length && data[off] !== 0) off++;
+    const s = new TextDecoder().decode(data.subarray(start, off));
+    off++; // skip null
+    off = Math.ceil(off / 4) * 4; // pad to 4
+    return s;
+  }
+
+  function readInt(): number {
+    const v = view.getInt32(off);
+    off += 4;
+    return v;
+  }
+
+  try {
+    const address = readString();
+    if (!address.startsWith("/")) return null;
+    const typetag = readString();
+    const args: (string | number)[] = [];
+    for (let i = 1; i < typetag.length; i++) {
+      if (typetag[i] === "i") args.push(readInt());
+      else if (typetag[i] === "s") args.push(readString());
+      else if (typetag[i] === "f") { off += 4; } // skip floats
+    }
+    return { address, args };
+  } catch {
+    return null;
+  }
+}
+
+const SERIALOSC_PORT = 12002;
+const GRID_PREFIX = "/assembly";
+let gridPort: number | null = null;
+let gridSocket: Deno.DatagramConn | null = null;
+const GRID_LISTEN_PORT = 13000;
+
+async function gridSend(msg: Uint8Array): Promise<void> {
+  if (!gridSocket || !gridPort) return;
+  await gridSocket.send(msg, { hostname: "127.0.0.1", port: gridPort, transport: "udp" });
+}
+
+function gridLed(x: number, y: number, s: number): void {
+  gridSend(oscMessage(`${GRID_PREFIX}/grid/led/set`, x, y, s));
+}
+
+async function initGrid(): Promise<void> {
+  try {
+    gridSocket = Deno.listenDatagram({ hostname: "127.0.0.1", port: GRID_LISTEN_PORT, transport: "udp" });
+  } catch {
+    console.log("Grid: could not bind UDP port " + GRID_LISTEN_PORT);
+    return;
+  }
+
+  // Ask serialosc for device list
+  const discover = oscMessage("/serialosc/list", "127.0.0.1", GRID_LISTEN_PORT);
+  try {
+    await gridSocket.send(discover, { hostname: "127.0.0.1", port: SERIALOSC_PORT, transport: "udp" });
+  } catch {
+    console.log("Grid: serialosc not reachable on port " + SERIALOSC_PORT);
+    return;
+  }
+
+  console.log("Grid: listening for serialosc on UDP " + GRID_LISTEN_PORT);
+
+  // Listen for OSC messages
+  (async () => {
+    for await (const [data] of gridSocket!) {
+      const msg = parseOsc(data);
+      if (!msg) continue;
+
+      if (msg.address === "/serialosc/device") {
+        // Device found: id, type, port
+        gridPort = msg.args[2] as number;
+        console.log(`Grid: found ${msg.args[0]} (${msg.args[1]}) on port ${gridPort}`);
+        // Configure: set our port and prefix
+        await gridSend(oscMessage("/sys/port", GRID_LISTEN_PORT));
+        await gridSend(oscMessage("/sys/host", "127.0.0.1"));
+        await gridSend(oscMessage("/sys/prefix", GRID_PREFIX));
+        // Light up top-right LED to show test mode state
+        gridLed(15, 0, testInterval ? 1 : 0);
+        // Request device info
+        await gridSend(oscMessage("/sys/info"));
+      }
+
+      if (msg.address === "/sys/size") {
+        console.log(`Grid: size ${msg.args[0]}x${msg.args[1]}`);
+      }
+
+      if (msg.address === `${GRID_PREFIX}/grid/key`) {
+        const [x, y, s] = msg.args as number[];
+        // Top-right button: toggle test mode on press
+        if (x === 15 && y === 0 && s === 1) {
+          if (testInterval) {
+            stopTestMode();
+            gridLed(15, 0, 0);
+          } else {
+            startTestMode();
+            gridLed(15, 0, 1);
+          }
+        }
+      }
+    }
+  })();
+
+  // Subscribe to device add/remove notifications
+  const notify = oscMessage("/serialosc/notify", "127.0.0.1", GRID_LISTEN_PORT);
+  await gridSocket.send(notify, { hostname: "127.0.0.1", port: SERIALOSC_PORT, transport: "udp" });
 }
 
 // --- Start servers ---
@@ -394,5 +561,6 @@ setInterval(() => {
   broadcast({ type: "health", ts: Date.now() });
 }, 5000);
 
+// Start test mode and grid controller
 startTestMode();
-console.log("Test mode: broadcasting parameter changes");
+initGrid();
