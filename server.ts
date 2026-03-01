@@ -130,6 +130,7 @@ function handleWs(req: Request, info: Deno.ServeHandlerInfo): Response {
       id,
       clients: totalClients(),
     }));
+    sendInitialProgram((data) => socket.send(data));
     broadcastClientCount();
   });
 
@@ -175,6 +176,7 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
       trackConnect(clientIP, id);
       console.log(`SSE ${id} connected from ${clientIP} (${totalClients()} total)`);
       send({ type: "welcome", id, clients: totalClients() });
+      send(testProgram);
       broadcastClientCount();
     },
     cancel() {
@@ -300,23 +302,68 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
   return serveFile(path);
 }
 
-// --- Test mode: periodic parameter broadcast ---
+// --- Test mode: generator-based parameter broadcast ---
+
+// Initial generator program — sent to each new client
+const SEVEN = [1, 2, 3, 4, 5, 6];
+
+const testProgram: Record<string, unknown> = {
+  type: "params",
+  frequency: {
+    base: 220,
+    nums: [1, 5, 3, 7, 2, 9, 4],
+    dens: [1, 4, 2, 4, 1, 8, 3],
+    numCommand: "shuffle",
+    denCommand: "shuffle",
+  },
+  vowelX:    { nums: SEVEN, dens: [6], numCommand: "shuffle" },
+  vowelY:    { nums: SEVEN, dens: [6], numCommand: "shuffle" },
+  zingAmount:{ nums: SEVEN, dens: [6], numCommand: "shuffle" },
+  zingMorph: { nums: SEVEN, dens: [6], numCommand: "shuffle" },
+  symmetry:  { nums: [1, 2, 3, 4, 5], dens: [6], numCommand: "shuffle" },
+  amplitude: 0.1,
+  orbitAngle: 0,
+  orbitThrust: 0.3,
+};
+
+function sendInitialProgram(send: (data: string) => void): void {
+  send(JSON.stringify(testProgram));
+}
+
+// Shuffle schedule — stagger commands so params change at different times
+const shuffleSchedule: { tick: number; param: string }[] = [
+  { tick: 50,  param: "frequency" },   //  5s — both num and den
+  { tick: 80,  param: "vowelX" },      //  8s
+  { tick: 110, param: "vowelY" },      // 11s
+  { tick: 140, param: "zingAmount" },   // 14s
+  { tick: 160, param: "zingMorph" },    // 16s
+  { tick: 180, param: "symmetry" },     // 18s
+];
+const CYCLE_LENGTH = 200; // 20s full cycle
 
 function startTestMode(): void {
   let t = 0;
+  let ticks = 0;
   setInterval(() => {
     t += 0.02;
-    broadcast({
+    ticks++;
+    const phase = ticks % CYCLE_LENGTH;
+    const msg: Record<string, unknown> = {
       type: "params",
-      frequency: 180 + Math.sin(t * 0.3) * 60,
-      vowelX: 0.5 + Math.sin(t * 0.7) * 0.4,
-      vowelY: 0.5 + Math.cos(t * 0.5) * 0.4,
-      zingAmount: 0.5 + Math.sin(t * 0.2) * 0.3,
-      zingMorph: 0.5 + Math.cos(t * 0.4) * 0.3,
-      symmetry: 0.5 + Math.sin(t * 0.15) * 0.2,
+      amplitude: 0.1,
       orbitAngle: (t * 0.3) % (Math.PI * 2),
       orbitThrust: 0.3 + Math.sin(t * 0.1) * 0.2,
-    });
+    };
+    for (const entry of shuffleSchedule) {
+      if (phase === entry.tick) {
+        if (entry.param === "frequency") {
+          msg[entry.param] = { numCommand: "shuffle", denCommand: "shuffle" };
+        } else {
+          msg[entry.param] = { numCommand: "shuffle" };
+        }
+      }
+    }
+    broadcast(msg);
   }, 100);
 }
 

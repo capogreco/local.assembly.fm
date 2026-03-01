@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>local.assembly.fm</title>
+  <title>ensemble — local.assembly.fm</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -42,6 +42,36 @@
       color: #888;
     }
     #overlay.hidden { display: none; }
+    #control-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 0.8rem 1rem;
+      font-size: 0.85rem;
+      color: #666;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      z-index: 5;
+    }
+    #control-bar button {
+      background: none;
+      border: 1px solid #444;
+      color: #888;
+      font-family: inherit;
+      font-size: 0.85rem;
+      width: 2rem;
+      height: 2rem;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    #control-bar button:hover { border-color: #888; color: #ccc; }
+    #voice-count {
+      min-width: 1.5rem;
+      text-align: center;
+      color: #aaa;
+    }
     #status-bar {
       position: fixed;
       bottom: 0;
@@ -53,9 +83,8 @@
       display: flex;
       justify-content: space-between;
       letter-spacing: 0.1em;
+      z-index: 5;
     }
-    #status-bar { z-index: 5; }
-    #browser-hint { color: #555; cursor: pointer; }
     #status-bar.connected { color: #666; }
     #status-bar.disconnected { color: #444; }
   </style>
@@ -65,15 +94,19 @@
   <div id="overlay">
     <span>tap to start</span>
   </div>
+  <div id="control-bar">
+    <button id="btn-minus">&minus;</button>
+    <span id="voice-count">8</span>
+    <button id="btn-plus">+</button>
+  </div>
   <div id="status-bar" class="disconnected">
     <span id="conn-status">disconnected</span>
     <span id="client-count"></span>
-    <span id="browser-hint" onclick="fetch('/auth');navigator.clipboard.writeText('https://local.assembly.fm').then(()=>{this.textContent='copied!';setTimeout(()=>{this.textContent='local.assembly\u200B.fm'},1500)})">local.assembly​.fm</span>
   </div>
   <script src="resolve.js"></script>
   <script src="synth-instance.js"></script>
   <script src="connection.js"></script>
   <script src="scope.js"></script>
-  <script src="main.js"></script>
+  <script src="ensemble.js"></script>
 </body>
 </html>
