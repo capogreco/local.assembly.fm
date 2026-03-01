@@ -84,6 +84,37 @@ function broadcastClientCount(): void {
 // --- WebSocket handler ---
 
 const authenticatedIPs = new Set<string>();
+const ipConnections = new Map<string, Set<number>>();
+const deauthTimers = new Map<string, number>();
+
+function trackConnect(clientIP: string, id: number): void {
+  if (!ipConnections.has(clientIP)) {
+    ipConnections.set(clientIP, new Set());
+  }
+  ipConnections.get(clientIP)!.add(id);
+  const timer = deauthTimers.get(clientIP);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    deauthTimers.delete(clientIP);
+  }
+}
+
+function trackDisconnect(clientIP: string, id: number): void {
+  const conns = ipConnections.get(clientIP);
+  if (!conns || !conns.has(id)) return;
+  conns.delete(id);
+  if (conns.size === 0) {
+    ipConnections.delete(clientIP);
+    if (!deauthTimers.has(clientIP)) {
+      const timer = setTimeout(() => {
+        authenticatedIPs.delete(clientIP);
+        deauthTimers.delete(clientIP);
+        console.log(`De-authenticated ${clientIP}`);
+      }, 5000);
+      deauthTimers.set(clientIP, timer);
+    }
+  }
+}
 
 function handleWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   const { socket, response } = Deno.upgradeWebSocket(req);
@@ -92,7 +123,7 @@ function handleWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("open", () => {
     wsClients.set(id, socket);
-    authenticatedIPs.add(clientIP);
+    trackConnect(clientIP, id);
     console.log(`WS ${id} connected from ${clientIP} (${totalClients()} total)`);
     socket.send(JSON.stringify({
       type: "welcome",
@@ -115,7 +146,7 @@ function handleWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("close", () => {
     wsClients.delete(id);
-    authenticatedIPs.delete(clientIP);
+    trackDisconnect(clientIP, id);
     console.log(`WS ${id} disconnected (${totalClients()} total)`);
     broadcastClientCount();
   });
@@ -141,12 +172,14 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
       };
 
       sseClients.set(id, send);
+      trackConnect(clientIP, id);
       console.log(`SSE ${id} connected from ${clientIP} (${totalClients()} total)`);
       send({ type: "welcome", id, clients: totalClients() });
       broadcastClientCount();
     },
     cancel() {
       sseClients.delete(id);
+      trackDisconnect(clientIP, id);
       console.log(`SSE ${id} disconnected (${totalClients()} total)`);
       broadcastClientCount();
     },
@@ -155,6 +188,7 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
   // Also clean up if the request is aborted
   req.signal.addEventListener("abort", () => {
     sseClients.delete(id);
+    trackDisconnect(clientIP, id);
     console.log(`SSE ${id} aborted (${totalClients()} total)`);
     broadcastClientCount();
   });
@@ -213,6 +247,13 @@ function portalHandler(
     return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}`, 302);
   }
 
+  // Auth endpoint
+  if (url.pathname === "/auth") {
+    authenticatedIPs.add(clientIP);
+    console.log(`Authenticated ${clientIP}`);
+    return new Response("ok");
+  }
+
   // SSE endpoint
   if (url.pathname === "/events") {
     return handleSSE(req, info);
@@ -248,6 +289,13 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
     return handleSSE(req, info);
   }
 
+  if (url.pathname === "/auth") {
+    const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
+    authenticatedIPs.add(clientIP);
+    console.log(`Authenticated ${clientIP}`);
+    return new Response("ok");
+  }
+
   const path = url.pathname === "/" ? "/index.html" : url.pathname;
   return serveFile(path);
 }
@@ -266,6 +314,8 @@ function startTestMode(): void {
       zingAmount: 0.5 + Math.sin(t * 0.2) * 0.3,
       zingMorph: 0.5 + Math.cos(t * 0.4) * 0.3,
       symmetry: 0.5 + Math.sin(t * 0.15) * 0.2,
+      orbitX: Math.sin(t * 0.08) * 0.4,
+      orbitY: t * 0.14,
     });
   }, 100);
 }
@@ -291,6 +341,11 @@ Deno.serve(
   },
   (req: Request, info: Deno.ServeHandlerInfo) => httpsHandler(req, info),
 );
+
+// Server heartbeat — detects dead connections + keepalive
+setInterval(() => {
+  broadcast({ type: "health", ts: Date.now() });
+}, 5000);
 
 startTestMode();
 console.log("Test mode: broadcasting parameter changes");

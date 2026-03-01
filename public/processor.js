@@ -163,7 +163,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
   // --- FM formant synthesis path ---
 
   generateFormantSynthesis(phasor, modulator, symmetryValue) {
-    let total = 0;
+    let total = 0, f1 = 0, f2 = 0, f3 = 0;
     for (let i = 0; i < this.formants.length; i++) {
       const f = this.formants[i];
       const sp = this.applySymmetry(phasor, symmetryValue);
@@ -177,9 +177,13 @@ class VoiceProcessor extends AudioWorkletProcessor {
         sp, f.carrierOdd.harmonicNum, f.carrierOdd.amplitude,
         f.bandwidth / 100.0, modulator, useCos
       );
-      total += even + odd;
+      const formantOutput = even + odd;
+      total += formantOutput;
+      if (i === 0) f1 = formantOutput;
+      if (i === 1) f2 = formantOutput;
+      if (i === 2) f3 = formantOutput;
     }
-    return total * 0.1;
+    return { total: total * 0.1, f1: f1 * 0.1, f2: f2 * 0.1, f3: f3 * 0.1 };
   }
 
   generateFMCarrier(phasor, harmonicNum, amplitude, modIndex, modulator, useCos) {
@@ -196,15 +200,19 @@ class VoiceProcessor extends AudioWorkletProcessor {
       this.applySymmetry(phasor, symmetryValue)
     );
 
-    let total = 0;
+    let total = 0, f1 = 0, f2 = 0, f3 = 0;
     for (let i = 0; i < 3; i++) {
       const harmonic = this.generateFormantUPL(i, symmetryValue);
       const ring = this.applyMorphingSynthesis(
         fundamental, harmonic, morphValue, modDepthValue
       );
-      total += ring * this.formantAmps[i];
+      const out = ring * this.formantAmps[i];
+      total += out;
+      if (i === 0) f1 = out;
+      if (i === 1) f2 = out;
+      if (i === 2) f3 = out;
     }
-    return total;
+    return { total, f1, f2, f3 };
   }
 
   generateFormantUPL(formantIndex, symmetryValue) {
@@ -273,6 +281,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
     if (!output || !output[0]) return true;
 
     const out = output[0];
+    const outF1 = output[1] || null;
+    const outF2 = output[2] || null;
+    const outF3 = output[3] || null;
     const blockSize = out.length;
     const alpha = this.portamentoAlpha;
 
@@ -302,6 +313,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
 
       if (freq <= 0 || amplitude <= 0) {
         out[s] = 0;
+        if (outF1) outF1[s] = 0;
+        if (outF2) outF2[s] = 0;
+        if (outF3) outF3[s] = 0;
         continue;
       }
 
@@ -321,17 +335,31 @@ class VoiceProcessor extends AudioWorkletProcessor {
       const modulator = this.generateModulator(this.masterPhase);
 
       // FM formant path
-      const formantOut = this.generateFormantSynthesis(this.masterPhase, modulator, symmetry);
+      const formant = this.generateFormantSynthesis(this.masterPhase, modulator, symmetry);
 
       // Zing path
       const bipolarMorph = (zingMorph - 0.5) * 2.0;
-      const zingOut = this.generateZingSynthesis(this.masterPhase, bipolarMorph, this.modDepth, symmetry);
+      const zing = this.generateZingSynthesis(this.masterPhase, bipolarMorph, this.modDepth, symmetry);
 
       // Blend and scale
-      const blended = formantOut * this.formantGain * (1.0 - zingAmt)
-                     + zingOut * this.zingGain * zingAmt;
+      const blended = formant.total * this.formantGain * (1.0 - zingAmt)
+                     + zing.total * this.zingGain * zingAmt;
 
       out[s] = blended * 10.0 * amplitude;
+
+      // Per-formant channels for oscilloscope
+      if (outF1) {
+        const b = formant.f1 * this.formantGain * (1.0 - zingAmt) + zing.f1 * this.zingGain * zingAmt;
+        outF1[s] = b * 10.0 * amplitude + (Math.random() * 2 - 1) * 0.003;
+      }
+      if (outF2) {
+        const b = formant.f2 * this.formantGain * (1.0 - zingAmt) + zing.f2 * this.zingGain * zingAmt;
+        outF2[s] = b * 10.0 * amplitude + (Math.random() * 2 - 1) * 0.003;
+      }
+      if (outF3) {
+        const b = formant.f3 * this.formantGain * (1.0 - zingAmt) + zing.f3 * this.zingGain * zingAmt;
+        outF3[s] = b * 10.0 * amplitude + (Math.random() * 2 - 1) * 0.003;
+      }
     }
 
     return true;

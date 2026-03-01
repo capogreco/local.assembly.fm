@@ -9,6 +9,8 @@ let healthInterval;
 let audioCtx;
 let workletNode;
 let wakeLock = null;
+let analyserF1, analyserF2, analyserF3;
+let setOrbit = null;
 
 // --- Audio initialization ---
 
@@ -17,9 +19,33 @@ async function initAudio() {
   await audioCtx.resume();
   await audioCtx.audioWorklet.addModule("processor.js");
   workletNode = new AudioWorkletNode(audioCtx, "voice-processor", {
-    outputChannelCount: [1],
+    outputChannelCount: [4],
   });
-  workletNode.connect(audioCtx.destination);
+
+  // Split 4-channel output: ch0 = audio, ch1-3 = per-formant for scope
+  const splitter = audioCtx.createChannelSplitter(4);
+  workletNode.connect(splitter);
+
+  // Channel 0 → speakers (via gain node for proper stereo upmix)
+  const audioOut = audioCtx.createGain();
+  splitter.connect(audioOut, 0);
+  audioOut.connect(audioCtx.destination);
+
+  // Channels 1-3 → AnalyserNodes for oscilloscope
+  analyserF1 = audioCtx.createAnalyser();
+  analyserF1.fftSize = 512;
+  analyserF1.smoothingTimeConstant = 0;
+  splitter.connect(analyserF1, 1);
+
+  analyserF2 = audioCtx.createAnalyser();
+  analyserF2.fftSize = 512;
+  analyserF2.smoothingTimeConstant = 0;
+  splitter.connect(analyserF2, 2);
+
+  analyserF3 = audioCtx.createAnalyser();
+  analyserF3.fftSize = 512;
+  analyserF3.smoothingTimeConstant = 0;
+  splitter.connect(analyserF3, 3);
 }
 
 // --- Screen Wake Lock ---
@@ -56,6 +82,9 @@ function handleMessage(msg) {
     case "params":
       if (workletNode) {
         workletNode.port.postMessage(msg);
+      }
+      if (setOrbit && (msg.orbitX !== undefined || msg.orbitY !== undefined)) {
+        setOrbit(msg.orbitX, msg.orbitY);
       }
       break;
 
@@ -94,6 +123,12 @@ async function handleStart() {
     overlay.classList.remove("hidden");
     return;
   }
+  // Init oscilloscope
+  const scopeCanvas = document.getElementById("scope");
+  if (scopeCanvas && analyserF1 && analyserF2 && analyserF3) {
+    setOrbit = initScope(scopeCanvas, analyserF1, analyserF2, analyserF3);
+  }
+
   connect();
 }
 
