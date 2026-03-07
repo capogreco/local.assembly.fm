@@ -848,12 +848,20 @@ async function initGrid(): Promise<void> {
 
   console.log("Grid: listening for serialosc on UDP " + GRID_LISTEN_PORT);
 
+  let deviceFound = false;
+  setTimeout(() => {
+    if (!deviceFound) {
+      console.log("Grid: no response from serialosc — is serialoscd running? (sudo systemctl start serialosc)");
+    }
+  }, 2000);
+
   (async () => {
     for await (const [data] of gridSocket!) {
       const msg = parseOsc(data);
       if (!msg) continue;
 
       if (msg.address === "/serialosc/device") {
+        deviceFound = true;
         gridPort = msg.args[2] as number;
         console.log(`Grid: found ${msg.args[0]} (${msg.args[1]}) on port ${gridPort}`);
         await gridSend(oscMessage("/sys/port", GRID_LISTEN_PORT));
@@ -884,6 +892,7 @@ async function initGrid(): Promise<void> {
 await ensureCerts();
 
 console.log(`HOST_IP: ${HOST_IP}`);
+console.log(`Ensemble: https://localhost:${HTTPS_PORT}/ensemble.html`);
 
 // HTTP captive portal on port 8080
 Deno.serve(
