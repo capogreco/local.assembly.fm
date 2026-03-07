@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>ctrl — local.assembly.fm</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      height: 100dvh;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      background: #1a1a1a;
+    }
+    #overlay span {
+      font-size: 1.4rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #888;
+    }
+    #overlay.hidden { display: none; }
+    #main {
+      padding: 2rem;
+      display: none;
+    }
+    #main.active { display: block; }
+    h1 {
+      font-size: 0.85rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 1.5rem;
+    }
+    .section {
+      margin-bottom: 1.5rem;
+    }
+    .section-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 0.4rem;
+    }
+    #conn-status {
+      color: #555;
+    }
+    #conn-status.connected { color: #686; }
+    #conn-status.disconnected { color: #865; }
+    .device {
+      font-size: 0.8rem;
+      color: #888;
+      padding: 0.2rem 0;
+    }
+    .device.none { color: #555; font-style: italic; }
+    #activity {
+      display: inline-block;
+      width: 0.5rem;
+      height: 0.5rem;
+      border-radius: 50%;
+      background: #333;
+      margin-left: 0.5rem;
+      transition: background 0.05s;
+    }
+    #activity.flash { background: #8a8; }
+    .cc-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.3rem;
+      font-size: 0.75rem;
+    }
+    .cc-label {
+      width: 5rem;
+      color: #666;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .cc-bar-bg {
+      flex: 1;
+      height: 0.4rem;
+      background: #2a2a2a;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .cc-bar {
+      height: 100%;
+      width: 0%;
+      background: #686;
+      transition: width 0.05s;
+    }
+    .cc-val {
+      width: 2.5rem;
+      color: #555;
+      font-size: 0.65rem;
+      flex-shrink: 0;
+    }
+    .cc-raw {
+      font-size: 0.65rem;
+      color: #444;
+      font-family: inherit;
+      max-height: 6rem;
+      overflow-y: auto;
+    }
+    .cc-raw div { padding: 0.05rem 0; }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <span>tap to start</span>
+  </div>
+  <div id="main">
+    <h1>ctrl</h1>
+    <div class="section">
+      <div class="section-label">connection</div>
+      <div id="conn-status" class="disconnected">disconnected</div>
+    </div>
+    <div class="section">
+      <div class="section-label">midi devices <span id="activity"></span></div>
+      <div id="device-list"><div class="device none">none</div></div>
+    </div>
+    <div class="section">
+      <div class="section-label">mapped</div>
+      <div id="cc-mapped"></div>
+    </div>
+    <div class="section">
+      <div class="section-label">raw</div>
+      <div id="cc-raw" class="cc-raw"></div>
+    </div>
+  </div>
+  <script src="ctrl.js"></script>
+</body>
+</html>

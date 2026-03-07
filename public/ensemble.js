@@ -56,6 +56,7 @@ async function buildInstances() {
   for (const inst of instances) {
     inst.worklet.disconnect();
     inst.splitter.disconnect();
+    if (inst.ksNode) inst.ksNode.disconnect();
     if (inst.panner) inst.panner.disconnect();
   }
 
@@ -70,6 +71,12 @@ async function buildInstances() {
     panner.connect(masterGain);
     inst.panner = panner;
     inst.genState = createGeneratorState();
+
+    // Karplus-Strong node per instance
+    const ksNode = new AudioWorkletNode(audioCtx, "ks-processor");
+    ksNode.connect(panner);
+    inst.ksNode = ksNode;
+
     instances.push(inst);
   }
 
@@ -97,6 +104,7 @@ async function handleStart() {
     audioCtx = new AudioContext();
     await audioCtx.resume();
     await audioCtx.audioWorklet.addModule("processor.js");
+    await audioCtx.audioWorklet.addModule("ks-processor.js");
     masterGain = audioCtx.createGain();
     masterGain.connect(audioCtx.destination);
     await buildInstances();
@@ -121,6 +129,26 @@ function onMessage(msg) {
       const angle = typeof msg.orbitAngle === "number" ? msg.orbitAngle : undefined;
       const thrust = typeof msg.orbitThrust === "number" ? msg.orbitThrust : undefined;
       if (angle !== undefined || thrust !== undefined) setOrbit(angle, thrust);
+    }
+
+    // Forward ks-prefixed params to each instance's KS worklet
+    const ksParams = {};
+    let hasTrigger = false;
+    let hasKs = false;
+    for (const key of Object.keys(msg)) {
+      if (key === "ksTrigger") { hasTrigger = true; continue; }
+      if (key.startsWith("ks")) {
+        const stripped = key[2].toLowerCase() + key.slice(3);
+        ksParams[stripped] = msg[key];
+        hasKs = true;
+      }
+    }
+    if (hasKs || hasTrigger) {
+      for (const inst of instances) {
+        if (!inst.ksNode) continue;
+        if (hasKs) inst.ksNode.port.postMessage({ type: "params", ...ksParams });
+        if (hasTrigger) inst.ksNode.port.postMessage({ type: "excite" });
+      }
     }
   }
 }

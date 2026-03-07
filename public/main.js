@@ -8,7 +8,7 @@ const overlay = document.getElementById("overlay");
 const connStatus = document.getElementById("conn-status");
 const clientCount = document.getElementById("client-count");
 
-let audioCtx, instance, genState, setOrbit, conn;
+let audioCtx, instance, ksNode, genState, setOrbit, conn;
 let wakeLock = null;
 
 async function handleStart() {
@@ -17,12 +17,17 @@ async function handleStart() {
     audioCtx = new AudioContext();
     await audioCtx.resume();
     await audioCtx.audioWorklet.addModule("processor.js");
+    await audioCtx.audioWorklet.addModule("ks-processor.js");
     instance = await createSynthInstance(audioCtx);
 
     // Channel 0 -> speakers
     const audioOut = audioCtx.createGain();
     instance.splitter.connect(audioOut, 0);
     audioOut.connect(audioCtx.destination);
+
+    // Karplus-Strong engine (silent until triggered)
+    ksNode = new AudioWorkletNode(audioCtx, "ks-processor");
+    ksNode.connect(audioCtx.destination);
 
     await requestWakeLock();
   } catch (err) {
@@ -47,6 +52,24 @@ function onMessage(msg) {
     instance.worklet.port.postMessage(resolved);
     if (setOrbit && (resolved.orbitAngle !== undefined || resolved.orbitThrust !== undefined)) {
       setOrbit(resolved.orbitAngle, resolved.orbitThrust);
+    }
+
+    // Forward ks-prefixed params to KS worklet
+    if (ksNode) {
+      const ksParams = {};
+      let hasTrigger = false;
+      let hasKs = false;
+      for (const key of Object.keys(msg)) {
+        if (key === "ksTrigger") { hasTrigger = true; continue; }
+        if (key.startsWith("ks")) {
+          // Strip "ks" prefix and lowercase first char
+          const stripped = key[2].toLowerCase() + key.slice(3);
+          ksParams[stripped] = msg[key];
+          hasKs = true;
+        }
+      }
+      if (hasKs) ksNode.port.postMessage({ type: "params", ...ksParams });
+      if (hasTrigger) ksNode.port.postMessage({ type: "excite" });
     }
   }
 }

@@ -139,6 +139,8 @@ function handleWs(req: Request, info: Deno.ServeHandlerInfo): Response {
       const msg = JSON.parse(e.data);
       if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
+      } else if (msg.type === "ctrl") {
+        handleCtrlMessage(msg);
       }
     } catch {
       // ignore malformed
@@ -302,6 +304,40 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
   return serveFile(path);
 }
 
+// --- Ctrl message handler (WebMIDI routing) ---
+
+// BBC2 CC mapping (Phase 1 hardcoded)
+const CC_ROUTE: Record<number, { param: string; scale: number }> = {
+  2:  { param: "amplitude",  scale: 0.2 },   // breath
+  1:  { param: "zingAmount", scale: 1.0 },   // bite
+  12: { param: "vowelY",     scale: 1.0 },   // nod
+  13: { param: "vowelX",     scale: 1.0 },   // tilt
+};
+
+function handleCtrlMessage(msg: Record<string, unknown>): void {
+  if (msg.source === "cc") {
+    const cc = msg.cc as number;
+    const value = msg.value as number;
+    const route = CC_ROUTE[cc];
+    if (route) {
+      const scaled = value * route.scale;
+      broadcast({ type: "params", [route.param]: scaled });
+    }
+  } else if (msg.source === "note") {
+    const note = msg.note as number;
+    const velocity = msg.velocity as number;
+    if (velocity > 0) {
+      const freq = 440 * Math.pow(2, (note - 69) / 12);
+      broadcast({
+        type: "params",
+        ksFrequency: freq,
+        ksAmplitude: velocity * 0.3,
+        ksTrigger: true,
+      });
+    }
+  }
+}
+
 // --- Test mode: generator-based parameter broadcast ---
 
 const testProgram: Record<string, unknown> = {
@@ -457,12 +493,18 @@ function parseOsc(data: Uint8Array): { address: string; args: (string | number)[
 const SERIALOSC_PORT = 12002;
 const GRID_PREFIX = "/assembly";
 let gridPort: number | null = null;
+let arcPort: number | null = null;
 let gridSocket: Deno.DatagramConn | null = null;
 const GRID_LISTEN_PORT = 13000;
 
 async function gridSend(msg: Uint8Array): Promise<void> {
   if (!gridSocket || !gridPort) return;
   await gridSocket.send(msg, { hostname: "127.0.0.1", port: gridPort, transport: "udp" });
+}
+
+async function arcSend(msg: Uint8Array): Promise<void> {
+  if (!gridSocket || !arcPort) return;
+  await gridSocket.send(msg, { hostname: "127.0.0.1", port: arcPort, transport: "udp" });
 }
 
 // --- Grid Controller State ---
@@ -585,6 +627,18 @@ function populateFromProgram(prog: Record<string, unknown>): void {
   }
   if (typeof prog.amplitude === "number") {
     soundOn = (prog.amplitude as number) > 0;
+  }
+  // Sync arc values from range params
+  for (let i = 0; i < arcParamMap.length; i++) {
+    const val = prog[arcParamMap[i]];
+    if (typeof val === "object" && val !== null) {
+      const v = val as Record<string, unknown>;
+      if (v.min !== undefined && v.max !== undefined) {
+        arcValues[i] = ((v.min as number) + (v.max as number)) / 2;
+      }
+    } else if (typeof val === "number") {
+      arcValues[i] = val;
+    }
   }
 }
 
@@ -729,7 +783,9 @@ function handleSend(): void {
   }
   stagedRows.clear();
 
-  broadcast(buildParamsFromShared());
+  const shared = buildParamsFromShared();
+  broadcast(shared);
+  syncArcFromParams(shared);
   renderGrid();
   console.log("Grid: SEND");
 }
@@ -784,6 +840,64 @@ function handleBehaviourCol(x: number, y: number): void {
   renderGrid();
 }
 
+// --- Arc State ---
+
+const arcValues: number[] = [0.5, 0.5, 0.5, 0.5];
+const arcParamMap: string[] = ["vowelX", "vowelY", "zingAmount", "symmetry"];
+const ARC_SENSITIVITY = 0.005;
+
+let lastArcRender = 0;
+function handleArcDelta(encoder: number, delta: number): void {
+  if (encoder < 0 || encoder > 3) return;
+  arcValues[encoder] = Math.max(0, Math.min(1, arcValues[encoder] + delta * ARC_SENSITIVITY));
+  const param = arcParamMap[encoder];
+  broadcast({ type: "params", [param]: arcValues[encoder] });
+  // Throttle LED updates to avoid flooding the serial REPL
+  const now = Date.now();
+  if (now - lastArcRender > 50) {
+    lastArcRender = now;
+    renderArcRing(encoder);
+  }
+}
+
+function buildArcLevels(n: number): number[] {
+  const pos = arcValues[n] * 63;
+  const levels: number[] = new Array(64).fill(0);
+  const center = Math.round(pos);
+  for (let i = -3; i <= 3; i++) {
+    const idx = (center + i + 64) % 64;
+    const dist = Math.abs(i);
+    if (dist === 0) levels[idx] = 15;
+    else if (dist === 1) levels[idx] = 10;
+    else if (dist === 2) levels[idx] = 5;
+    else levels[idx] = 2;
+  }
+  return levels;
+}
+
+function renderArcRing(n: number): void {
+  const levels = buildArcLevels(n);
+  if (arcFile) {
+    arcSerialUpdateRing(n, levels);
+  } else {
+    arcSend(oscMessage(`${GRID_PREFIX}/ring/map`, n, ...levels));
+  }
+}
+
+function renderAllArcRings(): void {
+  for (let i = 0; i < 4; i++) renderArcRing(i);
+}
+
+function syncArcFromParams(params: Record<string, unknown>): void {
+  for (let i = 0; i < arcParamMap.length; i++) {
+    const val = params[arcParamMap[i]];
+    if (typeof val === "number") {
+      arcValues[i] = val;
+    }
+  }
+  if (arcPort) renderAllArcRings();
+}
+
 const heldKeys = new Set<string>();
 
 function handleGridKey(x: number, y: number, s: number): void {
@@ -828,11 +942,150 @@ function handleGridKey(x: number, y: number, s: number): void {
   }
 }
 
+// --- Arc Direct Serial (iii Lua REPL) ---
+
+let arcFile: Deno.FsFile | null = null;
+let arcReady = false;
+const arcEncoder = new TextEncoder();
+
+async function findArcDevice(): Promise<string | null> {
+  try {
+    for await (const entry of Deno.readDir("/dev/serial/by-id")) {
+      if (entry.name.includes("arc")) {
+        const path = `/dev/serial/by-id/${entry.name}`;
+        const real = await Deno.realPath(path);
+        return real;
+      }
+    }
+  } catch { /* no /dev/serial/by-id */ }
+  return null;
+}
+
+async function arcCommand(cmd: string): Promise<void> {
+  if (!arcFile) return;
+  try {
+    await arcFile.write(arcEncoder.encode(cmd + "\r\n"));
+  } catch { /* disconnected */ }
+}
+
+function arcSerialUpdateRing(ring: number, levels: number[]): void {
+  if (!arcFile || !arcReady) return;
+  // Call the Lua helper defined in arcTakeControl
+  // Pass value (0-1) so Lua renders the ring
+  const value = arcValues[ring];
+  arcCommand(`update_ring(${ring + 1}, ${value})`);
+}
+
+async function arcTakeControl(): Promise<void> {
+  const commands = [
+    // Stop everything — metros, callbacks, redraw
+    "metro.allstop()",
+    "for i=1,100 do if metro[i] then metro[i]:stop() end end",
+    "tick = function() end",
+    "redraw = function() end",
+    "key = function() end",
+    "enc = function() end",
+    "init = function() end",
+    "cleanup = function() end",
+
+    // Define LED ring rendering function (must be ONE line for the REPL)
+    "function update_ring(n, val) local num_leds = math.floor(val * 64) arc_led_all(n, 0) for i=1,num_leds do local pos = ((32 + i - 2) % 64) + 1 arc_led(n, pos, 15) end arc_refresh() end",
+
+    // Clear all rings
+    "for n=1,4 do update_ring(n, 0) end",
+
+    // Define our encoder handler
+    "arc = function(n, d) print(string.format('ENC:%d:%d', n, d)) end",
+
+    // Confirm control
+    "print('ARC_READY')",
+  ];
+
+  for (const cmd of commands) {
+    await arcCommand(cmd);
+    await new Promise(r => setTimeout(r, 150));
+  }
+}
+
+async function initArc(): Promise<void> {
+  const devPath = await findArcDevice();
+  if (!devPath) {
+    console.log("Arc: no device found");
+    return;
+  }
+
+  // Configure serial port (baud irrelevant for CDC ACM but set for consistency)
+  const stty = new Deno.Command("stty", {
+    args: ["-F", devPath, "115200", "-echo", "-echoe", "-echok", "raw"],
+  });
+  const result = await stty.output();
+  if (!result.success) {
+    console.log("Arc: failed to configure serial port");
+    return;
+  }
+
+  try {
+    arcFile = await Deno.open(devPath, { read: true, write: true });
+  } catch (e) {
+    console.log(`Arc: failed to open ${devPath}: ${(e as Error).message}`);
+    return;
+  }
+
+  console.log(`Arc: opened ${devPath} (iii Lua REPL)`);
+
+  // Read loop — text-based, line-delimited
+  const readBuf = new Uint8Array(1024);
+  let textBuffer = "";
+
+  (async () => {
+    while (arcFile) {
+      let n: number | null;
+      try {
+        n = await arcFile.read(readBuf);
+      } catch {
+        break;
+      }
+      if (n === null) break;
+
+      textBuffer += new TextDecoder().decode(readBuf.subarray(0, n));
+
+      // Process complete lines
+      const lines = textBuffer.split("\n");
+      textBuffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (trimmed === "ARC_READY") {
+          arcReady = true;
+          console.log("Arc: control established");
+          renderAllArcRings();
+          continue;
+        }
+
+        // ENC:encoder:delta (1-based encoder from Lua)
+        const match = trimmed.match(/^ENC:(\d+):(-?\d+)$/);
+        if (match) {
+          const encoder = parseInt(match[1]) - 1; // Convert to 0-based
+          const delta = parseInt(match[2]);
+          handleArcDelta(encoder, delta);
+        }
+      }
+    }
+    console.log("Arc: serial read loop ended");
+  })();
+
+  // Wait for device to settle, then take control
+  await new Promise(r => setTimeout(r, 500));
+  await arcTakeControl();
+}
+
 // --- Grid Init ---
 
 async function initGrid(): Promise<void> {
   try {
-    gridSocket = Deno.listenDatagram({ hostname: "127.0.0.1", port: GRID_LISTEN_PORT, transport: "udp" });
+    gridSocket = Deno.listenDatagram({ hostname: "127.0.0.1", port: GRID_LISTEN_PORT, transport: "udp", reuseAddress: true });
   } catch {
     console.log("Grid: could not bind UDP port " + GRID_LISTEN_PORT);
     return;
@@ -862,14 +1115,31 @@ async function initGrid(): Promise<void> {
 
       if (msg.address === "/serialosc/device") {
         deviceFound = true;
-        gridPort = msg.args[2] as number;
-        console.log(`Grid: found ${msg.args[0]} (${msg.args[1]}) on port ${gridPort}`);
-        await gridSend(oscMessage("/sys/port", GRID_LISTEN_PORT));
-        await gridSend(oscMessage("/sys/host", "127.0.0.1"));
-        await gridSend(oscMessage("/sys/prefix", GRID_PREFIX));
-        populateFromProgram(testProgram);
-        renderGrid();
-        await gridSend(oscMessage("/sys/info"));
+        const devName = msg.args[0] as string;
+        const devType = msg.args[1] as string;
+        const devPort = msg.args[2] as number;
+        const isArc = devType.includes("arc") || devName.includes("arc");
+
+        if (isArc) {
+          if (arcPort === devPort) continue; // already configured
+          arcPort = devPort;
+          console.log(`Arc: found ${devName} (${devType}) on port ${arcPort}`);
+          await arcSend(oscMessage("/sys/port", GRID_LISTEN_PORT));
+          await arcSend(oscMessage("/sys/host", "127.0.0.1"));
+          await arcSend(oscMessage("/sys/prefix", GRID_PREFIX));
+          renderAllArcRings();
+          await arcSend(oscMessage("/sys/info"));
+        } else {
+          if (gridPort === devPort) continue; // already configured
+          gridPort = devPort;
+          console.log(`Grid: found ${devName} (${devType}) on port ${gridPort}`);
+          await gridSend(oscMessage("/sys/port", GRID_LISTEN_PORT));
+          await gridSend(oscMessage("/sys/host", "127.0.0.1"));
+          await gridSend(oscMessage("/sys/prefix", GRID_PREFIX));
+          populateFromProgram(testProgram);
+          renderGrid();
+          await gridSend(oscMessage("/sys/info"));
+        }
       }
 
       if (msg.address === "/sys/size") {
@@ -879,6 +1149,11 @@ async function initGrid(): Promise<void> {
       if (msg.address === `${GRID_PREFIX}/grid/key`) {
         const [x, y, s] = msg.args as number[];
         handleGridKey(x, y, s);
+      }
+
+      if (msg.address === `${GRID_PREFIX}/enc/delta`) {
+        const [n, d] = msg.args as number[];
+        handleArcDelta(n, d);
       }
     }
   })();
@@ -915,6 +1190,7 @@ setInterval(() => {
   broadcast({ type: "health", ts: Date.now() });
 }, 5000);
 
-// Start test mode and grid controller
+// Start test mode, grid controller, and arc
 startTestMode();
 initGrid();
+initArc();
