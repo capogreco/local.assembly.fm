@@ -72,6 +72,11 @@
       text-align: center;
       color: #aaa;
     }
+    #param-display {
+      position: fixed; top: 10px; right: 10px;
+      font-family: "IBM Plex Mono", monospace; font-size: 11px;
+      color: #666; white-space: pre; z-index: 5; text-align: right;
+    }
     #status-bar {
       position: fixed;
       bottom: 0;
@@ -96,17 +101,17 @@
   </div>
   <div id="control-bar">
     <button id="btn-minus">&minus;</button>
-    <span id="voice-count">8</span>
+    <span id="voice-count">6</span>
     <button id="btn-plus">+</button>
   </div>
+  <div id="param-display"></div>
   <div id="status-bar" class="disconnected">
     <span id="conn-status">disconnected</span>
     <span id="client-count"></span>
   </div>
-  <script src="resolve.js"></script>
-  <script src="synth-instance.js"></script>
+  <script src="graph.js"></script>
   <script src="connection.js"></script>
   <script src="scope.js"></script>
-  <script src="ensemble.js"></script>
+  <script src="main.js"></script>
 </body>
 </html>

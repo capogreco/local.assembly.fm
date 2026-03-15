@@ -8,9 +8,24 @@
 
 // --- SIG (Stochastic Integer Generator) ---
 
+function expandIntegerNotation(s) {
+  const result = [];
+  for (const token of s.split(",")) {
+    const m = token.match(/^(-?\d+)-(-?\d+)$/);
+    if (m) {
+      const a = parseInt(m[1]), b = parseInt(m[2]);
+      const step = a <= b ? 1 : -1;
+      for (let i = a; step > 0 ? i <= b : i >= b; i += step) result.push(i);
+    } else {
+      result.push(Number(token));
+    }
+  }
+  return result;
+}
+
 function createSigState(args) {
   const parts = args.split(/\s+/);
-  const values = (parts[0] || "1").split(",").map(Number);
+  const values = expandIntegerNotation(parts[0] || "1");
   const behaviour = parts[1] || "shuffle";
   return {
     values: [...values],

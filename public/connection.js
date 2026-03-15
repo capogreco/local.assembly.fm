@@ -2,33 +2,34 @@
  * Server Connection — SSE-first with WebSocket upgrade
  *
  * connect(onMessage, statusEl, countEl)
- *   onMessage(msg) — called for params (and any non-housekeeping messages)
- *   statusEl — span for connection status label
- *   countEl — span for client count display
- *   Returns { getClientId() }
+ *   onMessage(msg) — called for patch, rv, re messages
+ *   statusEl — span for connection status label (null to skip UI)
+ *   countEl — span for client count display (null to skip UI)
+ *   Returns { getClientId(), close() }
  */
 
-function connect(onMessage, statusEl, countEl) {
+function connect(onMessage, statusEl, countEl, wsOnly) {
   let ws = null;
   let sse = null;
   let healthInterval = null;
   let clientId = null;
-  const statusBar = statusEl.parentElement;
+  const statusBar = statusEl?.parentElement;
 
   function setStatus(label) {
+    if (!statusEl) return;
     statusEl.textContent = label;
     statusBar.className = label === "disconnected" ? "disconnected" : "connected";
-    if (label === "disconnected") countEl.textContent = "";
+    if (label === "disconnected" && countEl) countEl.textContent = "";
   }
 
   function handleRaw(msg) {
     switch (msg.type) {
       case "welcome":
         clientId = msg.id;
-        countEl.textContent = msg.clients ? `${msg.clients} connected` : "";
+        if (countEl) countEl.textContent = msg.clients ? `${msg.clients} connected` : "";
         break;
       case "count":
-        countEl.textContent = msg.clients ? `${msg.clients} connected` : "";
+        if (countEl) countEl.textContent = msg.clients ? `${msg.clients} connected` : "";
         break;
       case "health":
         break;
@@ -47,7 +48,7 @@ function connect(onMessage, statusEl, countEl) {
     });
 
     sse.addEventListener("message", (e) => {
-      try { handleRaw(JSON.parse(e.data)); } catch {}
+      try { handleRaw(JSON.parse(e.data)); } catch (err) { console.error("SSE message error:", err); }
     });
 
     sse.addEventListener("error", () => {
@@ -81,24 +82,36 @@ function connect(onMessage, statusEl, countEl) {
     });
 
     ws.addEventListener("message", (e) => {
-      try { handleRaw(JSON.parse(e.data)); } catch {}
+      try { handleRaw(JSON.parse(e.data)); } catch (err) { console.error("WS message error:", err); }
     });
 
     ws.addEventListener("error", () => {
       clearTimeout(wsTimeout);
       ws = null;
-      if (!sse) connectSSE();
+      if (wsOnly) { setStatus("disconnected"); setTimeout(tryWebSocket, 2000); }
+      else if (!sse) connectSSE();
     });
 
     ws.addEventListener("close", () => {
       clearTimeout(wsTimeout);
       clearInterval(healthInterval);
       ws = null;
-      if (!sse) connectSSE();
+      if (wsOnly) { setStatus("disconnected"); setTimeout(tryWebSocket, 2000); }
+      else if (!sse) connectSSE();
     });
   }
 
-  connectSSE();
+  function close() {
+    if (ws) { ws.close(); ws = null; }
+    if (sse) { sse.close(); sse = null; }
+    clearInterval(healthInterval);
+  }
 
-  return { getClientId: () => clientId };
+  if (wsOnly) {
+    tryWebSocket();
+  } else {
+    connectSSE();
+  }
+
+  return { getClientId: () => clientId, close };
 }

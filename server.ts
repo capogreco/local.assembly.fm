@@ -220,13 +220,27 @@ const _origSetBoxValue = setBoxValue;
 const _origPropagate = propagate;
 
 // Override: after any boxValue changes, queue the update
+const ONSET_THRESHOLD = 0.01;
+
 function setBoxValueAndNotify(boxId: number, value: number): void {
+  const prev = boxValues.get(boxId) ?? 0;
   boxValues.set(boxId, value);
   queueValueUpdate(boxId, value);
   const box = boxes.get(boxId);
   if (!box) return;
+  const name = boxTypeName(box.text);
   const def = getBoxDef(box.text);
-  const outlets = def ? def.outlets.length : 1;
+  if (!def) return;
+
+  // breath/bite: outlet 0 = value, outlet 1 = onset event, outlet 2 = offset event
+  if (name === "breath" || name === "bite") {
+    propagateAndNotify(boxId, 0, value);
+    if (prev < ONSET_THRESHOLD && value >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, value);
+    if (prev >= ONSET_THRESHOLD && value < ONSET_THRESHOLD) propagateAndNotify(boxId, 2, value);
+    return;
+  }
+
+  const outlets = def.outlets.length || 1;
   for (let i = 0; i < outlets; i++) propagateAndNotify(boxId, i, value);
 }
 

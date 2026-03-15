@@ -10,9 +10,15 @@ const BOX_TYPES = {
   arc:            { zone: "ctrl", description: "Monome Arc encoder.", args: "index", example: "arc 0",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Encoder position (0-1)" }] },
   breath:         { zone: "ctrl", description: "BBC2 breath pressure. CC#2.",
-                    inlets: [], outlets: [{ name: "value", type: "number", description: "Pressure (0-1)" }] },
+                    inlets: [], outlets: [
+                      { name: "value", type: "number", description: "Pressure (0-1)" },
+                      { name: "onset", type: "event", description: "Null event at start of breath" },
+                      { name: "offset", type: "event", description: "Null event at end of breath" }] },
   bite:           { zone: "ctrl", description: "BBC2 bite pressure. CC#1.",
-                    inlets: [], outlets: [{ name: "value", type: "number", description: "Pressure (0-1)" }] },
+                    inlets: [], outlets: [
+                      { name: "value", type: "number", description: "Pressure (0-1)" },
+                      { name: "onset", type: "event", description: "Null event at start of bite" },
+                      { name: "offset", type: "event", description: "Null event at end of bite" }] },
   nod:            { zone: "ctrl", description: "BBC2 head nod. CC#12.",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
   tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13.",
