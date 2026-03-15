@@ -45,7 +45,11 @@ const BOX_TYPES = {
 
   // --- time ---
   phasor:         { zone: "any", description: "Sawtooth ramp 0-1 over period. Null event at end of cycle.", args: "period", example: "phasor 4",
-                    inlets: [], outlets: [
+                    inlets: [
+                      { name: "pause", type: "number", description: "0 = run, >0 = pause" },
+                      { name: "reset", type: "event", description: "Reset phase to 0" },
+                      { name: "period", type: "number", description: "Cycle period in seconds" }],
+                    outlets: [
                       { name: "phase", type: "number", description: "Ramp (0-1)" },
                       { name: "eoc", type: "event", description: "Null event at end of cycle" }] },
   metro:          { zone: "any", description: "Periodic null event emitter.", args: "interval", example: "metro 0.5",

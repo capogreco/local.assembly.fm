@@ -34,6 +34,7 @@ const boxValues = new Map();
 let nextId = 1;
 let mode = "idle";
 let dragStart = null, dragBoxPositions = null, cableFrom = null;
+let dragSnapshot = null; // { cables, boxes, nextId } saved at drag start
 let mousePos = { x: 0, y: 0 }, editingBoxId = null;
 let synthBorderY = window.innerHeight * 0.55;
 let hoverTimer = null, lastHoverTarget = null;
@@ -474,15 +475,15 @@ function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
     const ports = getBoxPorts(newText);
     router.inlets = ports.inlets; router.outlets = ports.outlets;
     sendEdit({ action: "box-text", id: routerId, text: newText });
-    const channel = oldChannels; // new channel is at the end
+    const channel = oldChannels;
 
     const cableId1 = nextId++, cableId2 = nextId++;
     cables.set(cableId1, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
     cables.set(cableId2, { srcBox: routerId, srcOutlet: channel, dstBox: dstBoxId, dstInlet: dstInlet });
     sendEdit({ action: "cable-create", id: cableId1, srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
     sendEdit({ action: "cable-create", id: cableId2, srcBox: routerId, srcOutlet: channel, dstBox: dstBoxId, dstInlet: dstInlet });
+    sortRouterChannels(routerId);
   } else {
-    // create a new all 1 router
     routerId = nextId++;
     const ports = getBoxPorts("all 1");
     const newRouter = { x: midX - 20, y: synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets };
@@ -498,6 +499,141 @@ function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
 
   markDirty(dstBoxId);
   markDirty(routerId);
+}
+
+// --- sort router channels by x-position to minimise cable tangle ---
+
+function sortRouterChannels(routerId) {
+  const router = boxes.get(routerId);
+  if (!router) return;
+  const channels = parseInt(router.text.split(/\s+/)[1]) || 1;
+
+  // collect channel pairs: { ch, ctrlX } where ctrlX is the x of the ctrl-side box
+  const channelInfo = [];
+  for (let ch = 0; ch < channels; ch++) {
+    let ctrlX = 0;
+    // find the cable going INTO this channel (from ctrl side)
+    for (const [, c] of cables) {
+      if (c.dstBox === routerId && c.dstInlet === ch) {
+        const src = boxes.get(c.srcBox);
+        if (src) ctrlX = src.x + boxWidth(src, c.srcBox) / 2;
+        break;
+      }
+    }
+    channelInfo.push({ ch, ctrlX });
+  }
+
+  // sort by x position
+  const sorted = [...channelInfo].sort((a, b) => a.ctrlX - b.ctrlX);
+
+  // build old→new channel mapping
+  const remap = new Map();
+  let changed = false;
+  for (let newCh = 0; newCh < sorted.length; newCh++) {
+    remap.set(sorted[newCh].ch, newCh);
+    if (sorted[newCh].ch !== newCh) changed = true;
+  }
+  if (!changed) return;
+
+  // remap all cables referencing this router
+  for (const [id, c] of cables) {
+    if (c.dstBox === routerId && remap.has(c.dstInlet)) {
+      c.dstInlet = remap.get(c.dstInlet);
+      sendEdit({ action: "cable-delete", ids: [id] });
+      sendEdit({ action: "cable-create", id, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    }
+    if (c.srcBox === routerId && remap.has(c.srcOutlet)) {
+      c.srcOutlet = remap.get(c.srcOutlet);
+      sendEdit({ action: "cable-delete", ids: [id] });
+      sendEdit({ action: "cable-create", id, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    }
+  }
+}
+
+// --- auto-route cables that cross the border after a drag ---
+
+function autoRouteBorderCrossings(draggedIds) {
+  // --- reverse: dissolve router channels where both ends are now same side ---
+  for (const draggedId of draggedIds) {
+    const dragged = boxes.get(draggedId);
+    if (!dragged || isRouterType(dragged.text)) continue;
+
+    // find router cable pairs involving this dragged box
+    for (const [id, box] of boxes) {
+      if (!isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
+      const channels = parseInt(box.text.split(/\s+/)[1]) || 1;
+
+      for (let ch = channels - 1; ch >= 0; ch--) {
+        // find cable pair: something→router[ch] and router[ch]→something
+        let inCable = null, inCableId = null, outCable = null, outCableId = null;
+        for (const [cid, c] of cables) {
+          if (c.dstBox === id && c.dstInlet === ch) { inCable = c; inCableId = cid; }
+          if (c.srcBox === id && c.srcOutlet === ch) { outCable = c; outCableId = cid; }
+        }
+        if (!inCable || !outCable) continue;
+        // only act if the dragged box is one end
+        if (inCable.srcBox !== draggedId && outCable.dstBox !== draggedId) continue;
+        // check if both ends are now on the same side
+        const srcSynth = isSynthSide(inCable.srcBox), dstSynth = isSynthSide(outCable.dstBox);
+        if (srcSynth === dstSynth) {
+          // dissolve: delete both cables, restore direct cable
+          cables.delete(inCableId); cables.delete(outCableId);
+          sendEdit({ action: "cable-delete", ids: [inCableId, outCableId] });
+          const directId = nextId++;
+          cables.set(directId, { srcBox: inCable.srcBox, srcOutlet: inCable.srcOutlet, dstBox: outCable.dstBox, dstInlet: outCable.dstInlet });
+          sendEdit({ action: "cable-create", id: directId, srcBox: inCable.srcBox, srcOutlet: inCable.srcOutlet, dstBox: outCable.dstBox, dstInlet: outCable.dstInlet });
+          // shrink the router
+          removeRouterChannel(id, ch);
+        }
+      }
+    }
+  }
+
+  // --- forward: route cables that now cross the border ---
+  const toReroute = [];
+  for (const [cableId, c] of cables) {
+    if (!draggedIds.has(c.srcBox) && !draggedIds.has(c.dstBox)) continue;
+    const srcBox = boxes.get(c.srcBox), dstBox = boxes.get(c.dstBox);
+    if (!srcBox || !dstBox) continue;
+    if (isRouterType(srcBox.text) || isRouterType(dstBox.text)) continue;
+    const srcSynth = isSynthSide(c.srcBox), dstSynth = isSynthSide(c.dstBox);
+    if (srcSynth !== dstSynth) {
+      toReroute.push({ cableId, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    }
+  }
+
+  for (const r of toReroute) {
+    cables.delete(r.cableId);
+    sendEdit({ action: "cable-delete", ids: [r.cableId] });
+    autoRoute(r.srcBox, r.srcOutlet, r.dstBox, r.dstInlet);
+  }
+}
+
+function removeRouterChannel(routerId, channel) {
+  const router = boxes.get(routerId);
+  if (!router) return;
+  const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
+  if (oldChannels <= 1) {
+    // last channel — delete the router entirely
+    for (const [cid, c] of cables) if (c.srcBox === routerId || c.dstBox === routerId) {
+      cables.delete(cid);
+      sendEdit({ action: "cable-delete", ids: [cid] });
+    }
+    boxes.delete(routerId);
+    sendEdit({ action: "box-delete", ids: [routerId] });
+    return;
+  }
+  // shrink channel count
+  const newText = "all " + (oldChannels - 1);
+  router.text = newText;
+  const ports = getBoxPorts(newText);
+  router.inlets = ports.inlets; router.outlets = ports.outlets;
+  sendEdit({ action: "box-text", id: routerId, text: newText });
+  // shift cables on higher channels down by 1
+  for (const [, c] of cables) {
+    if (c.dstBox === routerId && c.dstInlet > channel) c.dstInlet--;
+    if (c.srcBox === routerId && c.srcOutlet > channel) c.srcOutlet--;
+  }
 }
 
 // --- mouse ---
@@ -524,8 +660,43 @@ canvas.addEventListener("mousedown", (e) => {
     cableSelection.clear();
     if (e.shiftKey) { selection.has(boxId) ? selection.delete(boxId) : selection.add(boxId); }
     else if (!selection.has(boxId)) { selection.clear(); selection.add(boxId); }
+
+    // option+drag: duplicate selection
+    if (e.altKey && selection.size > 0) {
+      const idMap = new Map(); // old id → new id
+      const newSelection = new Set();
+      for (const oldId of selection) {
+        const box = boxes.get(oldId);
+        if (!box) continue;
+        const newId = nextId++;
+        idMap.set(oldId, newId);
+        const dup = { x: box.x, y: box.y, text: box.text, inlets: box.inlets, outlets: box.outlets };
+        boxes.set(newId, dup);
+        sendEdit({ action: "box-create", id: newId, x: dup.x, y: dup.y, text: dup.text });
+        newSelection.add(newId);
+      }
+      // duplicate cables between selected boxes
+      for (const [, c] of cables) {
+        if (idMap.has(c.srcBox) && idMap.has(c.dstBox)) {
+          const cableId = nextId++;
+          const dup = { srcBox: idMap.get(c.srcBox), srcOutlet: c.srcOutlet, dstBox: idMap.get(c.dstBox), dstInlet: c.dstInlet };
+          cables.set(cableId, dup);
+          sendEdit({ action: "cable-create", id: cableId, ...dup });
+        }
+      }
+      selection.clear();
+      for (const id of newSelection) selection.add(id);
+    }
+
     mode = "dragging"; dragStart = { x: m.x, y: m.y }; dragBoxPositions = new Map();
     for (const id of selection) { const b = boxes.get(id); if (b) dragBoxPositions.set(id, { x: b.x, y: b.y }); }
+    // snapshot cables and routers so we can restore each frame during drag
+    dragSnapshot = {
+      cables: new Map([...cables.entries()].map(([id, c]) => [id, { ...c }])),
+      boxes: new Map([...boxes.entries()].map(([id, b]) => [id, { ...b }])),
+      nextId,
+    };
+    editQueue = [];
     render(); return;
   }
   const cableId = hitTestCable(m.x, m.y);
@@ -542,13 +713,26 @@ canvas.addEventListener("mousemove", (e) => {
     for (const [, box] of boxes) if (isRouterType(box.text)) box.y = synthBorderY - BOX_HEIGHT / 2;
     render(); return;
   }
-  if (mode === "dragging" && dragStart) {
+  if (mode === "dragging" && dragStart && dragSnapshot) {
+    // restore cables and boxes from snapshot each frame
+    cables.clear();
+    for (const [id, c] of dragSnapshot.cables) cables.set(id, { ...c });
+    boxes.clear();
+    for (const [id, b] of dragSnapshot.boxes) boxes.set(id, { ...b });
+    nextId = dragSnapshot.nextId;
+    editQueue = [];
+
+    // apply drag offset to selected boxes
     const dx = m.x - dragStart.x, dy = m.y - dragStart.y;
     for (const [id, orig] of dragBoxPositions) {
       const box = boxes.get(id); if (!box) continue;
       if (isRouterType(box.text)) { box.x = orig.x + dx; box.y = synthBorderY - BOX_HEIGHT / 2; }
       else { box.x = orig.x + dx; box.y = orig.y + dy; }
     }
+
+    // recompute auto-routing from clean state
+    autoRouteBorderCrossings(selection);
+
     render(); return;
   }
   if (mode === "selecting" && dragStart) { render(); return; }
@@ -588,16 +772,20 @@ canvas.addEventListener("mouseup", (e) => {
     cableFrom = null; mode = "idle"; canvas.style.cursor = "default"; render(); return;
   }
   if (mode === "dragging") {
-    // send final positions to server
     if (dragBoxPositions) {
+      // editQueue already has the auto-routing edits from the last mousemove frame
+      // prepend the box-move edit, then flush everything
       const moves = [];
       for (const id of selection) {
         const box = boxes.get(id);
         if (box) moves.push({ id, x: box.x, y: box.y });
       }
-      if (moves.length > 0) sendEdit({ action: "box-move", moves });
+      const routingEdits = editQueue || [];
+      editQueue = null;
+      if (moves.length > 0) send({ type: "edit", action: "box-move", moves });
+      for (const edit of routingEdits) send({ type: "edit", ...edit });
     }
-    mode = "idle"; dragStart = null; dragBoxPositions = null;
+    mode = "idle"; dragStart = null; dragBoxPositions = null; dragSnapshot = null;
   }
   if (mode === "selecting" && dragStart) {
     const x0 = Math.min(dragStart.x, m.x), y0 = Math.min(dragStart.y, m.y);
@@ -709,7 +897,17 @@ function connectWS() {
 }
 
 function send(msg) { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
-function sendEdit(edit) { send({ type: "edit", ...edit }); }
+
+let editQueue = null; // null = send immediately, [] = buffering
+function sendEdit(edit) {
+  if (editQueue) editQueue.push(edit);
+  else send({ type: "edit", ...edit });
+}
+function flushEdits() {
+  if (!editQueue) return;
+  for (const edit of editQueue) send({ type: "edit", ...edit });
+  editQueue = null;
+}
 
 connectWS();
 

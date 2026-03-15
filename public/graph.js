@@ -6,6 +6,16 @@
  * router values to produce engine parameter updates.
  */
 
+// --- Helpers ---
+
+// deep-merge engine param updates: { engineId: { param: value } }
+function mergeUpdates(target, source) {
+  for (const [eid, params] of Object.entries(source)) {
+    if (!target[eid]) target[eid] = {};
+    Object.assign(target[eid], params);
+  }
+}
+
 // --- SIG (Stochastic Integer Generator) ---
 
 function expandIntegerNotation(s) {
@@ -108,6 +118,18 @@ function buildGraph(patch) {
       case "drunk":
         node.state = { value: Math.random(), step: parseFloat(box.args) || 0.01 };
         break;
+      case "phasor":
+        node.state = { phase: 0, period: parseFloat(box.args) || 1, paused: false };
+        break;
+      case "metro":
+        node.state = { elapsed: 0, interval: parseFloat(box.args) || 1 };
+        break;
+      case "sequence":
+        node.state = { index: 0, values: (box.args || "0").split(",").map(Number) };
+        break;
+      case "counter":
+        node.state = { count: parseFloat(box.args) || 0, min: parseFloat(box.args) || 0, max: parseFloat(box.args.split(/\s+/)[1]) || 7 };
+        break;
     }
 
     graph.boxes.set(box.id, node);
@@ -142,6 +164,17 @@ function buildGraph(patch) {
         type: box.type,
         paramNames: box.paramNames || [],
       });
+    }
+  }
+
+  // seed values from const source boxes into downstream inlets
+  for (const [id, node] of graph.boxes) {
+    if (node.type === "const") {
+      const val = parseFloat(node.args) || 0;
+      for (const cable of node.outletCables) {
+        const dst = graph.boxes.get(cable.dstBox);
+        if (dst) dst.inletValues[cable.dstInlet] = val;
+      }
     }
   }
 
@@ -198,6 +231,14 @@ function evaluateNode(graph, boxId) {
       return node.state ? node.state.value : 0;
     case "drunk":
       return node.state ? node.state.value : 0;
+    case "phasor":
+      return node.state ? node.state.phase : 0;
+    case "gate":
+      return (iv[1] || 0) > 0 ? (iv[0] || 0) : 0;
+    case "quantize": {
+      const divs = parseFloat(args[0]) || 12;
+      return Math.round((iv[0] || 0) * divs) / divs;
+    }
     default:
       return iv[0] || 0; // passthrough
   }
@@ -267,11 +308,72 @@ function handleEvent(graph, boxId) {
         outputValue = node.state.value;
       }
       break;
+    case "phasor":
+      if (node.state) { node.state.phase = 0; outputValue = 0; }
+      break;
+    case "sequence":
+      if (node.state) {
+        node.state.index = (node.state.index + 1) % node.state.values.length;
+        outputValue = node.state.values[node.state.index];
+      }
+      break;
+    case "counter":
+      if (node.state) {
+        node.state.count++;
+        if (node.state.count > node.state.max) node.state.count = node.state.min;
+        outputValue = node.state.count;
+      }
+      break;
     default:
       return {};
   }
 
   return propagateInGraph(graph, boxId, 0, outputValue);
+}
+
+// tick time-based boxes (phasor, metro) — call at ~60Hz from the client
+function tickGraph(graph, dt) {
+  const allUpdates = {};
+  for (const [id, node] of graph.boxes) {
+    if (!node.state) continue;
+    switch (node.type) {
+      case "phasor": {
+        if (node.state.paused) break;
+        // inlet 0 = pause, inlet 2 = period override
+        if (node.inletValues[0] > 0) break;
+        const period = node.inletValues[2] > 0 ? node.inletValues[2] : node.state.period;
+        node.state.phase += dt / period;
+        if (node.state.phase >= 1) {
+          node.state.phase -= 1;
+          // end-of-cycle event on outlet 1
+          const eocUpdates = propagateInGraph(graph, id, 1, 0);
+          for (const [eid, params] of Object.entries(eocUpdates)) {
+            if (!allUpdates[eid]) allUpdates[eid] = {};
+            Object.assign(allUpdates[eid], params);
+          }
+        }
+        const phaseUpdates = propagateInGraph(graph, id, 0, node.state.phase);
+        for (const [eid, params] of Object.entries(phaseUpdates)) {
+          if (!allUpdates[eid]) allUpdates[eid] = {};
+          Object.assign(allUpdates[eid], params);
+        }
+        break;
+      }
+      case "metro": {
+        node.state.elapsed += dt;
+        if (node.state.elapsed >= node.state.interval) {
+          node.state.elapsed -= node.state.interval;
+          const updates = propagateInGraph(graph, id, 0, 1);
+          for (const [eid, params] of Object.entries(updates)) {
+            if (!allUpdates[eid]) allUpdates[eid] = {};
+            Object.assign(allUpdates[eid], params);
+          }
+        }
+        break;
+      }
+    }
+  }
+  return allUpdates;
 }
 
 // process a router value message: { type: "rv", r: routerId, v: value }
@@ -289,9 +391,24 @@ function processRouterValue(graph, routerId, channel, value) {
 
     // check inlet type — is this a trigger/event inlet?
     // for SIG, inlet 0 is trigger
-    if (node.type === "sig" && entry.targetInlet === 0) {
+    if (node.type === "phasor") {
+      // inlet 0 = pause, inlet 1 = reset (event), inlet 2 = period
+      if (entry.targetInlet === 1 && node.state) {
+        // reset event
+        const updates = handleEvent(graph, entry.targetBox);
+        mergeUpdates(allUpdates, updates);
+      }
+      // inlets 0 and 2 are stored in inletValues, read by tickGraph
+      continue;
+    } else if (node.type === "sequence" && entry.targetInlet === 0) {
       const updates = handleEvent(graph, entry.targetBox);
-      Object.assign(allUpdates, updates);
+      mergeUpdates(allUpdates, updates);
+    } else if (node.type === "counter" && entry.targetInlet === 0) {
+      const updates = handleEvent(graph, entry.targetBox);
+      mergeUpdates(allUpdates, updates);
+    } else if (node.type === "sig" && entry.targetInlet === 0) {
+      const updates = handleEvent(graph, entry.targetBox);
+      mergeUpdates(allUpdates, updates);
     } else if ((node.type === "range" || node.type === "drunk") && entry.targetInlet === 0) {
       // range/drunk don't have explicit trigger inlets yet, but handle min/max updates
       if (node.state) {
@@ -300,7 +417,7 @@ function processRouterValue(graph, routerId, channel, value) {
       }
       const result = evaluateNode(graph, entry.targetBox);
       const updates = propagateInGraph(graph, entry.targetBox, 0, result);
-      Object.assign(allUpdates, updates);
+      mergeUpdates(allUpdates, updates);
     } else if (graph.engines.has(entry.targetBox)) {
       // direct to engine — produce update immediately
       const engine = graph.engines.get(entry.targetBox);
@@ -313,7 +430,7 @@ function processRouterValue(graph, routerId, channel, value) {
       // intermediate box — evaluate and propagate
       const result = evaluateNode(graph, entry.targetBox);
       const updates = propagateInGraph(graph, entry.targetBox, 0, result);
-      Object.assign(allUpdates, updates);
+      mergeUpdates(allUpdates, updates);
     }
   }
 
@@ -328,7 +445,7 @@ function processRouterEvent(graph, routerId) {
   let allUpdates = {};
   for (const entry of entries) {
     const updates = handleEvent(graph, entry.targetBox);
-    Object.assign(allUpdates, updates);
+    mergeUpdates(allUpdates, updates);
   }
   return allUpdates;
 }

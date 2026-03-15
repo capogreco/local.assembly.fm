@@ -123,6 +123,8 @@ const boxes = new Map<number, Box>();
 const cables = new Map<number, Cable>();
 const boxValues = new Map<number, number>();
 const inletValues = new Map<number, number[]>();
+// deno-lint-ignore no-explicit-any
+const boxState = new Map<number, any>(); // per-box state for time-based boxes
 let patchNextId = 1;
 let synthBorderY = 400;
 
@@ -254,24 +256,171 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: number): 
       const msg = { type: "rv", r: cable.dstBox, ch: cable.dstInlet, v: value };
       latestValues.set(cable.dstBox + ":" + cable.dstInlet, JSON.stringify(msg));
       broadcastSynth(msg);
-    } else if (def.zone !== "synth") {
-      let iv = inletValues.get(cable.dstBox);
-      if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-      iv[cable.dstInlet] = value;
-      const result = evaluateBox(dst, iv);
-      boxValues.set(cable.dstBox, result);
-      queueValueUpdate(cable.dstBox, result);
-      const outlets = def.outlets?.length || 1;
-      for (let i = 0; i < outlets; i++) propagateAndNotify(cable.dstBox, i, result);
+    } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
+      // check if this inlet is an event/trigger type — fire event handler
+      const inletDef = def.inlets[cable.dstInlet];
+      if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
+        handleEventBox(cable.dstBox, value);
+      } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, value)) {
+        // handled by stateful box (phasor, etc.)
+      } else {
+        let iv = inletValues.get(cable.dstBox);
+        if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
+        iv[cable.dstInlet] = value;
+        const result = evaluateBox(dst, iv);
+        boxValues.set(cable.dstBox, result);
+        queueValueUpdate(cable.dstBox, result);
+        const outlets = def.outlets?.length || 1;
+        for (let i = 0; i < outlets; i++) propagateAndNotify(cable.dstBox, i, result);
+      }
     }
   }
 }
 
+function isCtrlSide(box: Box): boolean {
+  const zone = getBoxZone(box.text);
+  return zone === "ctrl" || zone === "router" || (zone === "any" && !isSynthZone(box.x, box.y));
+}
+
 function evaluateAllConsts(): void {
   for (const [id, box] of boxes) {
-    if (boxTypeName(box.text) === "const") setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
+    if (boxTypeName(box.text) === "const" && isCtrlSide(box)) {
+      setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
+    }
   }
 }
+
+// --- Time-based box tick ---
+
+function initBoxState(id: number, box: Box): void {
+  const name = boxTypeName(box.text);
+  const args = box.text.split(/\s+/).slice(1);
+  switch (name) {
+    case "phasor":
+      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, paused: false });
+      break;
+    case "metro":
+      boxState.set(id, { elapsed: 0, interval: parseFloat(args[0]) || 1 });
+      break;
+    case "sequence":
+      boxState.set(id, { index: 0, values: (args[0] || "0").split(",").map(Number) });
+      break;
+    case "counter":
+      boxState.set(id, { count: parseFloat(args[0]) || 0, min: parseFloat(args[0]) || 0, max: parseFloat(args[1]) || 7 });
+      break;
+    case "drunk":
+      boxState.set(id, { value: Math.random(), step: parseFloat(args[0]) || 0.01 });
+      break;
+  }
+}
+
+function shouldServerEval(box: Box): boolean {
+  const zone = getBoxZone(box.text);
+  if (zone === "synth") return false;
+  if (zone === "any" && isSynthZone(box.x, box.y)) return false;
+  return true;
+}
+
+function initAllBoxState(): void {
+  boxState.clear();
+  for (const [id, box] of boxes) {
+    if (!shouldServerEval(box)) continue;
+    initBoxState(id, box);
+  }
+}
+
+const TICK_RATE = 60;
+const TICK_DT = 1 / TICK_RATE;
+
+function tick(): void {
+  for (const [id, box] of boxes) {
+    if (!shouldServerEval(box)) continue;
+    const name = boxTypeName(box.text);
+    const state = boxState.get(id);
+    if (!state) continue;
+
+    switch (name) {
+      case "phasor": {
+        if (state.paused) break;
+        state.phase += TICK_DT / state.period;
+        if (state.phase >= 1) {
+          state.phase -= 1;
+          // end-of-cycle event on outlet 1
+          propagateAndNotify(id, 1, 0);
+        }
+        setBoxValueAndNotify(id, state.phase);
+        break;
+      }
+      case "metro": {
+        state.elapsed += TICK_DT;
+        if (state.elapsed >= state.interval) {
+          state.elapsed -= state.interval;
+          // fire event through outlet 0
+          propagateAndNotify(id, 0, 1);
+        }
+        break;
+      }
+    }
+  }
+}
+
+// handle number inlets on stateful boxes — returns true if handled
+function handleStatefulInlet(id: number, inlet: number, value: number): boolean {
+  const box = boxes.get(id);
+  if (!box) return false;
+  const name = boxTypeName(box.text);
+  const state = boxState.get(id);
+  if (!state) return false;
+
+  if (name === "phasor") {
+    // inlet 0 = pause, inlet 2 = period
+    if (inlet === 0) { state.paused = value > 0; return true; }
+    if (inlet === 2) { state.period = Math.max(0.001, value); return true; }
+  }
+  if (name === "metro") {
+    // metro could accept interval changes on inlet 0
+    // (not defined yet, but future-proof)
+  }
+  return false;
+}
+
+// handle event-driven boxes (triggered by incoming null events)
+function handleEventBox(id: number, _value: number): void {
+  const box = boxes.get(id);
+  if (!box) return;
+  const name = boxTypeName(box.text);
+  const state = boxState.get(id);
+  if (!state) return;
+
+  switch (name) {
+    case "phasor": {
+      // reset event on inlet 1
+      state.phase = 0;
+      setBoxValueAndNotify(id, 0);
+      break;
+    }
+    case "sequence": {
+      state.index = (state.index + 1) % state.values.length;
+      const val = state.values[state.index];
+      setBoxValueAndNotify(id, val);
+      break;
+    }
+    case "counter": {
+      state.count++;
+      if (state.count > state.max) state.count = state.min;
+      setBoxValueAndNotify(id, state.count);
+      break;
+    }
+    case "drunk": {
+      state.value += (Math.random() * 2 - 1) * state.step;
+      state.value = Math.max(0, Math.min(1, state.value));
+      setBoxValueAndNotify(id, state.value);
+      break;
+    }
+  }
+}
+
+setInterval(tick, 1000 / TICK_RATE);
 
 // --- MIDI CC mapping ---
 
@@ -293,8 +442,10 @@ function handleEdit(msg: any): void {
   switch (msg.action) {
     case "box-create": {
       const ports = getBoxPorts(msg.text || "");
-      boxes.set(msg.id, { x: msg.x, y: msg.y, text: msg.text || "", inlets: ports.inlets, outlets: ports.outlets });
+      const newBox = { x: msg.x, y: msg.y, text: msg.text || "", inlets: ports.inlets, outlets: ports.outlets };
+      boxes.set(msg.id, newBox);
       if (msg.id >= patchNextId) patchNextId = msg.id + 1;
+      if (shouldServerEval(newBox)) initBoxState(msg.id, newBox);
       break;
     }
     case "box-move": {
@@ -321,13 +472,15 @@ function handleEdit(msg: any): void {
       const zone = getBoxZone(msg.text);
       if (zone === "synth" && !isSynthZone(box.x, box.y)) box.y = synthBorderY + 20;
       else if (zone === "ctrl" && isSynthZone(box.x, box.y)) box.y = synthBorderY - 42;
-      // re-evaluate
+      // re-init state and re-evaluate
+      boxState.delete(msg.id);
+      if (shouldServerEval(box)) initBoxState(msg.id, box);
       inletValues.delete(msg.id);
       evaluateAllConsts();
       break;
     }
     case "box-delete": {
-      for (const id of msg.ids) { removeCablesForBox(id); boxes.delete(id); boxValues.delete(id); inletValues.delete(id); }
+      for (const id of msg.ids) { removeCablesForBox(id); boxes.delete(id); boxValues.delete(id); inletValues.delete(id); boxState.delete(id); }
       break;
     }
     case "cable-create": {
@@ -351,8 +504,6 @@ function handleEdit(msg: any): void {
       break;
     }
   }
-  // send full state to all GPI clients after any edit
-  sendFullState();
 }
 
 // --- Deploy ---
@@ -621,11 +772,12 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
       // When loading a patch, also restore server state
       try {
         const parsed = JSON.parse(data);
-        boxes.clear(); cables.clear(); boxValues.clear(); inletValues.clear();
+        boxes.clear(); cables.clear(); boxValues.clear(); inletValues.clear(); boxState.clear();
         for (const [id, box] of parsed.boxes) { const p = getBoxPorts(box.text); box.inlets = p.inlets; box.outlets = p.outlets; boxes.set(id, box); }
         for (const [id, cable] of parsed.cables) cables.set(id, cable);
         patchNextId = parsed.nextId || 1;
         if (parsed.synthBorderY !== undefined) synthBorderY = parsed.synthBorderY;
+        initAllBoxState();
         sendFullState();
         evaluateAllConsts();
       } catch { /* parse error — still return the data */ }

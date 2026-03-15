@@ -227,6 +227,28 @@ function setupScope() {
   else scopeSetOrbit = null;
 }
 
+// --- Client-side tick for synth-side time boxes ---
+
+let lastTickTime = 0;
+
+function clientTick(time) {
+  requestAnimationFrame(clientTick);
+  if (lastTickTime === 0) { lastTickTime = time; return; }
+  const dt = Math.min((time - lastTickTime) / 1000, 0.05);
+  lastTickTime = time;
+
+  for (const voice of voices) {
+    if (!voice.graph || voice.patchLoading) continue;
+    const updates = tickGraph(voice.graph, dt);
+    for (const [id, params] of Object.entries(updates)) {
+      const engine = voice.engines.get(Number(id));
+      if (engine) sendParams(engine, params);
+    }
+  }
+}
+
+requestAnimationFrame(clientTick);
+
 // --- Rebuild (ensemble voice count change) ---
 
 function rebuild() {
