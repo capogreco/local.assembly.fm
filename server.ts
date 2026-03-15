@@ -437,6 +437,33 @@ function removeCablesForBox(boxId: number): void {
   for (const [id, c] of cables) if (c.srcBox === boxId || c.dstBox === boxId) cables.delete(id);
 }
 
+// --- Apply (replaces entire graph state from GPI) ---
+
+// deno-lint-ignore no-explicit-any
+function handleApply(msg: any): void {
+  boxes.clear(); cables.clear(); boxValues.clear(); inletValues.clear(); boxState.clear();
+  for (const [id, box] of msg.boxes) {
+    const p = getBoxPorts(box.text);
+    box.inlets = p.inlets; box.outlets = p.outlets;
+    boxes.set(id, box);
+  }
+  for (const [id, cable] of msg.cables) cables.set(id, cable);
+  patchNextId = msg.nextId || 1;
+  if (msg.synthBorderY !== undefined) synthBorderY = msg.synthBorderY;
+
+  // rebuild ctrl evaluation
+  initAllBoxState();
+  evaluateAllConsts();
+
+  // deploy synth patch to clients
+  deployPatch();
+
+  // confirm to GPI
+  sendGPI({ type: "applied" });
+
+  console.log("Patch applied");
+}
+
 // deno-lint-ignore no-explicit-any
 function handleEdit(msg: any): void {
   switch (msg.action) {
@@ -603,10 +630,9 @@ function handleGpiWs(req: Request): Response {
   socket.addEventListener("message", (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === "edit") {
-        handleEdit(msg);
+      if (msg.type === "apply") {
+        handleApply(msg);
       } else if (msg.type === "midi") {
-        // MIDI from GPI WebMIDI
         if (msg.cc !== undefined) {
           const name = CC_SOURCE[msg.cc];
           if (name) {
@@ -769,18 +795,6 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
     if (!name) return new Response("Invalid name", { status: 400 });
     try {
       const data = await Deno.readTextFile(`${PATCHES_DIR}/${name}.json`);
-      // When loading a patch, also restore server state
-      try {
-        const parsed = JSON.parse(data);
-        boxes.clear(); cables.clear(); boxValues.clear(); inletValues.clear(); boxState.clear();
-        for (const [id, box] of parsed.boxes) { const p = getBoxPorts(box.text); box.inlets = p.inlets; box.outlets = p.outlets; boxes.set(id, box); }
-        for (const [id, cable] of parsed.cables) cables.set(id, cable);
-        patchNextId = parsed.nextId || 1;
-        if (parsed.synthBorderY !== undefined) synthBorderY = parsed.synthBorderY;
-        initAllBoxState();
-        sendFullState();
-        evaluateAllConsts();
-      } catch { /* parse error — still return the data */ }
       return new Response(data, { headers });
     } catch {
       return new Response("Not found", { status: 404 });
@@ -791,13 +805,7 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
   if (req.method === "PUT" && url.pathname.startsWith("/patches/")) {
     const name = sanitizeName(decodeURIComponent(url.pathname.slice(9)));
     if (!name) return new Response("Invalid name", { status: 400 });
-    // Serialize current server state
-    const data = JSON.stringify({
-      boxes: [...boxes.entries()],
-      cables: [...cables.entries()],
-      nextId: patchNextId,
-      synthBorderY,
-    });
+    const data = await req.text();
     await Deno.writeTextFile(`${PATCHES_DIR}/${name}.json`, data);
     console.log(`Patch saved: ${name}`);
     return new Response(JSON.stringify({ ok: true, name }), { headers });

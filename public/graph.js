@@ -181,6 +181,15 @@ function buildGraph(patch) {
   return graph;
 }
 
+// check if an inlet is an event trigger that should call handleEvent
+function isEventTrigger(type, inlet) {
+  // inlet 0 is the trigger for these types
+  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk")) return true;
+  // inlet 1 is reset for phasor
+  if (inlet === 1 && type === "phasor") return true;
+  return false;
+}
+
 // evaluate a single box and return its output value
 function evaluateNode(graph, boxId) {
   const node = graph.boxes.get(boxId);
@@ -269,11 +278,19 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
         if (!updates[cable.dstBox]) updates[cable.dstBox] = {};
         updates[cable.dstBox][paramName] = value;
       }
+    } else if (isEventTrigger(dstNode.type, cable.dstInlet)) {
+      // event inlet on a stateful box — advance state
+      const further = handleEvent(graph, cable.dstBox);
+      for (const [eid, params] of Object.entries(further)) {
+        if (!updates[eid]) updates[eid] = {};
+        Object.assign(updates[eid], params);
+      }
+    } else if (dstNode.type === "phasor") {
+      // phasor number inlets (pause/period) — store value, don't propagate
     } else {
       // evaluate the destination box and propagate further
       const result = evaluateNode(graph, cable.dstBox);
       const further = propagateInGraph(graph, cable.dstBox, 0, result);
-      // merge
       for (const [eid, params] of Object.entries(further)) {
         if (!updates[eid]) updates[eid] = {};
         Object.assign(updates[eid], params);
