@@ -31,6 +31,9 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Current value" }] },
   toggle:         { zone: "any", description: "On/off switch. Click in performance mode.",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "0 or 1" }] },
+  print:          { zone: "any", description: "Display incoming value on the box.",
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to display" }],
+                    outlets: [] },
   event:          { zone: "any", description: "Manual null event. Click in performance mode.",
                     inlets: [], outlets: [{ name: "out", type: "event", description: "Null event on click" }] },
 
@@ -96,6 +99,9 @@ const BOX_TYPES = {
   "%":            { zone: "any", description: "Modulo.", args: "divisor", example: "% 12",
                     inlets: [{ name: "a", type: "number", description: "Value" }, { name: "b", type: "number", description: "Modulus (or arg)" }],
                     outlets: [{ name: "result", type: "number", description: "Remainder" }] },
+  "**":           { zone: "any", description: "Exponent.", args: "power", example: "** 2",
+                    inlets: [{ name: "base", type: "number", description: "Base value" }, { name: "exp", type: "number", description: "Exponent (or arg)" }],
+                    outlets: [{ name: "result", type: "number", description: "Result" }] },
   scale:          { zone: "any", description: "Map 0-1 input to output range.", args: "min max", example: "scale 55 880",
                     inlets: [{ name: "in", type: "number", description: "Input (0-1)" }],
                     outlets: [{ name: "out", type: "number", description: "Scaled output" }] },
@@ -128,7 +134,8 @@ const BOX_TYPES = {
                     outlets: [{ name: "out", type: "number", description: "Jittered output" }] },
 
   // --- routers (snap to border) ---
-  all:            { zone: "router", description: "Send to all connected phones.",
+  all:            { zone: "router", description: "Send to all connected phones. Arg: number of channels.", args: "channels", example: "all 4",
+                    dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on each phone" }] },
   one:            { zone: "router", description: "Send to one phone at a time.",
@@ -190,7 +197,12 @@ function boxTypeName(text) {
 
 function getBoxPorts(text) {
   const def = BOX_TYPES[boxTypeName(text)];
-  return def ? { inlets: def.inlets.length, outlets: def.outlets.length } : { inlets: 1, outlets: 1 };
+  if (!def) return { inlets: 1, outlets: 1 };
+  if (def.dynamic) {
+    const n = parseInt(text.split(/\s+/)[1]) || 1;
+    return { inlets: n, outlets: n };
+  }
+  return { inlets: def.inlets.length, outlets: def.outlets.length };
 }
 
 function getBoxZone(text) {
@@ -201,3 +213,8 @@ function getBoxZone(text) {
 function getBoxDef(text) {
   return BOX_TYPES[boxTypeName(text)] || null;
 }
+
+// ES module / CJS exports (server.ts uses CJS-style, browser uses ESM)
+if (typeof exports === "object") Object.assign(exports, { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef });
+export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef };
+

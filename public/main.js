@@ -7,9 +7,11 @@ const overlay = document.getElementById("overlay");
 const connStatus = document.getElementById("conn-status");
 const clientCount = document.getElementById("client-count");
 
-let audioCtx, conn, graph = null;
+let audioCtx, conn, graph = null, scopeSetOrbit = null;
 let activeEngines = new Map();
 const workletModulesLoaded = new Set();
+let patchLoading = false;
+let pendingMessages = [];
 
 // --- Engines ---
 
@@ -33,7 +35,18 @@ async function createEngine(type) {
     const out = audioCtx.createGain();
     splitter.connect(out, 0);
     out.connect(audioCtx.destination);
-    return { type, worklet, splitter, out };
+    const engine = { type, worklet, splitter, out };
+    // formant: create analysers for scope
+    if (type === "formant") {
+      const analyserConfig = [[1, "analyserF1"], [2, "analyserF2"], [3, "analyserF3"]];
+      for (const cfg of analyserConfig) {
+        const a = audioCtx.createAnalyser();
+        a.fftSize = 512; a.smoothingTimeConstant = 0;
+        splitter.connect(a, cfg[0]);
+        engine[cfg[1]] = a;
+      }
+    }
+    return engine;
   }
   worklet.connect(audioCtx.destination);
   return { type, worklet };
@@ -41,12 +54,33 @@ async function createEngine(type) {
 
 function sendParams(engine, params) {
   if (!engine?.worklet) return;
+  if (!engine.currentParams) engine.currentParams = {};
+  Object.assign(engine.currentParams, params);
   engine.worklet.port.postMessage({ type: "params", ...params });
+  updateParamDisplay();
+}
+
+function updateParamDisplay() {
+  const el = document.getElementById("param-display");
+  if (!el) return;
+  const lines = [];
+  for (const [id, engine] of activeEngines) {
+    if (engine.currentParams) {
+      lines.push(engine.type + ":");
+      for (const [k, v] of Object.entries(engine.currentParams)) {
+        lines.push("  " + k + ": " + (typeof v === "number" ? v.toFixed(4) : v));
+      }
+    }
+  }
+  el.textContent = lines.join("\n");
 }
 
 // --- Patch loading ---
 
 async function loadPatch(patch) {
+  patchLoading = true;
+  pendingMessages = [];
+
   // tear down old engines
   for (const e of activeEngines.values()) {
     e.worklet?.disconnect();
@@ -57,24 +91,46 @@ async function loadPatch(patch) {
 
   graph = buildGraph(patch);
 
-  // create and silence engines
+  // create engines
   for (const [id, def] of graph.engines) {
     const engine = await createEngine(def.type);
-    if (engine) {
-      activeEngines.set(id, engine);
-      const silent = Object.fromEntries(def.paramNames.map(n => [n, 0]));
-      sendParams(engine, silent);
+    if (engine) activeEngines.set(id, engine);
+  }
+  // init scope for formant engines
+  const scopeCanvas = document.getElementById("scope");
+  if (scopeCanvas && typeof initScope === "function") {
+    const formantEngines = [...activeEngines.values()].filter(e => e.analyserF1);
+    if (formantEngines.length > 0) scopeSetOrbit = initScope(scopeCanvas, formantEngines);
+    else scopeSetOrbit = null;
+  }
+
+  console.log("Patch loaded:", [...graph.engines.values()].map(e => e.type).join(", "), "pending:", pendingMessages.length);
+
+  // apply initial values from deploy snapshot
+  if (patch.initialValues) {
+    for (const [key, value] of Object.entries(patch.initialValues)) {
+      const [routerId, channel] = key.split(":").map(Number);
+      const updates = processRouterValue(graph, routerId, channel, value);
+      for (const [id, params] of Object.entries(updates)) {
+        const engine = activeEngines.get(Number(id));
+        if (engine) sendParams(engine, params);
+      }
     }
   }
-  console.log("Patch loaded:", [...graph.engines.values()].map(e => e.type).join(", "));
+
+  // replay messages that arrived during async load
+  patchLoading = false;
+  for (const msg of pendingMessages) onMessage(msg);
+  pendingMessages = [];
 }
 
 // --- Messages ---
 
 function onMessage(msg) {
   if (msg.type === "patch" && audioCtx) { loadPatch(msg); return; }
+  if (patchLoading) { pendingMessages.push(msg); return; }
   if (msg.type === "rv" && graph) {
-    const updates = processRouterValue(graph, msg.r, msg.v);
+    const updates = processRouterValue(graph, msg.r, msg.ch, msg.v);
     for (const [id, params] of Object.entries(updates)) {
       const engine = activeEngines.get(Number(id));
       if (engine) sendParams(engine, params);

@@ -1,8 +1,10 @@
 /**
  * GPI — Graphical Patching Interface
- * Canvas-based PD-style patch editor with ctrl/synth zones,
- * graph evaluation, WebSocket transport, and WebMIDI input.
+ * Canvas-based PD-style patch editor.
+ * View/editor only — server evaluates the ctrl graph.
  */
+
+import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef } from "./gpi-types.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -35,7 +37,12 @@ let dragStart = null, dragBoxPositions = null, cableFrom = null;
 let mousePos = { x: 0, y: 0 }, editingBoxId = null;
 let synthBorderY = window.innerHeight * 0.55;
 let hoverTimer = null, lastHoverTarget = null;
-let ws = null, wsConnected = false, midiAccess = null;
+let ws = null, wsConnected = false;
+let deployed = false;
+let patchDirty = false;
+let editMode = true;
+let connectedClients = 0;
+let midiDeviceNames = [];
 
 // --- geometry ---
 
@@ -48,6 +55,10 @@ function measureText(text) { ctx.font = FONT; return ctx.measureText(text).width
 
 function boxWidth(box, id) {
   let text = (id !== undefined && id === editingBoxId) ? (input.value || " ") : (box.text || " ");
+  if (boxTypeName(box.text) === "print" && id !== undefined && boxValues.has(id)) {
+    const v = boxValues.get(id);
+    text = "print " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
+  }
   return Math.ceil(Math.max(measureText(text) + BOX_PAD_X * 2, (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 30));
 }
 
@@ -102,17 +113,87 @@ function hitTestCable(mx, my) {
   return null;
 }
 
+// --- deploy tracking ---
+
+let deployedSnapshot = null;
+
+function takeDeploySnapshot() {
+  const snap = { boxes: new Map(), cables: [] };
+  const synthIds = new Set();
+  for (const [id, box] of boxes) {
+    const def = getBoxDef(box.text);
+    if (!def) continue;
+    if (def.zone === "synth" || def.zone === "router" || (def.zone === "any" && isSynthZone(box.x, box.y))) {
+      synthIds.add(id);
+      snap.boxes.set(id, {
+        type: boxTypeName(box.text), args: box.text.split(/\s+/).slice(1).join(" "),
+        x: box.x, y: box.y, w: boxWidth(box, id), inlets: box.inlets, outlets: box.outlets,
+      });
+    }
+  }
+  for (const [, c] of cables) {
+    if (synthIds.has(c.srcBox) || synthIds.has(c.dstBox))
+      snap.cables.push({ srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+  }
+  return snap;
+}
+
+function markDirty(boxId) {
+  if (!deployed) return;
+  const box = boxes.get(boxId);
+  if (!box) { patchDirty = true; return; }
+  const def = getBoxDef(box.text);
+  const zone = def ? def.zone : "any";
+  if (zone === "synth" || zone === "router" || (zone === "any" && isSynthZone(box.x, box.y))) patchDirty = true;
+}
+
+function boxDiffState(id) {
+  if (!deployedSnapshot) return null;
+  const box = boxes.get(id); if (!box) return null;
+  const def = getBoxDef(box.text);
+  const zone = def ? def.zone : "any";
+  if (zone !== "synth" && zone !== "router" && !(zone === "any" && isSynthZone(box.x, box.y))) return null;
+  const snap = deployedSnapshot.boxes.get(id);
+  if (!snap) return "new";
+  const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
+  return (snap.type !== name || snap.args !== args) ? "modified" : "unchanged";
+}
+
+function cableDiffState(cable) {
+  if (!deployedSnapshot) return null;
+  for (const sc of deployedSnapshot.cables) {
+    if (sc.srcBox === cable.srcBox && sc.srcOutlet === cable.srcOutlet && sc.dstBox === cable.dstBox && sc.dstInlet === cable.dstInlet) return "unchanged";
+  }
+  return "new";
+}
+
+function getDeletedBoxes() {
+  if (!deployedSnapshot) return [];
+  const deleted = [];
+  for (const [id, snap] of deployedSnapshot.boxes) {
+    if (!boxes.has(id)) deleted.push({ id, ...snap });
+  }
+  return deleted;
+}
+
+function getDeletedCables() {
+  if (!deployedSnapshot) return [];
+  return deployedSnapshot.cables.filter(sc => {
+    for (const [, c] of cables) {
+      if (c.srcBox === sc.srcBox && c.srcOutlet === sc.srcOutlet && c.dstBox === sc.dstBox && c.dstInlet === sc.dstInlet) return false;
+    }
+    return true;
+  });
+}
+
 // --- cable helpers ---
 
 function cableFromPos(c) { const b = boxes.get(c.srcBox); return b ? outletPos(b, c.srcOutlet, c.srcBox) : null; }
 function cableToPos(c) { const b = boxes.get(c.dstBox); return b ? inletPos(b, c.dstInlet, c.dstBox) : null; }
 function inletHasCable(boxId, inlet) { for (const c of cables.values()) if (c.dstBox === boxId && c.dstInlet === inlet) return true; return false; }
-function removeCablesForBox(boxId) { for (const [id, c] of cables) if (c.srcBox === boxId || c.dstBox === boxId) cables.delete(id); }
-function cablesFromOutlet(boxId, outlet) { const r = []; for (const [, c] of cables) if (c.srcBox === boxId && c.srcOutlet === outlet) r.push(c); return r; }
 
 // --- router snapping ---
 
-function snapRouterToBorder(box) { box.y = synthBorderY - BOX_HEIGHT / 2; }
 function isRouterType(text) { return getBoxZone(text) === "router"; }
 
 // --- tooltip ---
@@ -171,21 +252,68 @@ function render() {
 
   ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, w, h);
 
+  // mode label
+  ctx.font = SMALL_FONT; ctx.fillStyle = editMode ? "#555" : "#686";
+  ctx.textBaseline = "top"; ctx.fillText(editMode ? "edit" : "perform", 12, 8);
+
+  // dot grid (edit mode only)
+  if (editMode) {
+    ctx.fillStyle = "#333";
+    for (let x = 20; x < w; x += 20) for (let y = 20; y < h; y += 20) ctx.fillRect(x, y, 1, 1);
+  }
+
   // synth border
   ctx.strokeStyle = COLORS.synthBorder; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, synthBorderY); ctx.lineTo(w, synthBorderY); ctx.stroke();
-  ctx.fillStyle = COLORS.synthHandle;
-  ctx.fillRect(SYNTH_HANDLE / 2, synthBorderY - SYNTH_HANDLE / 2, SYNTH_HANDLE, SYNTH_HANDLE);
+  if (editMode) {
+    ctx.fillStyle = COLORS.synthHandle;
+    ctx.fillRect(SYNTH_HANDLE / 2, synthBorderY - SYNTH_HANDLE / 2, SYNTH_HANDLE, SYNTH_HANDLE);
+  }
   ctx.font = SMALL_FONT; ctx.fillStyle = COLORS.synthLabel;
-  ctx.textBaseline = "bottom"; ctx.fillText("ctrl", 12, synthBorderY - 6);
-  ctx.textBaseline = "top"; ctx.fillText("synth", 12, synthBorderY + 6);
+  ctx.textBaseline = "bottom";
+  ctx.fillText("ctrl", 12, synthBorderY - 6);
+  ctx.textBaseline = "top";
+  const deployLabel = !deployed ? "synth" : patchDirty ? "synth (modified)" : "synth (deployed)";
+  ctx.fillStyle = !deployed ? COLORS.synthLabel : patchDirty ? "#865" : "#686";
+  ctx.fillText(deployLabel, 12, synthBorderY + 6);
+
+  // connected devices (ctrl section, right side)
+  ctx.fillStyle = "#444"; ctx.textBaseline = "top"; ctx.textAlign = "right";
+  if (midiDeviceNames.length > 0) {
+    for (let i = 0; i < midiDeviceNames.length; i++) ctx.fillText(midiDeviceNames[i], w - 12, 12 + i * 14);
+  }
+
+  // connected clients (synth section, right side)
+  ctx.fillStyle = "#444";
+  ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, synthBorderY + 8);
+  ctx.textAlign = "left";
   ctx.font = FONT;
+
+  // deleted ghost cables
+  if (patchDirty && deployedSnapshot) {
+    for (const sc of getDeletedCables()) {
+      const srcBox = boxes.get(sc.srcBox), srcSnap = deployedSnapshot.boxes.get(sc.srcBox);
+      const dstBox = boxes.get(sc.dstBox), dstSnap = deployedSnapshot.boxes.get(sc.dstBox);
+      const src = srcBox || srcSnap, dst = dstBox || dstSnap;
+      if (!src || !dst) continue;
+      const srcW = srcBox ? boxWidth(srcBox, sc.srcBox) : srcSnap.w;
+      const dstW = dstBox ? boxWidth(dstBox, sc.dstBox) : dstSnap.w;
+      const srcOuts = srcBox ? srcBox.outlets : srcSnap.outlets;
+      const dstIns = dstBox ? dstBox.inlets : dstSnap.inlets;
+      const fromX = src.x + srcW * (sc.srcOutlet + 1) / (srcOuts + 1), fromY = src.y + BOX_HEIGHT;
+      const toX = dst.x + dstW * (sc.dstInlet + 1) / (dstIns + 1), toY = dst.y;
+      ctx.strokeStyle = "#865"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(fromX, fromY); ctx.lineTo(toX, toY); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
 
   // cables
   ctx.lineWidth = 1;
   for (const [id, cable] of cables) {
     const from = cableFromPos(cable), to = cableToPos(cable); if (!from || !to) continue;
-    ctx.strokeStyle = cableSelection.has(id) ? COLORS.boxSelectedStroke : COLORS.cable;
+    const diff = patchDirty ? cableDiffState(cable) : null;
+    ctx.strokeStyle = cableSelection.has(id) ? COLORS.boxSelectedStroke : diff === "new" ? "#865" : COLORS.cable;
     ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
   }
 
@@ -200,16 +328,40 @@ function render() {
     }
   }
 
+  // marquee
+  if (mode === "selecting" && dragStart) {
+    const x0 = Math.min(dragStart.x, mousePos.x), y0 = Math.min(dragStart.y, mousePos.y);
+    const sw = Math.abs(mousePos.x - dragStart.x), sh = Math.abs(mousePos.y - dragStart.y);
+    ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.strokeRect(x0, y0, sw, sh);
+    ctx.setLineDash([]);
+  }
+
+  // deleted ghost boxes
+  if (patchDirty) {
+    for (const ghost of getDeletedBoxes()) {
+      ctx.strokeStyle = "#865"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.strokeRect(ghost.x + 0.5, ghost.y + 0.5, ghost.w - 1, BOX_HEIGHT - 1);
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#865"; ctx.font = FONT; ctx.textBaseline = "middle";
+      ctx.globalAlpha = 0.4;
+      ctx.fillText(ghost.type + (ghost.args ? " " + ghost.args : ""), ghost.x + BOX_PAD_X, ghost.y + BOX_HEIGHT / 2);
+      ctx.globalAlpha = 1;
+    }
+  }
+
   // boxes
   ctx.font = FONT;
   for (const [id, box] of boxes) {
     const bw = boxWidth(box, id), selected = selection.has(id);
     const def = getBoxDef(box.text), zone = def ? def.zone : "any";
     const isRouter = zone === "router", isUnknown = !def && box.text.length > 0;
+    const diff = patchDirty ? boxDiffState(id) : null;
+    const isChanged = diff === "new" || diff === "modified";
 
     ctx.fillStyle = selected ? COLORS.boxSelectedFill : isRouter ? COLORS.routerFill : COLORS.boxFill;
     ctx.fillRect(box.x, box.y, bw, BOX_HEIGHT);
-    ctx.strokeStyle = selected ? COLORS.boxSelectedStroke : isRouter ? COLORS.routerStroke : COLORS.boxStroke;
+    ctx.strokeStyle = selected ? COLORS.boxSelectedStroke : isChanged ? "#865" : isRouter ? COLORS.routerStroke : COLORS.boxStroke;
     ctx.lineWidth = 1;
     if (isUnknown) ctx.setLineDash([4, 3]);
     ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
@@ -222,7 +374,13 @@ function render() {
 
     if (editingBoxId !== id) {
       ctx.fillStyle = COLORS.text; ctx.textBaseline = "middle";
-      ctx.fillText(box.text, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+      if (boxTypeName(box.text) === "print" && boxValues.has(id)) {
+        const v = boxValues.get(id);
+        const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+        ctx.fillText("print " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+      } else {
+        ctx.fillText(box.text, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+      }
     }
 
     ctx.fillStyle = COLORS.port;
@@ -260,19 +418,21 @@ function finishEditing(confirm) {
   if (editingBoxId === null) return;
   const box = boxes.get(editingBoxId);
   if (confirm && input.value.trim()) {
-    box.text = input.value.trim();
-    const ports = getBoxPorts(box.text);
+    const newText = input.value.trim();
+    sendEdit({ action: "box-text", id: editingBoxId, text: newText });
+    // optimistic local update for rendering
+    box.text = newText;
+    const ports = getBoxPorts(newText);
     box.inlets = ports.inlets; box.outlets = ports.outlets;
-    for (const [id, c] of cables) {
-      if (c.srcBox === editingBoxId && c.srcOutlet >= box.outlets) cables.delete(id);
-      if (c.dstBox === editingBoxId && c.dstInlet >= box.inlets) cables.delete(id);
-    }
-    if (isRouterType(box.text)) snapRouterToBorder(box);
-    const zone = getBoxZone(box.text);
+    if (isRouterType(newText)) box.y = synthBorderY - BOX_HEIGHT / 2;
+    const zone = getBoxZone(newText);
     if (zone === "synth" && !isSynthZone(box.x, box.y)) box.y = synthBorderY + 20;
     else if (zone === "ctrl" && isSynthZone(box.x, box.y)) box.y = synthBorderY - BOX_HEIGHT - 20;
+    markDirty(editingBoxId);
   } else if (!box.text) {
-    removeCablesForBox(editingBoxId); boxes.delete(editingBoxId); selection.delete(editingBoxId);
+    markDirty(editingBoxId);
+    sendEdit({ action: "box-delete", ids: [editingBoxId] });
+    boxes.delete(editingBoxId); selection.delete(editingBoxId);
   }
   editingBoxId = null; mode = "idle"; input.style.display = "none"; input.value = ""; render();
 }
@@ -281,12 +441,70 @@ input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDef
 input.addEventListener("input", () => { if (editingBoxId === null) return; const w = Math.max(measureText(input.value || " ") + BOX_PAD_X * 2, 80); input.style.width = w + "px"; render(); });
 input.addEventListener("blur", () => finishEditing(true));
 
+// --- smart routing ---
+
+function isSynthSide(boxId) {
+  const box = boxes.get(boxId); if (!box) return false;
+  const def = getBoxDef(box.text);
+  const zone = def ? def.zone : "any";
+  return zone === "synth" || (zone === "any" && isSynthZone(box.x, box.y));
+}
+
+function findFreeRouterChannel(nearX) {
+  let best = null, bestDist = Infinity;
+  for (const [id, box] of boxes) {
+    if (!isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
+    const channels = parseInt(box.text.split(/\s+/)[1]) || 1;
+    for (let ch = 0; ch < channels; ch++) {
+      if (!inletHasCable(id, ch)) {
+        const dist = Math.abs(box.x + boxWidth(box, id) / 2 - nearX);
+        if (dist < bestDist) { best = { routerId: id, channel: ch }; bestDist = dist; }
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
+  const srcBox = boxes.get(srcBoxId), dstBox = boxes.get(dstBoxId);
+  const midX = (srcBox.x + dstBox.x) / 2;
+  let route = findFreeRouterChannel(midX);
+
+  if (!route) {
+    const id = nextId++;
+    const ports = getBoxPorts("all 1");
+    const newRouter = { x: midX - 20, y: synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets };
+    boxes.set(id, newRouter);
+    sendEdit({ action: "box-create", id, x: newRouter.x, y: newRouter.y, text: "all 1" });
+    route = { routerId: id, channel: 0 };
+  }
+
+  const cableId1 = nextId++, cableId2 = nextId++;
+  cables.set(cableId1, { srcBox: srcBoxId, srcOutlet, dstBox: route.routerId, dstInlet: route.channel });
+  cables.set(cableId2, { srcBox: route.routerId, srcOutlet: route.channel, dstBox: dstBoxId, dstInlet: dstInlet });
+  sendEdit({ action: "cable-create", id: cableId1, srcBox: srcBoxId, srcOutlet, dstBox: route.routerId, dstInlet: route.channel });
+  sendEdit({ action: "cable-create", id: cableId2, srcBox: route.routerId, srcOutlet: route.channel, dstBox: dstBoxId, dstInlet: dstInlet });
+  markDirty(dstBoxId);
+  markDirty(route.routerId);
+}
+
 // --- mouse ---
 
 function canvasCoords(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 
 canvas.addEventListener("mousedown", (e) => {
   const m = canvasCoords(e); hideTooltip();
+  if (!editMode) {
+    const boxId = hitTestBox(m.x, m.y);
+    if (boxId !== null) {
+      const box = boxes.get(boxId), name = boxTypeName(box.text);
+      if (name === "toggle") {
+        // send toggle as a midi-like message — server handles it
+      }
+    }
+    return;
+  }
   if (hitTestSynthHandle(m.x, m.y)) { mode = "resizing-synth"; canvas.style.cursor = "ns-resize"; return; }
   const outlet = hitTestOutlet(m.x, m.y);
   if (outlet) { mode = "cabling"; cableFrom = { boxId: outlet.boxId, index: outlet.index }; selection.clear(); cableSelection.clear(); canvas.style.cursor = "crosshair"; render(); return; }
@@ -301,27 +519,29 @@ canvas.addEventListener("mousedown", (e) => {
   }
   const cableId = hitTestCable(m.x, m.y);
   if (cableId !== null) { selection.clear(); cableSelection.clear(); cableSelection.add(cableId); render(); return; }
-  selection.clear(); cableSelection.clear(); render();
+  if (!e.shiftKey) { selection.clear(); cableSelection.clear(); }
+  mode = "selecting"; dragStart = { x: m.x, y: m.y };
+  render();
 });
 
 canvas.addEventListener("mousemove", (e) => {
   const m = canvasCoords(e); mousePos = m;
   if (mode === "resizing-synth") {
     synthBorderY = Math.max(100, Math.min(m.y, window.innerHeight - 100));
-    for (const [, box] of boxes) if (isRouterType(box.text)) snapRouterToBorder(box);
+    for (const [, box] of boxes) if (isRouterType(box.text)) box.y = synthBorderY - BOX_HEIGHT / 2;
     render(); return;
   }
   if (mode === "dragging" && dragStart) {
     const dx = m.x - dragStart.x, dy = m.y - dragStart.y;
     for (const [id, orig] of dragBoxPositions) {
       const box = boxes.get(id); if (!box) continue;
-      if (isRouterType(box.text)) { box.x = orig.x + dx; snapRouterToBorder(box); }
+      if (isRouterType(box.text)) { box.x = orig.x + dx; box.y = synthBorderY - BOX_HEIGHT / 2; }
       else { box.x = orig.x + dx; box.y = orig.y + dy; }
     }
     render(); return;
   }
+  if (mode === "selecting" && dragStart) { render(); return; }
   if (mode === "cabling") { render(); return; }
-  // cursor + tooltip
   if (hitTestSynthHandle(m.x, m.y)) { canvas.style.cursor = "ns-resize"; hideTooltip(); }
   else {
     const o = hitTestOutlet(m.x, m.y), i = hitTestInlet(m.x, m.y);
@@ -336,58 +556,117 @@ canvas.addEventListener("mousemove", (e) => {
 
 canvas.addEventListener("mouseup", (e) => {
   const m = canvasCoords(e);
-  if (mode === "resizing-synth") { mode = "idle"; canvas.style.cursor = "default"; return; }
+  if (mode === "resizing-synth") {
+    sendEdit({ action: "border-move", y: synthBorderY });
+    mode = "idle"; canvas.style.cursor = "default"; return;
+  }
   if (mode === "cabling" && cableFrom) {
     const inlet = hitTestInlet(m.x, m.y);
-    if (inlet && inlet.boxId !== cableFrom.boxId && !inletHasCable(inlet.boxId, inlet.index))
-      cables.set(nextId++, { srcBox: cableFrom.boxId, srcOutlet: cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
+    if (inlet && inlet.boxId !== cableFrom.boxId && !inletHasCable(inlet.boxId, inlet.index)) {
+      const srcBox = boxes.get(cableFrom.boxId), dstBox = boxes.get(inlet.boxId);
+      const srcSynth = isSynthSide(cableFrom.boxId), dstSynth = isSynthSide(inlet.boxId);
+      if (srcSynth !== dstSynth && !isRouterType(srcBox?.text) && !isRouterType(dstBox?.text)) {
+        autoRoute(cableFrom.boxId, cableFrom.index, inlet.boxId, inlet.index);
+      } else {
+        const cableId = nextId++;
+        cables.set(cableId, { srcBox: cableFrom.boxId, srcOutlet: cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
+        sendEdit({ action: "cable-create", id: cableId, srcBox: cableFrom.boxId, srcOutlet: cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
+        markDirty(inlet.boxId); markDirty(cableFrom.boxId);
+      }
+    }
     cableFrom = null; mode = "idle"; canvas.style.cursor = "default"; render(); return;
   }
-  if (mode === "dragging") { mode = "idle"; dragStart = null; dragBoxPositions = null; }
+  if (mode === "dragging") {
+    // send final positions to server
+    if (dragBoxPositions) {
+      const moves = [];
+      for (const id of selection) {
+        const box = boxes.get(id);
+        if (box) moves.push({ id, x: box.x, y: box.y });
+      }
+      if (moves.length > 0) sendEdit({ action: "box-move", moves });
+    }
+    mode = "idle"; dragStart = null; dragBoxPositions = null;
+  }
+  if (mode === "selecting" && dragStart) {
+    const x0 = Math.min(dragStart.x, m.x), y0 = Math.min(dragStart.y, m.y);
+    const x1 = Math.max(dragStart.x, m.x), y1 = Math.max(dragStart.y, m.y);
+    for (const [id, box] of boxes) {
+      const bw = boxWidth(box, id);
+      if (box.x + bw > x0 && box.x < x1 && box.y + BOX_HEIGHT > y0 && box.y < y1) selection.add(id);
+    }
+    mode = "idle"; dragStart = null; render();
+  }
 });
 
 canvas.addEventListener("dblclick", (e) => {
-  const m = canvasCoords(e), boxId = hitTestBox(m.x, m.y);
-  if (boxId !== null) { selection.clear(); selection.add(boxId); startEditing(boxId); }
-  else { const id = nextId++; boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 }); selection.clear(); selection.add(id); startEditing(id); }
+  if (!editMode) return;
+  const m = canvasCoords(e);
+  const boxId = hitTestBox(m.x, m.y);
+  if (boxId !== null) { selection.clear(); selection.add(boxId); startEditing(boxId); return; }
+  const cableId = hitTestCable(m.x, m.y);
+  if (cableId !== null) {
+    const cable = cables.get(cableId);
+    cables.delete(cableId);
+    sendEdit({ action: "cable-delete", ids: [cableId] });
+    const id = nextId++;
+    boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
+    sendEdit({ action: "box-create", id, x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "" });
+    const cid1 = nextId++, cid2 = nextId++;
+    cables.set(cid1, { srcBox: cable.srcBox, srcOutlet: cable.srcOutlet, dstBox: id, dstInlet: 0 });
+    cables.set(cid2, { srcBox: id, srcOutlet: 0, dstBox: cable.dstBox, dstInlet: cable.dstInlet });
+    sendEdit({ action: "cable-create", id: cid1, srcBox: cable.srcBox, srcOutlet: cable.srcOutlet, dstBox: id, dstInlet: 0 });
+    sendEdit({ action: "cable-create", id: cid2, srcBox: id, srcOutlet: 0, dstBox: cable.dstBox, dstInlet: cable.dstInlet });
+    selection.clear(); selection.add(id);
+    startEditing(id);
+    return;
+  }
+  const id = nextId++;
+  boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
+  sendEdit({ action: "box-create", id, x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "" });
+  selection.clear(); selection.add(id); startEditing(id);
 });
-
-// --- persistence ---
-
-const STORAGE_KEY = "assembly-gpi-patch";
-
-function serialize() { return JSON.stringify({ boxes: [...boxes.entries()], cables: [...cables.entries()], nextId, synthBorderY }); }
-
-function deserialize(json) {
-  try {
-    const data = JSON.parse(json); boxes.clear(); cables.clear();
-    for (const [id, box] of data.boxes) { const p = getBoxPorts(box.text); box.inlets = p.inlets; box.outlets = p.outlets; boxes.set(id, box); }
-    for (const [id, cable] of data.cables) cables.set(id, cable);
-    nextId = data.nextId || 1;
-    if (data.synthBorderY !== undefined) synthBorderY = data.synthBorderY;
-    selection.clear(); cableSelection.clear(); render();
-  } catch (e) { console.error("Failed to load patch:", e); }
-}
-
-function save() { localStorage.setItem(STORAGE_KEY, serialize()); }
-function load() { const json = localStorage.getItem(STORAGE_KEY); if (json) deserialize(json); }
-
-const _origRender = render;
-render = function() { _origRender(); save(); };
-
-load();
 
 // --- keyboard ---
 
 window.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "e") {
+    e.preventDefault();
+    editMode = !editMode;
+    selection.clear(); cableSelection.clear();
+    canvas.style.cursor = "default";
+    if (mode === "cabling") { mode = "idle"; cableFrom = null; }
+    render();
+    return;
+  }
+  if (!editMode && e.key === "Escape") { editMode = true; render(); return; }
   if (mode === "editing") return;
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); deployPatch(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatchToServer(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === "o") { e.preventDefault(); showPatchList(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); sendEdit({ action: "deploy" }); return; }
+  if (!editMode) return;
   if (e.key === "Backspace" || e.key === "Delete") {
     if (selection.size > 0 || cableSelection.size > 0) {
       e.preventDefault();
-      for (const id of selection) { removeCablesForBox(id); boxes.delete(id); }
-      for (const id of cableSelection) cables.delete(id);
+      if (selection.size > 0) {
+        const ids = [...selection];
+        for (const id of ids) {
+          markDirty(id);
+          // remove local cables
+          for (const [cid, c] of cables) if (c.srcBox === id || c.dstBox === id) cables.delete(cid);
+          boxes.delete(id);
+        }
+        sendEdit({ action: "box-delete", ids });
+      }
+      if (cableSelection.size > 0) {
+        const ids = [...cableSelection];
+        for (const id of ids) {
+          const c = cables.get(id);
+          if (c) { markDirty(c.srcBox); markDirty(c.dstBox); }
+          cables.delete(id);
+        }
+        sendEdit({ action: "cable-delete", ids });
+      }
       selection.clear(); cableSelection.clear(); render();
     }
     return;
@@ -399,101 +678,97 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// --- WebSocket ---
+// --- WebSocket to server (GPI path) ---
 
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  try { ws = new WebSocket(`${proto}//${location.host}`); } catch { setTimeout(connectWS, 2000); return; }
-  ws.addEventListener("open", () => { wsConnected = true; render(); evaluateConstBoxes(); });
-  ws.addEventListener("close", () => { wsConnected = false; ws = null; render(); setTimeout(connectWS, 2000); });
+  try { ws = new WebSocket(`${proto}//${location.host}/ws/gpi`); } catch { setTimeout(connectWS, 2000); return; }
+  ws.addEventListener("open", () => { wsConnected = true; render(); });
+  ws.addEventListener("message", (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "state") handleState(msg);
+      else if (msg.type === "values") handleValues(msg);
+      else if (msg.type === "deployed") handleDeployed();
+      else if (msg.type === "count") { connectedClients = msg.clients; render(); }
+    } catch {}
+  });
+  ws.addEventListener("close", () => { wsConnected = false; ws = null; connectedClients = 0; render(); setTimeout(connectWS, 2000); });
   ws.addEventListener("error", () => { ws = null; });
 }
 
 function send(msg) { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+function sendEdit(edit) { send({ type: "edit", ...edit }); }
 
 connectWS();
 
-// --- graph evaluation ---
+// --- Server message handlers ---
 
-function findBoxByText(text) { for (const [id, box] of boxes) if (box.text === text) return id; return null; }
-
-function evaluateBox(box, iv) {
-  const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1);
-  const a = iv[0], b = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 0;
-  switch (name) {
-    case "+": return a + b; case "-": return a - b; case "*": return a * b;
-    case "/": return b !== 0 ? a / b : 0; case "%": return b !== 0 ? a % b : 0;
-    case "scale": { const mn = parseFloat(args[0]) || 0, mx = parseFloat(args[1]) || 1; return a * (mx - mn) + mn; }
-    case "clip": { const mn = parseFloat(args[0]) || 0, mx = parseFloat(args[1]) || 1; return Math.max(mn, Math.min(mx, a)); }
-    case "pow": return Math.pow(a, b);
-    case "mtof": return 440 * Math.pow(2, (a - 69) / 12);
-    case "const": return parseFloat(args[0]) || 0;
-    default: return a;
+function handleState(msg) {
+  boxes.clear(); cables.clear(); boxValues.clear();
+  for (const [id, box] of msg.boxes) {
+    const p = getBoxPorts(box.text);
+    box.inlets = p.inlets; box.outlets = p.outlets;
+    boxes.set(id, box);
   }
-}
-
-function propagate(boxId, outletIndex, value) {
-  for (const cable of cablesFromOutlet(boxId, outletIndex)) {
-    const dst = boxes.get(cable.dstBox); if (!dst) continue;
-    const def = getBoxDef(dst.text); if (!def) continue;
-    if (def.zone === "router") {
-      send({ type: "rv", r: cable.dstBox, v: value });
-    } else if (def.zone !== "synth") {
-      if (!dst._iv) dst._iv = [];
-      dst._iv[cable.dstInlet] = value;
-      const result = evaluateBox(dst, dst._iv);
-      boxValues.set(cable.dstBox, result);
-      for (let i = 0; i < (def.outlets.length || 1); i++) propagate(cable.dstBox, i, result);
-    }
+  for (const [id, cable] of msg.cables) cables.set(id, cable);
+  nextId = msg.nextId || 1;
+  if (msg.synthBorderY !== undefined) synthBorderY = msg.synthBorderY;
+  if (msg.boxValues) {
+    for (const [id, v] of Object.entries(msg.boxValues)) boxValues.set(Number(id), v);
   }
-}
-
-function setBoxValue(boxId, value) {
-  boxValues.set(boxId, value);
-  const box = boxes.get(boxId); if (!box) return;
-  const def = getBoxDef(box.text);
-  for (let i = 0; i < (def ? def.outlets.length : 1); i++) propagate(boxId, i, value);
+  selection.clear(); cableSelection.clear();
   render();
 }
 
-function evaluateConstBoxes() {
-  for (const [id, box] of boxes) {
-    if (boxTypeName(box.text) === "const") setBoxValue(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
-  }
+function handleValues(msg) {
+  for (const u of msg.updates) boxValues.set(u.id, u.value);
+  render();
 }
 
-// --- patch deploy ---
-
-function serializePatch() {
-  const patchBoxes = [], patchCables = [], entries = [], synthIds = new Set();
-  for (const [id, box] of boxes) {
-    const def = getBoxDef(box.text); if (!def) continue;
-    if (def.zone === "synth" || (def.zone === "any" && isSynthZone(box.x, box.y))) {
-      synthIds.add(id);
-      const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
-      const isEngine = def.outlets.length === 0 && def.inlets.length > 0;
-      const pb = { id, type: name, args };
-      if (isEngine) { pb.engine = true; pb.paramNames = def.inlets.map(i => i.name); }
-      patchBoxes.push(pb);
-    }
-  }
-  for (const [, c] of cables) {
-    if (synthIds.has(c.srcBox) && synthIds.has(c.dstBox))
-      patchCables.push({ srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
-  }
-  for (const [id] of boxes) {
-    const def = getBoxDef(boxes.get(id).text); if (!def || def.zone !== "router") continue;
-    for (const c of cablesFromOutlet(id, 0))
-      if (synthIds.has(c.dstBox)) entries.push({ routerId: id, targetBox: c.dstBox, targetInlet: c.dstInlet });
-  }
-  return { type: "patch", boxes: patchBoxes, cables: patchCables, entries };
+function handleDeployed() {
+  deployed = true;
+  deployedSnapshot = takeDeploySnapshot();
+  patchDirty = false;
+  render();
 }
 
-function deployPatch() {
-  const patch = serializePatch();
-  console.log("Deploying patch:", patch);
-  send(patch);
-  setTimeout(evaluateConstBoxes, 100);
+// --- patch file save/load ---
+
+let currentPatchName = null;
+
+async function savePatchToServer() {
+  const name = prompt("Patch name:", currentPatchName || "");
+  if (!name) return;
+  try {
+    const res = await fetch(`/patches/${encodeURIComponent(name)}`, { method: "PUT" });
+    if (res.ok) { currentPatchName = name; console.log("Patch saved:", name); }
+  } catch (e) { console.error("Save failed:", e); }
+}
+
+async function showPatchList() {
+  try {
+    const res = await fetch("/patches");
+    const patches = await res.json();
+    if (patches.length === 0) { console.log("No saved patches"); return; }
+    const name = prompt("Load patch:\n\n" + patches.map((p, i) => `${i + 1}. ${p}`).join("\n") + "\n\nType name or number:");
+    if (!name) return;
+    const resolved = /^\d+$/.test(name) ? patches[parseInt(name) - 1] : name;
+    if (!resolved) return;
+    await loadPatchFromServer(resolved);
+  } catch (e) { console.error("Load failed:", e); }
+}
+
+async function loadPatchFromServer(name) {
+  try {
+    const res = await fetch(`/patches/${encodeURIComponent(name)}`);
+    if (!res.ok) { console.error("Patch not found:", name); return; }
+    currentPatchName = name;
+    console.log("Patch loaded:", name);
+    // Server restores state from the file and sends us a state message
+    // Then deploy
+    sendEdit({ action: "deploy" });
+  } catch (e) { console.error("Load failed:", e); }
 }
 
 // --- WebMIDI ---
@@ -504,33 +779,43 @@ const MIDI_IGNORE = ["af16rig"];
 
 function autoCreateSources(deviceName) {
   const lower = deviceName.toLowerCase();
-  console.log("MIDI device:", deviceName);
   if (MIDI_IGNORE.some(p => lower.includes(p))) return;
+  if (!midiDeviceNames.includes(deviceName)) { midiDeviceNames.push(deviceName); render(); }
   let sources = null;
   for (const dev of MIDI_DEVICES) if (dev.match.some(p => lower.includes(p))) { sources = dev.sources; break; }
   if (!sources) sources = ["key"];
 
-  let nextY = 30, created = false;
+  // auto-create source boxes on the server
+  let nextY = 30;
   for (const box of boxes.values()) if (getBoxZone(box.text) === "ctrl" && box.y + BOX_HEIGHT + 10 > nextY) nextY = box.y + BOX_HEIGHT + 10;
   for (const name of sources) {
-    if (findBoxByText(name) !== null) continue;
-    const id = nextId++, p = getBoxPorts(name);
+    let found = false;
+    for (const box of boxes.values()) if (box.text === name) { found = true; break; }
+    if (found) continue;
+    const id = nextId++;
+    const p = getBoxPorts(name);
     boxes.set(id, { x: 20, y: nextY, text: name, inlets: p.inlets, outlets: p.outlets });
-    nextY += 60; created = true;
+    sendEdit({ action: "box-create", id, x: 20, y: nextY, text: name });
+    nextY += 60;
   }
-  if (created) render();
 }
 
 function onMIDIMessage(e) {
   const [status, d1, d2] = e.data, type = status & 0xf0;
-  if (type === 0xb0) { const name = CC_SOURCE[d1]; if (name) { const id = findBoxByText(name); if (id !== null) setBoxValue(id, d2 / 127); } }
-  else if (type === 0x90) { const id = findBoxByText("key"); if (id !== null) setBoxValue(id, d1); }
+  if (type === 0xb0) {
+    send({ type: "midi", cc: d1, value: d2 });
+  } else if (type === 0x90) {
+    send({ type: "midi", note: d1, velocity: d2 });
+  }
 }
 
 async function initMIDI() {
-  try { midiAccess = await navigator.requestMIDIAccess(); } catch { return; }
-  for (const input of midiAccess.inputs.values()) { autoCreateSources(input.name || "keyboard"); input.onmidimessage = onMIDIMessage; }
-  midiAccess.onstatechange = (e) => {
+  try { const ma = await navigator.requestMIDIAccess(); setupMIDI(ma); } catch {}
+}
+
+function setupMIDI(ma) {
+  for (const inp of ma.inputs.values()) { autoCreateSources(inp.name || "keyboard"); inp.onmidimessage = onMIDIMessage; }
+  ma.onstatechange = (e) => {
     if (e.port.type === "input" && e.port.state === "connected") { autoCreateSources(e.port.name || "keyboard"); e.port.onmidimessage = onMIDIMessage; }
   };
 }
