@@ -110,12 +110,11 @@ function buildGraph(patch) {
     }
   }
 
-  // build entry points (router -> synth graph)
+  // build entry points (router:channel -> synth graph)
   for (const entry of patch.entries) {
-    if (!graph.entries.has(entry.routerId)) {
-      graph.entries.set(entry.routerId, []);
-    }
-    graph.entries.get(entry.routerId).push({
+    const key = entry.routerId + ":" + (entry.routerOutlet || 0);
+    if (!graph.entries.has(key)) graph.entries.set(key, []);
+    graph.entries.get(key).push({
       targetBox: entry.targetBox,
       targetInlet: entry.targetInlet,
     });
@@ -154,6 +153,7 @@ function evaluateNode(graph, boxId) {
       const d = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1;
       return d !== 0 ? (iv[0] || 0) % d : 0;
     }
+    case "**": return Math.pow(iv[0] || 0, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
     case "scale": {
       const min = parseFloat(args[0]) || 0;
       const max = parseFloat(args[1]) || 1;
@@ -260,8 +260,9 @@ function handleEvent(graph, boxId) {
 }
 
 // process a router value message: { type: "rv", r: routerId, v: value }
-function processRouterValue(graph, routerId, value) {
-  const entries = graph.entries.get(routerId);
+function processRouterValue(graph, routerId, channel, value) {
+  const key = routerId + ":" + (channel || 0);
+  const entries = graph.entries.get(key);
   if (!entries) return {};
 
   let allUpdates = {};

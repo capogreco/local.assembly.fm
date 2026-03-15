@@ -90,10 +90,11 @@ class VoiceProcessor extends AudioWorkletProcessor {
       const msg = e.data;
       if (msg.type === "params") {
         for (const key of Object.keys(this.targets)) {
-          if (msg[key] !== undefined) {
-            this.targets[key] = msg[key];
-          }
+          if (msg[key] !== undefined) this.targets[key] = msg[key];
         }
+        // safety clamps
+        this.targets.frequency = Math.max(20, Math.min(20000, this.targets.frequency));
+        this.targets.amplitude = Math.max(0, Math.min(1, this.targets.amplitude));
       }
     };
   }

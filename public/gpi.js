@@ -450,18 +450,12 @@ function isSynthSide(boxId) {
   return zone === "synth" || (zone === "any" && isSynthZone(box.x, box.y));
 }
 
-function findFreeRouterChannel(nearX) {
+function findNearestAllRouter(nearX) {
   let best = null, bestDist = Infinity;
   for (const [id, box] of boxes) {
     if (!isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
-    const channels = parseInt(box.text.split(/\s+/)[1]) || 1;
-    for (let ch = 0; ch < channels; ch++) {
-      if (!inletHasCable(id, ch)) {
-        const dist = Math.abs(box.x + boxWidth(box, id) / 2 - nearX);
-        if (dist < bestDist) { best = { routerId: id, channel: ch }; bestDist = dist; }
-        break;
-      }
-    }
+    const dist = Math.abs(box.x + boxWidth(box, id) / 2 - nearX);
+    if (dist < bestDist) { best = id; bestDist = dist; }
   }
   return best;
 }
@@ -469,24 +463,41 @@ function findFreeRouterChannel(nearX) {
 function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
   const srcBox = boxes.get(srcBoxId), dstBox = boxes.get(dstBoxId);
   const midX = (srcBox.x + dstBox.x) / 2;
-  let route = findFreeRouterChannel(midX);
+  let routerId = findNearestAllRouter(midX);
 
-  if (!route) {
-    const id = nextId++;
+  if (routerId !== null) {
+    // add a channel to the existing router
+    const router = boxes.get(routerId);
+    const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
+    const newText = "all " + (oldChannels + 1);
+    router.text = newText;
+    const ports = getBoxPorts(newText);
+    router.inlets = ports.inlets; router.outlets = ports.outlets;
+    sendEdit({ action: "box-text", id: routerId, text: newText });
+    const channel = oldChannels; // new channel is at the end
+
+    const cableId1 = nextId++, cableId2 = nextId++;
+    cables.set(cableId1, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
+    cables.set(cableId2, { srcBox: routerId, srcOutlet: channel, dstBox: dstBoxId, dstInlet: dstInlet });
+    sendEdit({ action: "cable-create", id: cableId1, srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
+    sendEdit({ action: "cable-create", id: cableId2, srcBox: routerId, srcOutlet: channel, dstBox: dstBoxId, dstInlet: dstInlet });
+  } else {
+    // create a new all 1 router
+    routerId = nextId++;
     const ports = getBoxPorts("all 1");
     const newRouter = { x: midX - 20, y: synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets };
-    boxes.set(id, newRouter);
-    sendEdit({ action: "box-create", id, x: newRouter.x, y: newRouter.y, text: "all 1" });
-    route = { routerId: id, channel: 0 };
+    boxes.set(routerId, newRouter);
+    sendEdit({ action: "box-create", id: routerId, x: newRouter.x, y: newRouter.y, text: "all 1" });
+
+    const cableId1 = nextId++, cableId2 = nextId++;
+    cables.set(cableId1, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
+    cables.set(cableId2, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet: dstInlet });
+    sendEdit({ action: "cable-create", id: cableId1, srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
+    sendEdit({ action: "cable-create", id: cableId2, srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet: dstInlet });
   }
 
-  const cableId1 = nextId++, cableId2 = nextId++;
-  cables.set(cableId1, { srcBox: srcBoxId, srcOutlet, dstBox: route.routerId, dstInlet: route.channel });
-  cables.set(cableId2, { srcBox: route.routerId, srcOutlet: route.channel, dstBox: dstBoxId, dstInlet: dstInlet });
-  sendEdit({ action: "cable-create", id: cableId1, srcBox: srcBoxId, srcOutlet, dstBox: route.routerId, dstInlet: route.channel });
-  sendEdit({ action: "cable-create", id: cableId2, srcBox: route.routerId, srcOutlet: route.channel, dstBox: dstBoxId, dstInlet: dstInlet });
   markDirty(dstBoxId);
-  markDirty(route.routerId);
+  markDirty(routerId);
 }
 
 // --- mouse ---

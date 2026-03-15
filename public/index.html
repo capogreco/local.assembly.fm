@@ -58,6 +58,11 @@
     #browser-hint { color: #555; cursor: pointer; }
     #status-bar.connected { color: #666; }
     #status-bar.disconnected { color: #444; }
+    #param-display {
+      position: fixed; top: 10px; left: 10px;
+      font-family: "IBM Plex Mono", monospace; font-size: 11px;
+      color: #666; white-space: pre; z-index: 5;
+    }
   </style>
 </head>
 <body>
@@ -65,6 +70,7 @@
   <div id="overlay">
     <span>tap to start</span>
   </div>
+  <div id="param-display"></div>
   <div id="status-bar" class="disconnected">
     <span id="conn-status">disconnected</span>
     <span id="client-count"></span>
@@ -72,6 +78,7 @@
   </div>
   <script src="graph.js"></script>
   <script src="connection.js"></script>
+  <script src="scope.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
