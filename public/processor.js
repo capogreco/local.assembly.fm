@@ -15,7 +15,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
       { name: "zingAmount", defaultValue: 0.5, automationRate: "k-rate" },
       { name: "zingMorph",  defaultValue: 0.5, automationRate: "k-rate" },
       { name: "symmetry",   defaultValue: 0.5, automationRate: "k-rate" },
-      { name: "amplitude",  defaultValue: 0.1, automationRate: "k-rate" },
+      { name: "amplitude",  defaultValue: 0, automationRate: "k-rate" },
     ];
   }
 
@@ -32,7 +32,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
     // Portamento targets and current values
     this.targets = {
       frequency: 220, vowelX: 0.5, vowelY: 0.5,
-      zingAmount: 0.5, zingMorph: 0.5, symmetry: 0.5, amplitude: 0.1,
+      zingAmount: 0.5, zingMorph: 0.5, symmetry: 0.5, amplitude: 0,
     };
     this.current = { ...this.targets };
 
