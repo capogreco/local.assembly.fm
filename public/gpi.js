@@ -7,8 +7,8 @@
 
 import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef } from "./gpi-types.js";
 
+// DOM elements
 const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
 const input = document.getElementById("box-input");
 const tooltipEl = document.getElementById("tooltip");
 
@@ -21,34 +21,23 @@ const COLORS = {
   synthBorder: "#555", synthLabel: "#555", synthHandle: "#666",
   routerFill: "#2a2a2a", routerStroke: "#555",
   abstractionFill: "#2a2a3a", abstractionStroke: "#668",
+  commentText: "#888",
 };
 const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, SYNTH_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
+const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 
-// --- state ---
+// --- global state ---
 
-const boxes = new Map();
-const cables = new Map();
-const selection = new Set();
-const cableSelection = new Set();
-const boxValues = new Map();
-let nextId = 1;
-let mode = "idle";
-let dragStart = null, dragBoxPositions = null, cableFrom = null;
-let dragSnapshot = null;
-let mousePos = { x: 0, y: 0 }, editingBoxId = null;
-let synthBorderY = window.innerHeight * 0.55;
-let hoverTimer = null, lastHoverTarget = null;
 let ws = null, wsConnected = false;
-let applied = false;        // has the current state been applied?
-let dirty = false;          // have we made changes since last apply?
 let connectedClients = 0;
 let midiDeviceNames = [];
+let currentPatchName = null;
 
 // --- abstraction registry ---
 
-const abstractionTypes = new Map();  // name → { inlets, outlets, def }
+const abstractionTypes = new Map();
 
 async function loadAbstractions() {
   try {
@@ -58,7 +47,6 @@ async function loadAbstractions() {
     for (const name of names) {
       const absRes = await fetch(`/abstractions/${encodeURIComponent(name)}`);
       const data = await absRes.json();
-      // Count inlet/outlet boxes to determine port counts
       let maxInlet = -1, maxOutlet = -1;
       for (const [, box] of data.boxes) {
         const type = boxTypeName(box.text);
@@ -74,134 +62,31 @@ async function loadAbstractions() {
       });
     }
     console.log(`Loaded ${abstractionTypes.size} abstraction(s)`);
-    render();
+    mainEditor?.render();
   } catch (e) {
     console.error("Failed to load abstractions:", e);
   }
-}
-
-function getAbstractionPorts(text) {
-  const name = boxTypeName(text);
-  const abs = abstractionTypes.get(name);
-  if (abs) return { inlets: abs.inlets, outlets: abs.outlets };
-  return null;
-}
-
-function getAbstractionDef(text) {
-  const name = boxTypeName(text);
-  const abs = abstractionTypes.get(name);
-  return abs ? abs.def : null;
 }
 
 function isAbstraction(text) {
   return abstractionTypes.has(boxTypeName(text));
 }
 
-// Wrap gpi-types helpers to also check abstractions
-function getPortsWithAbstractions(text) {
-  const abs = getAbstractionPorts(text);
-  if (abs) return abs;
+function getPorts(text) {
+  const name = boxTypeName(text);
+  const abs = abstractionTypes.get(name);
+  if (abs) return { inlets: abs.inlets, outlets: abs.outlets };
   return getBoxPorts(text);
 }
 
-function getDefWithAbstractions(text) {
-  const abs = getAbstractionDef(text);
-  if (abs) return abs;
+function getDef(text) {
+  const name = boxTypeName(text);
+  const abs = abstractionTypes.get(name);
+  if (abs) return abs.def;
   return getBoxDef(text);
 }
 
-// Use these wrappers throughout instead of direct gpi-types calls
-const getPorts = getPortsWithAbstractions;
-const getDef = getDefWithAbstractions;
-
-// --- undo stack ---
-
-const undoStack = [];
-const MAX_UNDO = 50;
-
-function serialize() {
-  return JSON.stringify({ boxes: [...boxes.entries()], cables: [...cables.entries()], nextId, synthBorderY });
-}
-
-function pushUndo() {
-  undoStack.push(serialize());
-  if (undoStack.length > MAX_UNDO) undoStack.shift();
-  dirty = true;
-}
-
-function undo() {
-  if (undoStack.length === 0) return;
-  const json = undoStack.pop();
-  loadFromJSON(json);
-  dirty = true;
-  render();
-}
-
-function loadFromJSON(json) {
-  try {
-    const data = JSON.parse(json);
-    boxes.clear(); cables.clear();
-    for (const [id, box] of data.boxes) { const p = getPorts(box.text); box.inlets = p.inlets; box.outlets = p.outlets; boxes.set(id, box); }
-    for (const [id, cable] of data.cables) cables.set(id, cable);
-    nextId = data.nextId || 1;
-    if (data.synthBorderY !== undefined) synthBorderY = data.synthBorderY;
-    selection.clear(); cableSelection.clear();
-  } catch (e) { console.error("Failed to load patch:", e); }
-}
-
-// --- geometry ---
-
-function isSynthZone(px, py) { return py >= synthBorderY; }
-function hitTestSynthHandle(mx, my) {
-  return Math.abs(mx - SYNTH_HANDLE) < SYNTH_HANDLE && Math.abs(my - synthBorderY) < SYNTH_HANDLE;
-}
-
-function measureText(text) { ctx.font = FONT; return ctx.measureText(text).width; }
-
-function boxWidth(box, id) {
-  let text = (id !== undefined && id === editingBoxId) ? (input.value || " ") : (box.text || " ");
-  if (boxTypeName(box.text) === "print" && id !== undefined && boxValues.has(id)) {
-    const v = boxValues.get(id);
-    text = "print " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
-  }
-  return Math.ceil(Math.max(measureText(text) + BOX_PAD_X * 2, (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 30));
-}
-
-function inletPos(box, i, id) {
-  const w = boxWidth(box, id), s = w / (box.inlets + 1);
-  return { x: box.x + s * (i + 1), y: box.y };
-}
-
-function outletPos(box, i, id) {
-  const w = boxWidth(box, id), s = w / (box.outlets + 1);
-  return { x: box.x + s * (i + 1), y: box.y + BOX_HEIGHT };
-}
-
-// --- hit testing ---
-
-function hitTestOutlet(mx, my) {
-  for (const [id, box] of boxes) for (let i = 0; i < box.outlets; i++) {
-    const p = outletPos(box, i, id);
-    if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
-  }
-  return null;
-}
-
-function hitTestInlet(mx, my) {
-  for (const [id, box] of boxes) for (let i = 0; i < box.inlets; i++) {
-    const p = inletPos(box, i, id);
-    if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
-  }
-  return null;
-}
-
-function hitTestBox(mx, my) {
-  for (const [id, box] of [...boxes.entries()].reverse()) {
-    const w = boxWidth(box, id);
-    if (mx >= box.x && mx <= box.x + w && my >= box.y && my <= box.y + BOX_HEIGHT) return id;
-  }
-  return null;
-}
+// --- utility ---
 
 function distToSeg(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, lenSq = dx * dx + dy * dy;
@@ -210,728 +95,1138 @@ function distToSeg(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
-function hitTestCable(mx, my) {
-  for (const [id, cable] of cables) {
-    const from = cableFromPos(cable), to = cableToPos(cable);
-    if (from && to && distToSeg(mx, my, from.x, from.y, to.x, to.y) < 4) return id;
+// =============================================================================
+// PatchEditor Class
+// =============================================================================
+
+class PatchEditor {
+  constructor(canvas, options = {}) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.input = options.input ?? null;
+
+    // Patch data
+    this.boxes = new Map();
+    this.cables = new Map();
+    this.nextId = 1;
+
+    // Selection
+    this.selection = new Set();
+    this.cableSelection = new Set();
+
+    // Runtime values
+    this.boxValues = new Map();
+
+    // Interaction state
+    this.mode = "idle";
+    this.dragStart = null;
+    this.dragBoxPositions = null;
+    this.cableFrom = null;
+    this.dragSnapshot = null;
+    this.mousePos = { x: 0, y: 0 };
+    this.editingBoxId = null;
+
+    // Layout
+    this.synthBorderY = options.synthBorderY ?? canvas.height * 0.55;
+    this.showSynthBorder = options.showSynthBorder ?? true;
+
+    // Undo
+    this.undoStack = [];
+    this.maxUndo = 50;
+
+    // Status
+    this.dirty = false;
+    this.applied = false;
+
+    // Callbacks
+    this.onDirty = options.onDirty ?? (() => {});
+    this.renderOverlay = options.renderOverlay ?? (() => {});
+
+    // Bind handlers
+    this._onMouseDown = this._onMouseDown.bind(this);
+    this._onMouseMove = this._onMouseMove.bind(this);
+    this._onMouseUp = this._onMouseUp.bind(this);
+    this._onDblClick = this._onDblClick.bind(this);
   }
-  return null;
-}
 
-// --- cable helpers ---
+  bindEvents() {
+    this.canvas.addEventListener("mousedown", this._onMouseDown);
+    this.canvas.addEventListener("mousemove", this._onMouseMove);
+    this.canvas.addEventListener("mouseup", this._onMouseUp);
+    this.canvas.addEventListener("dblclick", this._onDblClick);
+  }
 
-function cableFromPos(c) { const b = boxes.get(c.srcBox); return b ? outletPos(b, c.srcOutlet, c.srcBox) : null; }
-function cableToPos(c) { const b = boxes.get(c.dstBox); return b ? inletPos(b, c.dstInlet, c.dstBox) : null; }
-function inletHasCable(boxId, inlet) { for (const c of cables.values()) if (c.dstBox === boxId && c.dstInlet === inlet) return true; return false; }
+  unbindEvents() {
+    this.canvas.removeEventListener("mousedown", this._onMouseDown);
+    this.canvas.removeEventListener("mousemove", this._onMouseMove);
+    this.canvas.removeEventListener("mouseup", this._onMouseUp);
+    this.canvas.removeEventListener("dblclick", this._onDblClick);
+  }
 
-// --- router snapping ---
+  // --- Serialization ---
 
-function isRouterType(text) { return getBoxZone(text) === "router"; }
+  serialize() {
+    return JSON.stringify({
+      boxes: [...this.boxes.entries()],
+      cables: [...this.cables.entries()],
+      nextId: this.nextId,
+      synthBorderY: this.synthBorderY
+    });
+  }
 
-// --- tooltip ---
-
-function showTooltip(x, y, html) {
-  tooltipEl.innerHTML = html; tooltipEl.style.display = "block";
-  tooltipEl.style.left = (x + 12) + "px"; tooltipEl.style.top = (y + 12) + "px";
-  const r = tooltipEl.getBoundingClientRect();
-  if (r.right > window.innerWidth) tooltipEl.style.left = (x - r.width - 4) + "px";
-  if (r.bottom > window.innerHeight) tooltipEl.style.top = (y - r.height - 4) + "px";
-}
-
-function hideTooltip() {
-  tooltipEl.style.display = "none";
-  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
-  lastHoverTarget = null;
-}
-
-function getHoverTarget(mx, my) {
-  for (const [id, box] of boxes) {
-    const def = getDef(box.text); if (!def) continue;
-    for (let i = 0; i < box.outlets; i++) {
-      const p = outletPos(box, i, id);
-      if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT)
-        return { kind: "outlet", boxId: id, index: i, def, x: mx, y: my };
+  load(data) {
+    if (typeof data === "string") data = JSON.parse(data);
+    this.boxes.clear();
+    this.cables.clear();
+    for (const [id, box] of data.boxes) {
+      const p = getPorts(box.text);
+      box.inlets = p.inlets;
+      box.outlets = p.outlets;
+      this.boxes.set(id, box);
     }
-    for (let i = 0; i < box.inlets; i++) {
-      const p = inletPos(box, i, id);
-      if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT)
-        return { kind: "inlet", boxId: id, index: i, def, x: mx, y: my };
+    for (const [id, cable] of data.cables) this.cables.set(id, cable);
+    this.nextId = data.nextId || 1;
+    if (data.synthBorderY !== undefined) this.synthBorderY = data.synthBorderY;
+    this.selection.clear();
+    this.cableSelection.clear();
+  }
+
+  // --- Undo ---
+
+  pushUndo() {
+    this.undoStack.push(this.serialize());
+    if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
+    this.dirty = true;
+    this.onDirty();
+  }
+
+  undo() {
+    if (this.undoStack.length === 0) return;
+    this.load(this.undoStack.pop());
+    this.dirty = true;
+    this.onDirty();
+    this.render();
+  }
+
+  // --- Geometry ---
+
+  canvasCoords(e) {
+    const r = this.canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  isSynthZone(y) { return y >= this.synthBorderY; }
+
+  hitTestSynthHandle(mx, my) {
+    if (!this.showSynthBorder) return false;
+    return Math.abs(mx - SYNTH_HANDLE) < SYNTH_HANDLE && Math.abs(my - this.synthBorderY) < SYNTH_HANDLE;
+  }
+
+  measureText(text) {
+    this.ctx.font = FONT;
+    return this.ctx.measureText(text).width;
+  }
+
+  boxWidth(box, id) {
+    let text = (id !== undefined && id === this.editingBoxId && this.input)
+      ? (this.input.value || " ") : (box.text || " ");
+    if (boxTypeName(box.text) === "print" && id !== undefined && this.boxValues.has(id)) {
+      const v = this.boxValues.get(id);
+      text = "print " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
-  }
-  const boxId = hitTestBox(mx, my);
-  if (boxId !== null) { const def = getDef(boxes.get(boxId).text); if (def) return { kind: "box", boxId, def, x: mx, y: my }; }
-  return null;
-}
-
-function buildTooltipHtml(target) {
-  const def = target.def;
-  if (target.kind === "inlet" || target.kind === "outlet") {
-    const port = (target.kind === "inlet" ? def.inlets : def.outlets)[target.index];
-    return port ? `<span class="tt-name">${port.name}</span> <span class="tt-type">${port.type}</span><br>${port.description}` : null;
-  }
-  let html = `<span class="tt-name">${boxTypeName(boxes.get(target.boxId).text)}</span><br>${def.description}`;
-  if (def.example) html += `<br><span class="tt-type">${def.example}</span>`;
-  return html;
-}
-
-// --- render ---
-
-function render() {
-  const dpr = window.devicePixelRatio || 1;
-  const w = window.innerWidth, h = window.innerHeight;
-  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.scale(dpr, dpr);
-
-  ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, w, h);
-
-  // status label (top left)
-  ctx.font = SMALL_FONT; ctx.textBaseline = "top";
-  if (dirty) { ctx.fillStyle = "#865"; ctx.fillText("modified", 12, 8); }
-  else if (applied) { ctx.fillStyle = "#686"; ctx.fillText("applied", 12, 8); }
-  else { ctx.fillStyle = "#555"; ctx.fillText("edit", 12, 8); }
-
-  // dot grid
-  ctx.fillStyle = "#333";
-  for (let x = 20; x < w; x += 20) for (let y = 20; y < h; y += 20) ctx.fillRect(x, y, 1, 1);
-
-  // synth border
-  ctx.strokeStyle = COLORS.synthBorder; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, synthBorderY); ctx.lineTo(w, synthBorderY); ctx.stroke();
-  ctx.fillStyle = COLORS.synthHandle;
-  ctx.fillRect(SYNTH_HANDLE / 2, synthBorderY - SYNTH_HANDLE / 2, SYNTH_HANDLE, SYNTH_HANDLE);
-  ctx.font = SMALL_FONT; ctx.fillStyle = COLORS.synthLabel;
-  ctx.textBaseline = "bottom"; ctx.fillText("ctrl", 12, synthBorderY - 6);
-  ctx.textBaseline = "top"; ctx.fillText("synth", 12, synthBorderY + 6);
-
-  // connected devices (ctrl section, right side)
-  ctx.fillStyle = "#444"; ctx.textBaseline = "top"; ctx.textAlign = "right";
-  if (midiDeviceNames.length > 0) {
-    for (let i = 0; i < midiDeviceNames.length; i++) ctx.fillText(midiDeviceNames[i], w - 12, 12 + i * 14);
+    return Math.ceil(Math.max(this.measureText(text) + BOX_PAD_X * 2, (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 30));
   }
 
-  // connected clients (synth section, right side)
-  ctx.fillStyle = "#444";
-  ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, synthBorderY + 8);
-  ctx.textAlign = "left";
-  ctx.font = FONT;
-
-  // cables
-  ctx.lineWidth = 1;
-  for (const [id, cable] of cables) {
-    const from = cableFromPos(cable), to = cableToPos(cable); if (!from || !to) continue;
-    ctx.strokeStyle = cableSelection.has(id) ? COLORS.boxSelectedStroke : COLORS.cable;
-    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+  inletPos(box, i, id) {
+    const w = this.boxWidth(box, id), s = w / (box.inlets + 1);
+    return { x: box.x + s * (i + 1), y: box.y };
   }
 
-  // in-progress cable
-  if (mode === "cabling" && cableFrom) {
-    const src = boxes.get(cableFrom.boxId);
-    const from = src ? outletPos(src, cableFrom.index, cableFrom.boxId) : null;
-    if (from) {
-      ctx.strokeStyle = COLORS.cableInProgress; ctx.setLineDash([4, 4]);
-      ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(mousePos.x, mousePos.y); ctx.stroke();
-      ctx.setLineDash([]);
-    }
+  outletPos(box, i, id) {
+    const w = this.boxWidth(box, id), s = w / (box.outlets + 1);
+    return { x: box.x + s * (i + 1), y: box.y + BOX_HEIGHT };
   }
 
-  // marquee
-  if (mode === "selecting" && dragStart) {
-    const x0 = Math.min(dragStart.x, mousePos.x), y0 = Math.min(dragStart.y, mousePos.y);
-    const sw = Math.abs(mousePos.x - dragStart.x), sh = Math.abs(mousePos.y - dragStart.y);
-    ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.strokeRect(x0, y0, sw, sh);
-    ctx.setLineDash([]);
-  }
+  // --- Hit Testing ---
 
-  // boxes
-  ctx.font = FONT;
-  for (const [id, box] of boxes) {
-    const bw = boxWidth(box, id), selected = selection.has(id);
-    const def = getDef(box.text), zone = def ? def.zone : "any";
-    const isRouter = zone === "router", isUnknown = !def && box.text.length > 0;
-    const isAbs = isAbstraction(box.text);
-
-    ctx.fillStyle = selected ? COLORS.boxSelectedFill
-      : isRouter ? COLORS.routerFill
-      : isAbs ? COLORS.abstractionFill
-      : COLORS.boxFill;
-    ctx.fillRect(box.x, box.y, bw, BOX_HEIGHT);
-    ctx.strokeStyle = selected ? COLORS.boxSelectedStroke
-      : isRouter ? COLORS.routerStroke
-      : isAbs ? COLORS.abstractionStroke
-      : COLORS.boxStroke;
-    ctx.lineWidth = 1;
-    if (isUnknown) ctx.setLineDash([4, 3]);
-    ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
-    if (isUnknown) ctx.setLineDash([]);
-
-    if (boxValues.has(id)) {
-      const val = boxValues.get(id);
-      if (val >= 0 && val <= 1) { ctx.fillStyle = "#4a4a4a"; ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * val, BOX_HEIGHT - 2); }
-    }
-
-    if (editingBoxId !== id) {
-      ctx.fillStyle = COLORS.text; ctx.textBaseline = "middle";
-      if (boxTypeName(box.text) === "print" && boxValues.has(id)) {
-        const v = boxValues.get(id);
-        const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
-        ctx.fillText("print " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
-      } else {
-        ctx.fillText(box.text, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+  hitTestOutlet(mx, my) {
+    for (const [id, box] of this.boxes) {
+      for (let i = 0; i < box.outlets; i++) {
+        const p = this.outletPos(box, i, id);
+        if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
       }
     }
-
-    ctx.fillStyle = COLORS.port;
-    for (let i = 0; i < box.inlets; i++) { const p = inletPos(box, i, id); ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H); }
-    for (let i = 0; i < box.outlets; i++) { const p = outletPos(box, i, id); ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H); }
+    return null;
   }
 
-  // connection status dot
-  ctx.beginPath(); ctx.arc(w - 16, 16, 4, 0, Math.PI * 2);
-  ctx.fillStyle = wsConnected ? "#686" : "#865"; ctx.fill();
-
-  ctx.restore();
-}
-
-// --- canvas sizing ---
-
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = window.innerWidth * dpr; canvas.height = window.innerHeight * dpr;
-  render();
-}
-window.addEventListener("resize", resize); resize();
-
-// --- text input ---
-
-function startEditing(boxId) {
-  const box = boxes.get(boxId); if (!box) return;
-  editingBoxId = boxId; mode = "editing";
-  const w = Math.max(boxWidth(box, boxId), 80);
-  Object.assign(input.style, { left: (box.x + BOX_PAD_X) + "px", top: box.y + "px", width: w + "px", height: BOX_HEIGHT + "px", lineHeight: BOX_HEIGHT + "px", display: "block" });
-  input.value = box.text; input.focus(); input.select(); render();
-}
-
-function finishEditing(confirm) {
-  if (editingBoxId === null) return;
-  const box = boxes.get(editingBoxId);
-  if (confirm && input.value.trim()) {
-    pushUndo();
-    const newText = input.value.trim();
-    box.text = newText;
-    const ports = getPorts(newText);
-    box.inlets = ports.inlets; box.outlets = ports.outlets;
-    // prune invalid cables
-    for (const [id, c] of cables) {
-      if (c.srcBox === editingBoxId && c.srcOutlet >= box.outlets) cables.delete(id);
-      if (c.dstBox === editingBoxId && c.dstInlet >= box.inlets) cables.delete(id);
+  hitTestInlet(mx, my) {
+    for (const [id, box] of this.boxes) {
+      for (let i = 0; i < box.inlets; i++) {
+        const p = this.inletPos(box, i, id);
+        if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
+      }
     }
-    if (isRouterType(newText)) box.y = synthBorderY - BOX_HEIGHT / 2;
-    const zone = getBoxZone(newText);
-    if (zone === "synth" && !isSynthZone(box.x, box.y)) box.y = synthBorderY + 20;
-    else if (zone === "ctrl" && isSynthZone(box.x, box.y)) box.y = synthBorderY - BOX_HEIGHT - 20;
-  } else if (!box.text) {
-    pushUndo();
-    for (const [id, c] of cables) if (c.srcBox === editingBoxId || c.dstBox === editingBoxId) cables.delete(id);
-    boxes.delete(editingBoxId); selection.delete(editingBoxId);
+    return null;
   }
-  editingBoxId = null; mode = "idle"; input.style.display = "none"; input.value = ""; render();
-}
 
-input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); finishEditing(true); } else if (e.key === "Escape") { e.preventDefault(); finishEditing(false); } });
-input.addEventListener("input", () => { if (editingBoxId === null) return; const w = Math.max(measureText(input.value || " ") + BOX_PAD_X * 2, 80); input.style.width = w + "px"; render(); });
-input.addEventListener("blur", () => finishEditing(true));
-
-// --- smart routing ---
-
-function isSynthSide(boxId) {
-  const box = boxes.get(boxId); if (!box) return false;
-  const def = getDef(box.text);
-  const zone = def ? def.zone : "any";
-  return zone === "synth" || (zone === "any" && isSynthZone(box.x, box.y));
-}
-
-function findNearestAllRouter(nearX) {
-  let best = null, bestDist = Infinity;
-  for (const [id, box] of boxes) {
-    if (!isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
-    const dist = Math.abs(box.x + boxWidth(box, id) / 2 - nearX);
-    if (dist < bestDist) { best = id; bestDist = dist; }
+  hitTestBox(mx, my) {
+    for (const [id, box] of [...this.boxes.entries()].reverse()) {
+      const w = this.boxWidth(box, id);
+      if (mx >= box.x && mx <= box.x + w && my >= box.y && my <= box.y + BOX_HEIGHT) return id;
+    }
+    return null;
   }
-  return best;
-}
 
-function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
-  const srcBox = boxes.get(srcBoxId), dstBox = boxes.get(dstBoxId);
-  const midX = (srcBox.x + dstBox.x) / 2;
-  let routerId = findNearestAllRouter(midX);
+  hitTestCable(mx, my) {
+    for (const [id, cable] of this.cables) {
+      const from = this.cableFromPos(cable), to = this.cableToPos(cable);
+      if (from && to && distToSeg(mx, my, from.x, from.y, to.x, to.y) < 4) return id;
+    }
+    return null;
+  }
 
-  if (routerId !== null) {
-    const router = boxes.get(routerId);
+  cableFromPos(c) {
+    const b = this.boxes.get(c.srcBox);
+    return b ? this.outletPos(b, c.srcOutlet, c.srcBox) : null;
+  }
+
+  cableToPos(c) {
+    const b = this.boxes.get(c.dstBox);
+    return b ? this.inletPos(b, c.dstInlet, c.dstBox) : null;
+  }
+
+  inletHasCable(boxId, inlet) {
+    for (const c of this.cables.values()) {
+      if (c.dstBox === boxId && c.dstInlet === inlet) return true;
+    }
+    return false;
+  }
+
+  // --- Routing ---
+
+  isSynthSide(boxId) {
+    const box = this.boxes.get(boxId);
+    if (!box) return false;
+    const def = getDef(box.text);
+    const zone = def ? def.zone : "any";
+    return zone === "synth" || (zone === "any" && this.isSynthZone(box.y));
+  }
+
+  isRouterType(text) { return getBoxZone(text) === "router"; }
+
+  findNearestAllRouter(nearX) {
+    let best = null, bestDist = Infinity;
+    for (const [id, box] of this.boxes) {
+      if (!this.isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
+      const dist = Math.abs(box.x + this.boxWidth(box, id) / 2 - nearX);
+      if (dist < bestDist) { best = id; bestDist = dist; }
+    }
+    return best;
+  }
+
+  autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
+    const srcBox = this.boxes.get(srcBoxId), dstBox = this.boxes.get(dstBoxId);
+    const midX = (srcBox.x + dstBox.x) / 2;
+    let routerId = this.findNearestAllRouter(midX);
+
+    if (routerId !== null) {
+      const router = this.boxes.get(routerId);
+      const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
+      router.text = "all " + (oldChannels + 1);
+      const ports = getPorts(router.text);
+      router.inlets = ports.inlets;
+      router.outlets = ports.outlets;
+      const channel = oldChannels;
+      this.cables.set(this.nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
+      this.cables.set(this.nextId++, { srcBox: routerId, srcOutlet: channel, dstBox: dstBoxId, dstInlet });
+      this.sortRouterChannels(routerId);
+    } else {
+      routerId = this.nextId++;
+      const ports = getPorts("all 1");
+      this.boxes.set(routerId, { x: midX - 20, y: this.synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
+      this.cables.set(this.nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
+      this.cables.set(this.nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet });
+    }
+  }
+
+  sortRouterChannels(routerId) {
+    const router = this.boxes.get(routerId);
+    if (!router) return;
+    const channels = parseInt(router.text.split(/\s+/)[1]) || 1;
+    const channelInfo = [];
+    for (let ch = 0; ch < channels; ch++) {
+      let ctrlX = 0;
+      for (const [, c] of this.cables) {
+        if (c.dstBox === routerId && c.dstInlet === ch) {
+          const src = this.boxes.get(c.srcBox);
+          if (src) ctrlX = src.x + this.boxWidth(src, c.srcBox) / 2;
+          break;
+        }
+      }
+      channelInfo.push({ ch, ctrlX });
+    }
+    const sorted = [...channelInfo].sort((a, b) => a.ctrlX - b.ctrlX);
+    const remap = new Map();
+    let changed = false;
+    for (let newCh = 0; newCh < sorted.length; newCh++) {
+      remap.set(sorted[newCh].ch, newCh);
+      if (sorted[newCh].ch !== newCh) changed = true;
+    }
+    if (!changed) return;
+    for (const [, c] of this.cables) {
+      if (c.dstBox === routerId && remap.has(c.dstInlet)) c.dstInlet = remap.get(c.dstInlet);
+      if (c.srcBox === routerId && remap.has(c.srcOutlet)) c.srcOutlet = remap.get(c.srcOutlet);
+    }
+  }
+
+  removeRouterChannel(routerId, channel) {
+    const router = this.boxes.get(routerId);
+    if (!router) return;
     const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
-    const newText = "all " + (oldChannels + 1);
-    router.text = newText;
-    const ports = getPorts(newText);
-    router.inlets = ports.inlets; router.outlets = ports.outlets;
-    const channel = oldChannels;
-    cables.set(nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
-    cables.set(nextId++, { srcBox: routerId, srcOutlet: channel, dstBox: dstBoxId, dstInlet: dstInlet });
-    sortRouterChannels(routerId);
-  } else {
-    routerId = nextId++;
-    const ports = getPorts("all 1");
-    boxes.set(routerId, { x: midX - 20, y: synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
-    cables.set(nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
-    cables.set(nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet: dstInlet });
-  }
-}
-
-// --- sort router channels by x-position to minimise cable tangle ---
-
-function sortRouterChannels(routerId) {
-  const router = boxes.get(routerId);
-  if (!router) return;
-  const channels = parseInt(router.text.split(/\s+/)[1]) || 1;
-
-  const channelInfo = [];
-  for (let ch = 0; ch < channels; ch++) {
-    let ctrlX = 0;
-    for (const [, c] of cables) {
-      if (c.dstBox === routerId && c.dstInlet === ch) {
-        const src = boxes.get(c.srcBox);
-        if (src) ctrlX = src.x + boxWidth(src, c.srcBox) / 2;
-        break;
+    if (oldChannels <= 1) {
+      for (const [cid, c] of this.cables) {
+        if (c.srcBox === routerId || c.dstBox === routerId) this.cables.delete(cid);
       }
+      this.boxes.delete(routerId);
+      return;
     }
-    channelInfo.push({ ch, ctrlX });
+    router.text = "all " + (oldChannels - 1);
+    const ports = getPorts(router.text);
+    router.inlets = ports.inlets;
+    router.outlets = ports.outlets;
+    for (const [, c] of this.cables) {
+      if (c.dstBox === routerId && c.dstInlet > channel) c.dstInlet--;
+      if (c.srcBox === routerId && c.srcOutlet > channel) c.srcOutlet--;
+    }
   }
 
-  const sorted = [...channelInfo].sort((a, b) => a.ctrlX - b.ctrlX);
-  const remap = new Map();
-  let changed = false;
-  for (let newCh = 0; newCh < sorted.length; newCh++) {
-    remap.set(sorted[newCh].ch, newCh);
-    if (sorted[newCh].ch !== newCh) changed = true;
-  }
-  if (!changed) return;
-
-  for (const [, c] of cables) {
-    if (c.dstBox === routerId && remap.has(c.dstInlet)) c.dstInlet = remap.get(c.dstInlet);
-    if (c.srcBox === routerId && remap.has(c.srcOutlet)) c.srcOutlet = remap.get(c.srcOutlet);
-  }
-}
-
-// --- auto-route cables that cross the border ---
-
-function autoRouteBorderCrossings(draggedIds) {
-  // reverse: dissolve router channels where both ends are now same side
-  for (const draggedId of draggedIds) {
-    const dragged = boxes.get(draggedId);
-    if (!dragged || isRouterType(dragged.text)) continue;
-    for (const [id, box] of boxes) {
-      if (!isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
-      const channels = parseInt(box.text.split(/\s+/)[1]) || 1;
-      for (let ch = channels - 1; ch >= 0; ch--) {
-        let inCable = null, inCableId = null, outCable = null, outCableId = null;
-        for (const [cid, c] of cables) {
-          if (c.dstBox === id && c.dstInlet === ch) { inCable = c; inCableId = cid; }
-          if (c.srcBox === id && c.srcOutlet === ch) { outCable = c; outCableId = cid; }
-        }
-        if (!inCable || !outCable) continue;
-        if (inCable.srcBox !== draggedId && outCable.dstBox !== draggedId) continue;
-        if (isSynthSide(inCable.srcBox) === isSynthSide(outCable.dstBox)) {
-          cables.delete(inCableId); cables.delete(outCableId);
-          cables.set(nextId++, { srcBox: inCable.srcBox, srcOutlet: inCable.srcOutlet, dstBox: outCable.dstBox, dstInlet: outCable.dstInlet });
-          removeRouterChannel(id, ch);
+  autoRouteBorderCrossings(draggedIds) {
+    // Dissolve router channels where both ends now same side
+    for (const draggedId of draggedIds) {
+      const dragged = this.boxes.get(draggedId);
+      if (!dragged || this.isRouterType(dragged.text)) continue;
+      for (const [id, box] of this.boxes) {
+        if (!this.isRouterType(box.text) || boxTypeName(box.text) !== "all") continue;
+        const channels = parseInt(box.text.split(/\s+/)[1]) || 1;
+        for (let ch = channels - 1; ch >= 0; ch--) {
+          let inCable = null, inCableId = null, outCable = null, outCableId = null;
+          for (const [cid, c] of this.cables) {
+            if (c.dstBox === id && c.dstInlet === ch) { inCable = c; inCableId = cid; }
+            if (c.srcBox === id && c.srcOutlet === ch) { outCable = c; outCableId = cid; }
+          }
+          if (!inCable || !outCable) continue;
+          if (inCable.srcBox !== draggedId && outCable.dstBox !== draggedId) continue;
+          if (this.isSynthSide(inCable.srcBox) === this.isSynthSide(outCable.dstBox)) {
+            this.cables.delete(inCableId);
+            this.cables.delete(outCableId);
+            this.cables.set(this.nextId++, { srcBox: inCable.srcBox, srcOutlet: inCable.srcOutlet, dstBox: outCable.dstBox, dstInlet: outCable.dstInlet });
+            this.removeRouterChannel(id, ch);
+          }
         }
       }
     }
-  }
-
-  // forward: route cables that now cross the border
-  const toReroute = [];
-  for (const [cableId, c] of cables) {
-    if (!draggedIds.has(c.srcBox) && !draggedIds.has(c.dstBox)) continue;
-    const srcBox = boxes.get(c.srcBox), dstBox = boxes.get(c.dstBox);
-    if (!srcBox || !dstBox) continue;
-    if (isRouterType(srcBox.text) || isRouterType(dstBox.text)) continue;
-    if (isSynthSide(c.srcBox) !== isSynthSide(c.dstBox)) {
-      toReroute.push({ cableId, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    // Route cables that now cross border
+    const toReroute = [];
+    for (const [cableId, c] of this.cables) {
+      if (!draggedIds.has(c.srcBox) && !draggedIds.has(c.dstBox)) continue;
+      const srcBox = this.boxes.get(c.srcBox), dstBox = this.boxes.get(c.dstBox);
+      if (!srcBox || !dstBox) continue;
+      if (this.isRouterType(srcBox.text) || this.isRouterType(dstBox.text)) continue;
+      if (this.isSynthSide(c.srcBox) !== this.isSynthSide(c.dstBox)) {
+        toReroute.push({ cableId, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+      }
+    }
+    for (const r of toReroute) {
+      this.cables.delete(r.cableId);
+      this.autoRoute(r.srcBox, r.srcOutlet, r.dstBox, r.dstInlet);
     }
   }
-  for (const r of toReroute) {
-    cables.delete(r.cableId);
-    autoRoute(r.srcBox, r.srcOutlet, r.dstBox, r.dstInlet);
+
+  // --- Render ---
+
+  render() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.width / dpr, h = this.canvas.height / dpr;
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.scale(dpr, dpr);
+
+    this.ctx.fillStyle = COLORS.bg;
+    this.ctx.fillRect(0, 0, w, h);
+
+    // Dot grid
+    this.ctx.fillStyle = "#333";
+    for (let x = 20; x < w; x += 20) {
+      for (let y = 20; y < h; y += 20) {
+        this.ctx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    // Synth border
+    if (this.showSynthBorder) {
+      this.ctx.strokeStyle = COLORS.synthBorder;
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(0, this.synthBorderY);
+      this.ctx.lineTo(w, this.synthBorderY);
+      this.ctx.stroke();
+      this.ctx.fillStyle = COLORS.synthHandle;
+      this.ctx.fillRect(SYNTH_HANDLE / 2, this.synthBorderY - SYNTH_HANDLE / 2, SYNTH_HANDLE, SYNTH_HANDLE);
+      this.ctx.font = SMALL_FONT;
+      this.ctx.fillStyle = COLORS.synthLabel;
+      this.ctx.textBaseline = "bottom";
+      this.ctx.fillText("ctrl", 12, this.synthBorderY - 6);
+      this.ctx.textBaseline = "top";
+      this.ctx.fillText("synth", 12, this.synthBorderY + 6);
+    }
+
+    // Cables
+    this.ctx.lineWidth = 1;
+    for (const [id, cable] of this.cables) {
+      const from = this.cableFromPos(cable), to = this.cableToPos(cable);
+      if (!from || !to) continue;
+      this.ctx.strokeStyle = this.cableSelection.has(id) ? COLORS.boxSelectedStroke : COLORS.cable;
+      this.ctx.beginPath();
+      this.ctx.moveTo(from.x, from.y);
+      this.ctx.lineTo(to.x, to.y);
+      this.ctx.stroke();
+    }
+
+    // In-progress cable
+    if (this.mode === "cabling" && this.cableFrom) {
+      const src = this.boxes.get(this.cableFrom.boxId);
+      const from = src ? this.outletPos(src, this.cableFrom.index, this.cableFrom.boxId) : null;
+      if (from) {
+        this.ctx.strokeStyle = COLORS.cableInProgress;
+        this.ctx.setLineDash([4, 4]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(from.x, from.y);
+        this.ctx.lineTo(this.mousePos.x, this.mousePos.y);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+      }
+    }
+
+    // Marquee
+    if (this.mode === "selecting" && this.dragStart) {
+      const x0 = Math.min(this.dragStart.x, this.mousePos.x);
+      const y0 = Math.min(this.dragStart.y, this.mousePos.y);
+      const sw = Math.abs(this.mousePos.x - this.dragStart.x);
+      const sh = Math.abs(this.mousePos.y - this.dragStart.y);
+      this.ctx.strokeStyle = "#555";
+      this.ctx.setLineDash([3, 3]);
+      this.ctx.strokeRect(x0, y0, sw, sh);
+      this.ctx.setLineDash([]);
+    }
+
+    // Boxes
+    this.ctx.font = FONT;
+    for (const [id, box] of this.boxes) {
+      const bw = this.boxWidth(box, id);
+      const selected = this.selection.has(id);
+      const def = getDef(box.text);
+      const zone = def ? def.zone : "any";
+      const isRouter = zone === "router";
+      const isUnknown = !def && box.text.length > 0;
+      const isAbs = isAbstraction(box.text);
+      const isComment = def?.isComment;
+
+      // Comment: just text
+      if (isComment) {
+        this.ctx.font = COMMENT_FONT;
+        this.ctx.fillStyle = selected ? COLORS.text : COLORS.commentText;
+        this.ctx.textBaseline = "middle";
+        const displayText = box.text.replace(/^comment\s*/, "");
+        if (this.editingBoxId !== id) {
+          this.ctx.fillText(displayText, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+        }
+        if (selected) {
+          this.ctx.strokeStyle = COLORS.boxSelectedStroke;
+          this.ctx.setLineDash([2, 2]);
+          this.ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
+          this.ctx.setLineDash([]);
+        }
+        this.ctx.font = FONT;
+        continue;
+      }
+
+      // Box fill
+      this.ctx.fillStyle = selected ? COLORS.boxSelectedFill
+        : isRouter ? COLORS.routerFill
+        : isAbs ? COLORS.abstractionFill
+        : COLORS.boxFill;
+      this.ctx.fillRect(box.x, box.y, bw, BOX_HEIGHT);
+
+      // Box stroke
+      this.ctx.strokeStyle = selected ? COLORS.boxSelectedStroke
+        : isRouter ? COLORS.routerStroke
+        : isAbs ? COLORS.abstractionStroke
+        : COLORS.boxStroke;
+      if (isUnknown) this.ctx.setLineDash([4, 3]);
+      this.ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
+      if (isUnknown) this.ctx.setLineDash([]);
+
+      // Value bar
+      if (this.boxValues.has(id)) {
+        const val = this.boxValues.get(id);
+        if (val >= 0 && val <= 1) {
+          this.ctx.fillStyle = "#4a4a4a";
+          this.ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * val, BOX_HEIGHT - 2);
+        }
+      }
+
+      // Text
+      if (this.editingBoxId !== id) {
+        this.ctx.fillStyle = COLORS.text;
+        this.ctx.textBaseline = "middle";
+        if (boxTypeName(box.text) === "print" && this.boxValues.has(id)) {
+          const v = this.boxValues.get(id);
+          const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+          this.ctx.fillText("print " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+        } else {
+          this.ctx.fillText(box.text, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+        }
+      }
+
+      // Ports
+      this.ctx.fillStyle = COLORS.port;
+      for (let i = 0; i < box.inlets; i++) {
+        const p = this.inletPos(box, i, id);
+        this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
+      }
+      for (let i = 0; i < box.outlets; i++) {
+        const p = this.outletPos(box, i, id);
+        this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
+      }
+    }
+
+    // Let owner draw overlays
+    this.renderOverlay(this.ctx, w, h);
+
+    this.ctx.restore();
   }
-}
 
-function removeRouterChannel(routerId, channel) {
-  const router = boxes.get(routerId);
-  if (!router) return;
-  const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
-  if (oldChannels <= 1) {
-    for (const [cid, c] of cables) if (c.srcBox === routerId || c.dstBox === routerId) cables.delete(cid);
-    boxes.delete(routerId);
-    return;
+  // --- Text Editing ---
+
+  startEditing(boxId) {
+    if (!this.input) return;
+    const box = this.boxes.get(boxId);
+    if (!box) return;
+    this.editingBoxId = boxId;
+    this.mode = "editing";
+    const w = Math.max(this.boxWidth(box, boxId), 80);
+    Object.assign(this.input.style, {
+      left: (box.x + BOX_PAD_X) + "px",
+      top: box.y + "px",
+      width: w + "px",
+      height: BOX_HEIGHT + "px",
+      lineHeight: BOX_HEIGHT + "px",
+      display: "block"
+    });
+    this.input.value = box.text;
+    this.input.focus();
+    this.input.select();
+    this.render();
   }
-  router.text = "all " + (oldChannels - 1);
-  const ports = getPorts(router.text);
-  router.inlets = ports.inlets; router.outlets = ports.outlets;
-  for (const [, c] of cables) {
-    if (c.dstBox === routerId && c.dstInlet > channel) c.dstInlet--;
-    if (c.srcBox === routerId && c.srcOutlet > channel) c.srcOutlet--;
+
+  finishEditing(confirm) {
+    if (this.editingBoxId === null || !this.input) return;
+    const box = this.boxes.get(this.editingBoxId);
+    if (confirm && this.input.value.trim()) {
+      this.pushUndo();
+      const newText = this.input.value.trim();
+      box.text = newText;
+      const ports = getPorts(newText);
+      box.inlets = ports.inlets;
+      box.outlets = ports.outlets;
+      // Prune invalid cables
+      for (const [id, c] of this.cables) {
+        if (c.srcBox === this.editingBoxId && c.srcOutlet >= box.outlets) this.cables.delete(id);
+        if (c.dstBox === this.editingBoxId && c.dstInlet >= box.inlets) this.cables.delete(id);
+      }
+      if (this.isRouterType(newText)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
+      const zone = getBoxZone(newText);
+      if (zone === "synth" && !this.isSynthZone(box.y)) box.y = this.synthBorderY + 20;
+      else if (zone === "ctrl" && this.isSynthZone(box.y)) box.y = this.synthBorderY - BOX_HEIGHT - 20;
+    } else if (!box.text) {
+      this.pushUndo();
+      for (const [id, c] of this.cables) {
+        if (c.srcBox === this.editingBoxId || c.dstBox === this.editingBoxId) this.cables.delete(id);
+      }
+      this.boxes.delete(this.editingBoxId);
+      this.selection.delete(this.editingBoxId);
+    }
+    this.editingBoxId = null;
+    this.mode = "idle";
+    this.input.style.display = "none";
+    this.input.value = "";
+    this.render();
   }
-}
 
-// --- mouse ---
+  // --- Mouse Handlers ---
 
-function canvasCoords(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  _onMouseDown(e) {
+    const m = this.canvasCoords(e);
+    tooltipEl.style.display = "none";
 
-canvas.addEventListener("mousedown", (e) => {
-  const m = canvasCoords(e); hideTooltip();
-  if (hitTestSynthHandle(m.x, m.y)) { mode = "resizing-synth"; canvas.style.cursor = "ns-resize"; return; }
-  const outlet = hitTestOutlet(m.x, m.y);
-  if (outlet) { mode = "cabling"; cableFrom = { boxId: outlet.boxId, index: outlet.index }; selection.clear(); cableSelection.clear(); canvas.style.cursor = "crosshair"; render(); return; }
-  const boxId = hitTestBox(m.x, m.y);
-  if (boxId !== null) {
-    cableSelection.clear();
-    if (e.shiftKey) { selection.has(boxId) ? selection.delete(boxId) : selection.add(boxId); }
-    else if (!selection.has(boxId)) { selection.clear(); selection.add(boxId); }
+    if (this.hitTestSynthHandle(m.x, m.y)) {
+      this.mode = "resizing-synth";
+      this.canvas.style.cursor = "ns-resize";
+      return;
+    }
 
-    // option+drag: duplicate selection
-    if (e.altKey && selection.size > 0) {
-      pushUndo();
-      const idMap = new Map();
-      const newSelection = new Set();
-      for (const oldId of selection) {
-        const box = boxes.get(oldId);
+    const outlet = this.hitTestOutlet(m.x, m.y);
+    if (outlet) {
+      this.mode = "cabling";
+      this.cableFrom = { boxId: outlet.boxId, index: outlet.index };
+      this.selection.clear();
+      this.cableSelection.clear();
+      this.canvas.style.cursor = "crosshair";
+      this.render();
+      return;
+    }
+
+    const boxId = this.hitTestBox(m.x, m.y);
+    if (boxId !== null) {
+      this.cableSelection.clear();
+      if (e.shiftKey) {
+        this.selection.has(boxId) ? this.selection.delete(boxId) : this.selection.add(boxId);
+      } else if (!this.selection.has(boxId)) {
+        this.selection.clear();
+        this.selection.add(boxId);
+      }
+
+      // Option+drag: duplicate
+      if (e.altKey && this.selection.size > 0) {
+        this.pushUndo();
+        const idMap = new Map();
+        const newSel = new Set();
+        for (const oldId of this.selection) {
+          const box = this.boxes.get(oldId);
+          if (!box) continue;
+          const newId = this.nextId++;
+          idMap.set(oldId, newId);
+          this.boxes.set(newId, { x: box.x, y: box.y, text: box.text, inlets: box.inlets, outlets: box.outlets });
+          newSel.add(newId);
+        }
+        for (const [, c] of this.cables) {
+          if (idMap.has(c.srcBox) && idMap.has(c.dstBox)) {
+            this.cables.set(this.nextId++, { srcBox: idMap.get(c.srcBox), srcOutlet: c.srcOutlet, dstBox: idMap.get(c.dstBox), dstInlet: c.dstInlet });
+          }
+        }
+        this.selection.clear();
+        for (const id of newSel) this.selection.add(id);
+      }
+
+      this.mode = "dragging";
+      this.dragStart = { x: m.x, y: m.y };
+      this.dragBoxPositions = new Map();
+      for (const id of this.selection) {
+        const b = this.boxes.get(id);
+        if (b) this.dragBoxPositions.set(id, { x: b.x, y: b.y });
+      }
+      this.dragSnapshot = {
+        cables: new Map([...this.cables.entries()].map(([id, c]) => [id, { ...c }])),
+        boxes: new Map([...this.boxes.entries()].map(([id, b]) => [id, { ...b }])),
+        nextId: this.nextId,
+      };
+      this.render();
+      return;
+    }
+
+    const cableId = this.hitTestCable(m.x, m.y);
+    if (cableId !== null) {
+      this.selection.clear();
+      this.cableSelection.clear();
+      this.cableSelection.add(cableId);
+      this.render();
+      return;
+    }
+
+    if (!e.shiftKey) {
+      this.selection.clear();
+      this.cableSelection.clear();
+    }
+    this.mode = "selecting";
+    this.dragStart = { x: m.x, y: m.y };
+    this.render();
+  }
+
+  _onMouseMove(e) {
+    const m = this.canvasCoords(e);
+    this.mousePos = m;
+
+    if (this.mode === "resizing-synth") {
+      const h = this.canvas.height / (window.devicePixelRatio || 1);
+      this.synthBorderY = Math.max(100, Math.min(m.y, h - 100));
+      for (const [, box] of this.boxes) {
+        if (this.isRouterType(box.text)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
+      }
+      this.render();
+      return;
+    }
+
+    if (this.mode === "dragging" && this.dragStart && this.dragSnapshot) {
+      // Restore from snapshot
+      this.cables.clear();
+      for (const [id, c] of this.dragSnapshot.cables) this.cables.set(id, { ...c });
+      this.boxes.clear();
+      for (const [id, b] of this.dragSnapshot.boxes) this.boxes.set(id, { ...b });
+      this.nextId = this.dragSnapshot.nextId;
+
+      const dx = m.x - this.dragStart.x, dy = m.y - this.dragStart.y;
+      for (const [id, orig] of this.dragBoxPositions) {
+        const box = this.boxes.get(id);
         if (!box) continue;
-        const newId = nextId++;
-        idMap.set(oldId, newId);
-        boxes.set(newId, { x: box.x, y: box.y, text: box.text, inlets: box.inlets, outlets: box.outlets });
-        newSelection.add(newId);
-      }
-      for (const [, c] of cables) {
-        if (idMap.has(c.srcBox) && idMap.has(c.dstBox)) {
-          cables.set(nextId++, { srcBox: idMap.get(c.srcBox), srcOutlet: c.srcOutlet, dstBox: idMap.get(c.dstBox), dstInlet: c.dstInlet });
+        if (this.isRouterType(box.text)) {
+          box.x = orig.x + dx;
+          box.y = this.synthBorderY - BOX_HEIGHT / 2;
+        } else {
+          box.x = orig.x + dx;
+          box.y = orig.y + dy;
         }
       }
-      selection.clear();
-      for (const id of newSelection) selection.add(id);
+      this.autoRouteBorderCrossings(this.selection);
+      this.render();
+      return;
     }
 
-    mode = "dragging"; dragStart = { x: m.x, y: m.y }; dragBoxPositions = new Map();
-    for (const id of selection) { const b = boxes.get(id); if (b) dragBoxPositions.set(id, { x: b.x, y: b.y }); }
-    dragSnapshot = {
-      cables: new Map([...cables.entries()].map(([id, c]) => [id, { ...c }])),
-      boxes: new Map([...boxes.entries()].map(([id, b]) => [id, { ...b }])),
-      nextId,
-    };
-    render(); return;
-  }
-  const cableId = hitTestCable(m.x, m.y);
-  if (cableId !== null) { selection.clear(); cableSelection.clear(); cableSelection.add(cableId); render(); return; }
-  if (!e.shiftKey) { selection.clear(); cableSelection.clear(); }
-  mode = "selecting"; dragStart = { x: m.x, y: m.y };
-  render();
-});
-
-canvas.addEventListener("mousemove", (e) => {
-  const m = canvasCoords(e); mousePos = m;
-  if (mode === "resizing-synth") {
-    synthBorderY = Math.max(100, Math.min(m.y, window.innerHeight - 100));
-    for (const [, box] of boxes) if (isRouterType(box.text)) box.y = synthBorderY - BOX_HEIGHT / 2;
-    render(); return;
-  }
-  if (mode === "dragging" && dragStart && dragSnapshot) {
-    // restore from snapshot each frame
-    cables.clear();
-    for (const [id, c] of dragSnapshot.cables) cables.set(id, { ...c });
-    boxes.clear();
-    for (const [id, b] of dragSnapshot.boxes) boxes.set(id, { ...b });
-    nextId = dragSnapshot.nextId;
-
-    const dx = m.x - dragStart.x, dy = m.y - dragStart.y;
-    for (const [id, orig] of dragBoxPositions) {
-      const box = boxes.get(id); if (!box) continue;
-      if (isRouterType(box.text)) { box.x = orig.x + dx; box.y = synthBorderY - BOX_HEIGHT / 2; }
-      else { box.x = orig.x + dx; box.y = orig.y + dy; }
+    if (this.mode === "selecting" || this.mode === "cabling") {
+      this.render();
+      return;
     }
 
-    autoRouteBorderCrossings(selection);
-    render(); return;
-  }
-  if (mode === "selecting" && dragStart) { render(); return; }
-  if (mode === "cabling") { render(); return; }
-  if (hitTestSynthHandle(m.x, m.y)) { canvas.style.cursor = "ns-resize"; hideTooltip(); }
-  else {
-    const o = hitTestOutlet(m.x, m.y), i = hitTestInlet(m.x, m.y);
-    canvas.style.cursor = (o || i) ? "crosshair" : hitTestBox(m.x, m.y) !== null ? "move" : "default";
-    const target = getHoverTarget(m.x, m.y), key = target ? target.kind + ":" + target.boxId + ":" + (target.index ?? "") : null;
-    if (key !== lastHoverTarget) {
-      hideTooltip(); lastHoverTarget = key;
-      if (target) hoverTimer = setTimeout(() => { const h = buildTooltipHtml(target); if (h) showTooltip(target.x, target.y, h); }, 2000);
+    // Update cursor
+    if (this.hitTestSynthHandle(m.x, m.y)) {
+      this.canvas.style.cursor = "ns-resize";
+    } else {
+      const o = this.hitTestOutlet(m.x, m.y);
+      const i = this.hitTestInlet(m.x, m.y);
+      this.canvas.style.cursor = (o || i) ? "crosshair" : this.hitTestBox(m.x, m.y) !== null ? "move" : "default";
     }
   }
-});
 
-canvas.addEventListener("mouseup", (e) => {
-  const m = canvasCoords(e);
-  if (mode === "resizing-synth") {
-    pushUndo();
-    mode = "idle"; canvas.style.cursor = "default"; return;
+  _onMouseUp(e) {
+    const m = this.canvasCoords(e);
+
+    if (this.mode === "resizing-synth") {
+      this.pushUndo();
+      this.mode = "idle";
+      this.canvas.style.cursor = "default";
+      return;
+    }
+
+    if (this.mode === "cabling" && this.cableFrom) {
+      const inlet = this.hitTestInlet(m.x, m.y);
+      if (inlet && inlet.boxId !== this.cableFrom.boxId && !this.inletHasCable(inlet.boxId, inlet.index)) {
+        this.pushUndo();
+        const srcSynth = this.isSynthSide(this.cableFrom.boxId);
+        const dstSynth = this.isSynthSide(inlet.boxId);
+        const srcBox = this.boxes.get(this.cableFrom.boxId);
+        const dstBox = this.boxes.get(inlet.boxId);
+        if (srcSynth !== dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
+          this.autoRoute(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId, inlet.index);
+        } else {
+          this.cables.set(this.nextId++, { srcBox: this.cableFrom.boxId, srcOutlet: this.cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
+        }
+      }
+      this.cableFrom = null;
+      this.mode = "idle";
+      this.canvas.style.cursor = "default";
+      this.render();
+      return;
+    }
+
+    if (this.mode === "dragging") {
+      let moved = false;
+      if (this.dragBoxPositions && this.dragStart) {
+        for (const [id, orig] of this.dragBoxPositions) {
+          const box = this.boxes.get(id);
+          if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
+        }
+      }
+      if (moved) this.pushUndo();
+      this.mode = "idle";
+      this.dragStart = null;
+      this.dragBoxPositions = null;
+      this.dragSnapshot = null;
+    }
+
+    if (this.mode === "selecting" && this.dragStart) {
+      const x0 = Math.min(this.dragStart.x, m.x), y0 = Math.min(this.dragStart.y, m.y);
+      const x1 = Math.max(this.dragStart.x, m.x), y1 = Math.max(this.dragStart.y, m.y);
+      for (const [id, box] of this.boxes) {
+        const bw = this.boxWidth(box, id);
+        if (box.x + bw > x0 && box.x < x1 && box.y + BOX_HEIGHT > y0 && box.y < y1) {
+          this.selection.add(id);
+        }
+      }
+      this.mode = "idle";
+      this.dragStart = null;
+      this.render();
+    }
   }
-  if (mode === "cabling" && cableFrom) {
-    const inlet = hitTestInlet(m.x, m.y);
-    if (inlet && inlet.boxId !== cableFrom.boxId && !inletHasCable(inlet.boxId, inlet.index)) {
-      pushUndo();
-      const srcSynth = isSynthSide(cableFrom.boxId), dstSynth = isSynthSide(inlet.boxId);
-      const srcBox = boxes.get(cableFrom.boxId), dstBox = boxes.get(inlet.boxId);
-      if (srcSynth !== dstSynth && !isRouterType(srcBox?.text) && !isRouterType(dstBox?.text)) {
-        autoRoute(cableFrom.boxId, cableFrom.index, inlet.boxId, inlet.index);
+
+  _onDblClick(e) {
+    const m = this.canvasCoords(e);
+    const boxId = this.hitTestBox(m.x, m.y);
+    if (boxId !== null) {
+      this.selection.clear();
+      this.selection.add(boxId);
+      this.startEditing(boxId);
+      return;
+    }
+    const cableId = this.hitTestCable(m.x, m.y);
+    if (cableId !== null) {
+      this.pushUndo();
+      const cable = this.cables.get(cableId);
+      this.cables.delete(cableId);
+      const id = this.nextId++;
+      this.boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
+      this.cables.set(this.nextId++, { srcBox: cable.srcBox, srcOutlet: cable.srcOutlet, dstBox: id, dstInlet: 0 });
+      this.cables.set(this.nextId++, { srcBox: id, srcOutlet: 0, dstBox: cable.dstBox, dstInlet: cable.dstInlet });
+      this.selection.clear();
+      this.selection.add(id);
+      this.startEditing(id);
+      return;
+    }
+    this.pushUndo();
+    const id = this.nextId++;
+    this.boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
+    this.selection.clear();
+    this.selection.add(id);
+    this.startEditing(id);
+  }
+
+  // --- Keyboard (called externally) ---
+
+  onKeyDown(e) {
+    if (this.mode === "editing") return false;
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+      if (this.selection.size > 0 || this.cableSelection.size > 0) {
+        e.preventDefault();
+        this.pushUndo();
+        for (const id of this.selection) {
+          for (const [cid, c] of this.cables) {
+            if (c.srcBox === id || c.dstBox === id) this.cables.delete(cid);
+          }
+          this.boxes.delete(id);
+        }
+        for (const id of this.cableSelection) this.cables.delete(id);
+        this.selection.clear();
+        this.cableSelection.clear();
+        this.render();
+        return true;
+      }
+    }
+
+    if (e.key === "Escape") {
+      if (this.mode === "cabling") {
+        this.mode = "idle";
+        this.cableFrom = null;
+        this.canvas.style.cursor = "default";
       } else {
-        cables.set(nextId++, { srcBox: cableFrom.boxId, srcOutlet: cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
+        this.selection.clear();
+        this.cableSelection.clear();
       }
+      this.render();
+      return true;
     }
-    cableFrom = null; mode = "idle"; canvas.style.cursor = "default"; render(); return;
+
+    return false;
   }
-  if (mode === "dragging") {
-    // check if anything actually moved
-    let moved = false;
-    if (dragBoxPositions && dragStart) {
-      for (const [id, orig] of dragBoxPositions) {
-        const box = boxes.get(id);
-        if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
-      }
-    }
-    if (moved) pushUndo();
-    mode = "idle"; dragStart = null; dragBoxPositions = null; dragSnapshot = null;
+
+  resize(width, height) {
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+    this.render();
   }
-  if (mode === "selecting" && dragStart) {
-    const x0 = Math.min(dragStart.x, m.x), y0 = Math.min(dragStart.y, m.y);
-    const x1 = Math.max(dragStart.x, m.x), y1 = Math.max(dragStart.y, m.y);
-    for (const [id, box] of boxes) {
-      const bw = boxWidth(box, id);
-      if (box.x + bw > x0 && box.x < x1 && box.y + BOX_HEIGHT > y0 && box.y < y1) selection.add(id);
+}
+
+// =============================================================================
+// Main Editor
+// =============================================================================
+
+const mainEditor = new PatchEditor(canvas, {
+  synthBorderY: window.innerHeight * 0.55,
+  showSynthBorder: true,
+  input: input,
+  onDirty: () => {},
+  renderOverlay: (ctx, w, h) => {
+    // Status label
+    ctx.font = SMALL_FONT;
+    ctx.textBaseline = "top";
+    if (mainEditor.dirty) { ctx.fillStyle = "#865"; ctx.fillText("modified", 12, 8); }
+    else if (mainEditor.applied) { ctx.fillStyle = "#686"; ctx.fillText("applied", 12, 8); }
+    else { ctx.fillStyle = "#555"; ctx.fillText("edit", 12, 8); }
+
+    // MIDI devices
+    ctx.fillStyle = "#444";
+    ctx.textAlign = "right";
+    for (let i = 0; i < midiDeviceNames.length; i++) {
+      ctx.fillText(midiDeviceNames[i], w - 12, 12 + i * 14);
     }
-    mode = "idle"; dragStart = null; render();
+
+    // Client count
+    ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, mainEditor.synthBorderY + 8);
+    ctx.textAlign = "left";
+
+    // Connection dot
+    ctx.beginPath();
+    ctx.arc(w - 16, 16, 4, 0, Math.PI * 2);
+    ctx.fillStyle = wsConnected ? "#686" : "#865";
+    ctx.fill();
   }
 });
 
-canvas.addEventListener("dblclick", (e) => {
-  const m = canvasCoords(e);
-  const boxId = hitTestBox(m.x, m.y);
-  if (boxId !== null) { selection.clear(); selection.add(boxId); startEditing(boxId); return; }
-  const cableId = hitTestCable(m.x, m.y);
-  if (cableId !== null) {
-    pushUndo();
-    const cable = cables.get(cableId);
-    cables.delete(cableId);
-    const id = nextId++;
-    boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
-    cables.set(nextId++, { srcBox: cable.srcBox, srcOutlet: cable.srcOutlet, dstBox: id, dstInlet: 0 });
-    cables.set(nextId++, { srcBox: id, srcOutlet: 0, dstBox: cable.dstBox, dstInlet: cable.dstInlet });
-    selection.clear(); selection.add(id);
-    startEditing(id);
-    return;
-  }
-  pushUndo();
-  const id = nextId++;
-  boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
-  selection.clear(); selection.add(id); startEditing(id);
-});
+mainEditor.bindEvents();
 
-// --- keyboard ---
+// Input handlers
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); mainEditor.finishEditing(true); }
+  else if (e.key === "Escape") { e.preventDefault(); mainEditor.finishEditing(false); }
+});
+input.addEventListener("input", () => {
+  if (mainEditor.editingBoxId === null) return;
+  const w = Math.max(mainEditor.measureText(input.value || " ") + BOX_PAD_X * 2, 80);
+  input.style.width = w + "px";
+  mainEditor.render();
+});
+input.addEventListener("blur", () => mainEditor.finishEditing(true));
+
+// Resize
+function resize() {
+  mainEditor.resize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener("resize", resize);
+resize();
+
+// --- Help System ---
+
+let helpEditor = null;
+let helpPopup = null;
+let helpDirty = false;
+let helpName = null;
+
+async function openHelp(typeName) {
+  const helpPatchName = typeName + "-help";
+  try {
+    const res = await fetch(`/abstractions/${encodeURIComponent(helpPatchName)}`);
+    if (!res.ok) {
+      console.log(`No help for "${typeName}"`);
+      return;
+    }
+    showHelpPopup(helpPatchName, await res.json());
+  } catch (e) {
+    console.error("Failed to load help:", e);
+  }
+}
+
+function showHelpPopup(name, data) {
+  helpName = name;
+  let popup = document.getElementById("help-popup");
+  if (!popup) {
+    popup = document.createElement("div");
+    popup.id = "help-popup";
+    popup.innerHTML = `
+      <div class="help-titlebar">
+        <span class="help-title"></span>
+        <button class="help-close">\u00d7</button>
+      </div>
+      <canvas id="help-canvas"></canvas>
+    `;
+    document.body.appendChild(popup);
+    popup.querySelector(".help-close").onclick = closeHelpPopup;
+    makeDraggable(popup, popup.querySelector(".help-titlebar"));
+  }
+
+  popup.querySelector(".help-title").textContent = name;
+  popup.classList.remove("hidden");
+
+  const helpCanvas = popup.querySelector("#help-canvas");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = popup.getBoundingClientRect();
+  const titleH = popup.querySelector(".help-titlebar").offsetHeight;
+  helpCanvas.width = (rect.width - 2) * dpr;
+  helpCanvas.height = (rect.height - titleH - 2) * dpr;
+  helpCanvas.style.width = (rect.width - 2) + "px";
+  helpCanvas.style.height = (rect.height - titleH - 2) + "px";
+
+  helpEditor = new PatchEditor(helpCanvas, {
+    showSynthBorder: false,
+    onDirty: () => { helpDirty = true; popup.querySelector(".help-title").textContent = name + " *"; }
+  });
+  helpEditor.bindEvents();
+  helpEditor.load(data);
+  helpEditor.render();
+
+  helpPopup = popup;
+  helpDirty = false;
+}
+
+function closeHelpPopup() {
+  if (helpDirty && confirm(`Save changes to ${helpName}?`)) {
+    fetch(`/abstractions/${encodeURIComponent(helpName)}`, { method: "PUT", body: helpEditor.serialize() });
+  }
+  document.getElementById("help-popup")?.classList.add("hidden");
+  helpEditor?.unbindEvents();
+  helpEditor = null;
+  helpPopup = null;
+  helpDirty = false;
+}
+
+function makeDraggable(el, handle) {
+  let ox = 0, oy = 0, sx = 0, sy = 0;
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    sx = e.clientX; sy = e.clientY;
+    ox = el.offsetLeft; oy = el.offsetTop;
+    document.addEventListener("mousemove", drag);
+    document.addEventListener("mouseup", () => document.removeEventListener("mousemove", drag), { once: true });
+  });
+  function drag(e) {
+    el.style.left = (ox + e.clientX - sx) + "px";
+    el.style.top = (oy + e.clientY - sy) + "px";
+    el.style.right = "auto";
+  }
+}
+
+// --- Keyboard ---
 
 window.addEventListener("keydown", (e) => {
-  if (mode === "editing") return;
-  // Cmd+Enter — apply to server
+  if (e.key === "Escape" && helpPopup) { closeHelpPopup(); return; }
+  if (mainEditor.mode === "editing") return;
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
-  // Cmd+Z — undo
-  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); return; }
-  // Cmd+Shift+S — save as abstraction
+  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); mainEditor.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "s") { e.preventDefault(); saveAsAbstraction(); return; }
-  // Cmd+S — save patch
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatchToServer(); return; }
-  // Cmd+O — load patch
-  if ((e.metaKey || e.ctrlKey) && e.key === "o") { e.preventDefault(); showPatchList(); return; }
-  // Delete
-  if (e.key === "Backspace" || e.key === "Delete") {
-    if (selection.size > 0 || cableSelection.size > 0) {
-      e.preventDefault();
-      pushUndo();
-      for (const id of selection) {
-        for (const [cid, c] of cables) if (c.srcBox === id || c.dstBox === id) cables.delete(cid);
-        boxes.delete(id);
-      }
-      for (const id of cableSelection) cables.delete(id);
-      selection.clear(); cableSelection.clear(); render();
-    }
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatch(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === "o") { e.preventDefault(); loadPatch(); return; }
+  if (e.key === "h" && mainEditor.selection.size === 1) {
+    e.preventDefault();
+    const boxId = [...mainEditor.selection][0];
+    openHelp(boxTypeName(mainEditor.boxes.get(boxId).text));
     return;
   }
-  if (e.key === "Escape") {
-    if (mode === "cabling") { mode = "idle"; cableFrom = null; canvas.style.cursor = "default"; }
-    else { selection.clear(); cableSelection.clear(); }
-    render();
-  }
+  mainEditor.onKeyDown(e);
 });
 
-// --- WebSocket to server (GPI path) ---
+// --- WebSocket ---
 
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   try { ws = new WebSocket(`${proto}//${location.host}/ws/gpi`); } catch { setTimeout(connectWS, 2000); return; }
-  ws.addEventListener("open", () => { wsConnected = true; render(); });
+  ws.addEventListener("open", () => { wsConnected = true; mainEditor.render(); });
   ws.addEventListener("message", (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === "state") handleState(msg);
-      else if (msg.type === "values") handleValues(msg);
-      else if (msg.type === "applied") handleApplied();
-      else if (msg.type === "count") { connectedClients = msg.clients; render(); }
+      if (msg.type === "state") {
+        mainEditor.load(msg);
+        if (msg.boxValues) {
+          for (const [id, v] of Object.entries(msg.boxValues)) mainEditor.boxValues.set(Number(id), v);
+        }
+        mainEditor.applied = true;
+        mainEditor.dirty = false;
+        mainEditor.undoStack.length = 0;
+        mainEditor.render();
+      } else if (msg.type === "values") {
+        for (const u of msg.updates) mainEditor.boxValues.set(u.id, u.value);
+        mainEditor.render();
+      } else if (msg.type === "applied") {
+        mainEditor.applied = true;
+        mainEditor.dirty = false;
+        mainEditor.render();
+      } else if (msg.type === "count") {
+        connectedClients = msg.clients;
+        mainEditor.render();
+      }
     } catch {}
   });
-  ws.addEventListener("close", () => { wsConnected = false; ws = null; connectedClients = 0; render(); setTimeout(connectWS, 2000); });
+  ws.addEventListener("close", () => { wsConnected = false; ws = null; connectedClients = 0; mainEditor.render(); setTimeout(connectWS, 2000); });
   ws.addEventListener("error", () => { ws = null; });
 }
 
 function send(msg) { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
 
-connectWS();
-
-// --- Apply (Cmd+Enter) ---
+// --- Server Communication ---
 
 function applyToServer() {
   send({
     type: "apply",
-    boxes: [...boxes.entries()],
-    cables: [...cables.entries()],
-    nextId,
-    synthBorderY,
+    boxes: [...mainEditor.boxes.entries()],
+    cables: [...mainEditor.cables.entries()],
+    nextId: mainEditor.nextId,
+    synthBorderY: mainEditor.synthBorderY,
   });
 }
 
-// --- Server message handlers ---
-
-function handleState(msg) {
-  boxes.clear(); cables.clear(); boxValues.clear();
-  for (const [id, box] of msg.boxes) {
-    const p = getPorts(box.text);
-    box.inlets = p.inlets; box.outlets = p.outlets;
-    boxes.set(id, box);
-  }
-  for (const [id, cable] of msg.cables) cables.set(id, cable);
-  nextId = msg.nextId || 1;
-  if (msg.synthBorderY !== undefined) synthBorderY = msg.synthBorderY;
-  if (msg.boxValues) {
-    for (const [id, v] of Object.entries(msg.boxValues)) boxValues.set(Number(id), v);
-  }
-  selection.clear(); cableSelection.clear();
-  applied = true; dirty = false;
-  undoStack.length = 0;
-  render();
-}
-
-function handleValues(msg) {
-  for (const u of msg.updates) boxValues.set(u.id, u.value);
-  render();
-}
-
-function handleApplied() {
-  applied = true; dirty = false;
-  render();
-}
-
-// --- patch file save/load ---
-
-let currentPatchName = null;
-
-async function savePatchToServer() {
+async function savePatch() {
   const name = prompt("Patch name:", currentPatchName || "");
   if (!name) return;
-  try {
-    const res = await fetch(`/patches/${encodeURIComponent(name)}`, { method: "PUT", body: serialize() });
-    if (res.ok) { currentPatchName = name; console.log("Patch saved:", name); }
-  } catch (e) { console.error("Save failed:", e); }
+  const res = await fetch(`/patches/${encodeURIComponent(name)}`, { method: "PUT", body: mainEditor.serialize() });
+  if (res.ok) { currentPatchName = name; console.log("Saved:", name); }
+}
+
+async function loadPatch() {
+  const res = await fetch("/patches");
+  const patches = await res.json();
+  if (patches.length === 0) { console.log("No patches"); return; }
+  const name = prompt("Load:\n\n" + patches.map((p, i) => `${i + 1}. ${p}`).join("\n") + "\n\nName or number:");
+  if (!name) return;
+  const resolved = /^\d+$/.test(name) ? patches[parseInt(name) - 1] : name;
+  if (!resolved) return;
+  const patchRes = await fetch(`/patches/${encodeURIComponent(resolved)}`);
+  if (!patchRes.ok) { console.error("Not found:", resolved); return; }
+  mainEditor.pushUndo();
+  mainEditor.load(await patchRes.text());
+  currentPatchName = resolved;
+  mainEditor.dirty = true;
+  console.log("Loaded:", resolved, "— Cmd+Enter to apply");
+  mainEditor.render();
 }
 
 async function saveAsAbstraction() {
-  // Validate: patch must contain at least one inlet or outlet
   let hasInterface = false;
-  for (const box of boxes.values()) {
+  for (const box of mainEditor.boxes.values()) {
     const type = boxTypeName(box.text);
     if (type === "inlet" || type === "outlet") { hasInterface = true; break; }
   }
-  if (!hasInterface) {
-    console.error("Cannot save as abstraction: patch must contain at least one inlet or outlet box");
-    alert("Add inlet and/or outlet boxes to define the abstraction's interface");
-    return;
-  }
-
+  if (!hasInterface) { alert("Add inlet/outlet boxes first"); return; }
   const name = prompt("Abstraction name:");
   if (!name) return;
-
-  try {
-    const res = await fetch(`/abstractions/${encodeURIComponent(name)}`, { method: "PUT", body: serialize() });
-    if (res.ok) {
-      console.log("Abstraction saved:", name);
-      await loadAbstractions();  // Refresh registry
-    }
-  } catch (e) { console.error("Save abstraction failed:", e); }
-}
-
-async function showPatchList() {
-  try {
-    const res = await fetch("/patches");
-    const patches = await res.json();
-    if (patches.length === 0) { console.log("No saved patches"); return; }
-    const name = prompt("Load patch:\n\n" + patches.map((p, i) => `${i + 1}. ${p}`).join("\n") + "\n\nType name or number:");
-    if (!name) return;
-    const resolved = /^\d+$/.test(name) ? patches[parseInt(name) - 1] : name;
-    if (!resolved) return;
-    await loadPatchFromServer(resolved);
-  } catch (e) { console.error("Load failed:", e); }
-}
-
-async function loadPatchFromServer(name) {
-  try {
-    const res = await fetch(`/patches/${encodeURIComponent(name)}`);
-    if (!res.ok) { console.error("Patch not found:", name); return; }
-    const json = await res.text();
-    pushUndo();
-    loadFromJSON(json);
-    currentPatchName = name;
-    dirty = true;
-    console.log("Patch loaded:", name, "— Cmd+Enter to apply");
-    render();
-  } catch (e) { console.error("Load failed:", e); }
+  const res = await fetch(`/abstractions/${encodeURIComponent(name)}`, { method: "PUT", body: mainEditor.serialize() });
+  if (res.ok) { console.log("Abstraction saved:", name); await loadAbstractions(); }
 }
 
 // --- WebMIDI ---
 
-const CC_SOURCE = { 2: "breath", 1: "bite", 12: "nod", 13: "tilt" };
 const MIDI_DEVICES = [{ match: ["bbc", "tecontrol", "breath controller"], sources: ["breath", "bite", "nod", "tilt"] }];
 const MIDI_IGNORE = ["af16rig"];
 
 function autoCreateSources(deviceName) {
   const lower = deviceName.toLowerCase();
   if (MIDI_IGNORE.some(p => lower.includes(p))) return;
-  if (!midiDeviceNames.includes(deviceName)) { midiDeviceNames.push(deviceName); render(); }
+  if (!midiDeviceNames.includes(deviceName)) { midiDeviceNames.push(deviceName); mainEditor.render(); }
   let sources = null;
   for (const dev of MIDI_DEVICES) if (dev.match.some(p => lower.includes(p))) { sources = dev.sources; break; }
   if (!sources) sources = ["key"];
 
   let nextY = 30, created = false;
-  for (const box of boxes.values()) if (getBoxZone(box.text) === "ctrl" && box.y + BOX_HEIGHT + 10 > nextY) nextY = box.y + BOX_HEIGHT + 10;
+  for (const box of mainEditor.boxes.values()) {
+    if (getBoxZone(box.text) === "ctrl" && box.y + BOX_HEIGHT + 10 > nextY) nextY = box.y + BOX_HEIGHT + 10;
+  }
   for (const name of sources) {
     let found = false;
-    for (const box of boxes.values()) if (box.text === name) { found = true; break; }
+    for (const box of mainEditor.boxes.values()) if (box.text === name) { found = true; break; }
     if (found) continue;
     const p = getPorts(name);
-    boxes.set(nextId++, { x: 20, y: nextY, text: name, inlets: p.inlets, outlets: p.outlets });
-    nextY += 60; created = true;
+    mainEditor.boxes.set(mainEditor.nextId++, { x: 20, y: nextY, text: name, inlets: p.inlets, outlets: p.outlets });
+    nextY += 60;
+    created = true;
   }
-  if (created) { dirty = true; render(); }
+  if (created) { mainEditor.dirty = true; mainEditor.render(); }
 }
 
 function onMIDIMessage(e) {
@@ -941,16 +1236,20 @@ function onMIDIMessage(e) {
 }
 
 async function initMIDI() {
-  try { const ma = await navigator.requestMIDIAccess(); setupMIDI(ma); } catch {}
+  try {
+    const ma = await navigator.requestMIDIAccess();
+    for (const inp of ma.inputs.values()) { autoCreateSources(inp.name || "keyboard"); inp.onmidimessage = onMIDIMessage; }
+    ma.onstatechange = (e) => {
+      if (e.port.type === "input" && e.port.state === "connected") {
+        autoCreateSources(e.port.name || "keyboard");
+        e.port.onmidimessage = onMIDIMessage;
+      }
+    };
+  } catch {}
 }
 
-function setupMIDI(ma) {
-  for (const inp of ma.inputs.values()) { autoCreateSources(inp.name || "keyboard"); inp.onmidimessage = onMIDIMessage; }
-  ma.onstatechange = (e) => {
-    if (e.port.type === "input" && e.port.state === "connected") { autoCreateSources(e.port.name || "keyboard"); e.port.onmidimessage = onMIDIMessage; }
-  };
-}
+// --- Init ---
 
+connectWS();
 initMIDI();
 loadAbstractions();
-render();

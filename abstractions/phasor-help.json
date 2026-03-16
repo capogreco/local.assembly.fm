@@ -1,0 +1,19 @@
+{
+  "boxes": [
+    [1, {"x": 30, "y": 30, "text": "phasor 1", "inlets": 2, "outlets": 1}],
+    [2, {"x": 30, "y": 70, "text": "comment Outputs a ramp 0-1 at given frequency (Hz)", "inlets": 0, "outlets": 0}],
+    [3, {"x": 30, "y": 100, "text": "comment Left inlet: pause (0=run, >0=pause)", "inlets": 0, "outlets": 0}],
+    [4, {"x": 30, "y": 125, "text": "comment Middle inlet: reset phase (event)", "inlets": 0, "outlets": 0}],
+    [5, {"x": 30, "y": 150, "text": "comment Right inlet: period in seconds", "inlets": 0, "outlets": 0}],
+    [6, {"x": 30, "y": 190, "text": "comment Left outlet: ramp value (0-1)", "inlets": 0, "outlets": 0}],
+    [7, {"x": 30, "y": 215, "text": "comment Right outlet: end-of-cycle event", "inlets": 0, "outlets": 0}],
+    [8, {"x": 320, "y": 30, "text": "comment Example:", "inlets": 0, "outlets": 0}],
+    [9, {"x": 320, "y": 60, "text": "phasor 0.5", "inlets": 2, "outlets": 2}],
+    [10, {"x": 320, "y": 110, "text": "print", "inlets": 1, "outlets": 0}]
+  ],
+  "cables": [
+    [1, {"srcBox": 9, "srcOutlet": 0, "dstBox": 10, "dstInlet": 0}]
+  ],
+  "nextId": 11,
+  "synthBorderY": 300
+}
