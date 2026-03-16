@@ -20,6 +20,7 @@ const COLORS = {
   text: "#e0e0e0", port: "#e0e0e0", cable: "#666", cableInProgress: "#999",
   synthBorder: "#555", synthLabel: "#555", synthHandle: "#666",
   routerFill: "#2a2a2a", routerStroke: "#555",
+  abstractionFill: "#2a2a3a", abstractionStroke: "#668",
 };
 const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, SYNTH_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -44,6 +45,74 @@ let applied = false;        // has the current state been applied?
 let dirty = false;          // have we made changes since last apply?
 let connectedClients = 0;
 let midiDeviceNames = [];
+
+// --- abstraction registry ---
+
+const abstractionTypes = new Map();  // name → { inlets, outlets, def }
+
+async function loadAbstractions() {
+  try {
+    const res = await fetch("/abstractions");
+    const names = await res.json();
+    abstractionTypes.clear();
+    for (const name of names) {
+      const absRes = await fetch(`/abstractions/${encodeURIComponent(name)}`);
+      const data = await absRes.json();
+      // Count inlet/outlet boxes to determine port counts
+      let maxInlet = -1, maxOutlet = -1;
+      for (const [, box] of data.boxes) {
+        const type = boxTypeName(box.text);
+        const idx = parseInt(box.text.split(/\s+/)[1]) || 0;
+        if (type === "inlet") maxInlet = Math.max(maxInlet, idx);
+        if (type === "outlet") maxOutlet = Math.max(maxOutlet, idx);
+      }
+      abstractionTypes.set(name, {
+        inlets: maxInlet + 1,
+        outlets: maxOutlet + 1,
+        def: { zone: "any", description: `Abstraction: ${name}`, inlets: [], outlets: [] },
+        data,
+      });
+    }
+    console.log(`Loaded ${abstractionTypes.size} abstraction(s)`);
+    render();
+  } catch (e) {
+    console.error("Failed to load abstractions:", e);
+  }
+}
+
+function getAbstractionPorts(text) {
+  const name = boxTypeName(text);
+  const abs = abstractionTypes.get(name);
+  if (abs) return { inlets: abs.inlets, outlets: abs.outlets };
+  return null;
+}
+
+function getAbstractionDef(text) {
+  const name = boxTypeName(text);
+  const abs = abstractionTypes.get(name);
+  return abs ? abs.def : null;
+}
+
+function isAbstraction(text) {
+  return abstractionTypes.has(boxTypeName(text));
+}
+
+// Wrap gpi-types helpers to also check abstractions
+function getPortsWithAbstractions(text) {
+  const abs = getAbstractionPorts(text);
+  if (abs) return abs;
+  return getBoxPorts(text);
+}
+
+function getDefWithAbstractions(text) {
+  const abs = getAbstractionDef(text);
+  if (abs) return abs;
+  return getBoxDef(text);
+}
+
+// Use these wrappers throughout instead of direct gpi-types calls
+const getPorts = getPortsWithAbstractions;
+const getDef = getDefWithAbstractions;
 
 // --- undo stack ---
 
@@ -72,7 +141,7 @@ function loadFromJSON(json) {
   try {
     const data = JSON.parse(json);
     boxes.clear(); cables.clear();
-    for (const [id, box] of data.boxes) { const p = getBoxPorts(box.text); box.inlets = p.inlets; box.outlets = p.outlets; boxes.set(id, box); }
+    for (const [id, box] of data.boxes) { const p = getPorts(box.text); box.inlets = p.inlets; box.outlets = p.outlets; boxes.set(id, box); }
     for (const [id, cable] of data.cables) cables.set(id, cable);
     nextId = data.nextId || 1;
     if (data.synthBorderY !== undefined) synthBorderY = data.synthBorderY;
@@ -177,7 +246,7 @@ function hideTooltip() {
 
 function getHoverTarget(mx, my) {
   for (const [id, box] of boxes) {
-    const def = getBoxDef(box.text); if (!def) continue;
+    const def = getDef(box.text); if (!def) continue;
     for (let i = 0; i < box.outlets; i++) {
       const p = outletPos(box, i, id);
       if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT)
@@ -190,7 +259,7 @@ function getHoverTarget(mx, my) {
     }
   }
   const boxId = hitTestBox(mx, my);
-  if (boxId !== null) { const def = getBoxDef(boxes.get(boxId).text); if (def) return { kind: "box", boxId, def, x: mx, y: my }; }
+  if (boxId !== null) { const def = getDef(boxes.get(boxId).text); if (def) return { kind: "box", boxId, def, x: mx, y: my }; }
   return null;
 }
 
@@ -278,12 +347,19 @@ function render() {
   ctx.font = FONT;
   for (const [id, box] of boxes) {
     const bw = boxWidth(box, id), selected = selection.has(id);
-    const def = getBoxDef(box.text), zone = def ? def.zone : "any";
+    const def = getDef(box.text), zone = def ? def.zone : "any";
     const isRouter = zone === "router", isUnknown = !def && box.text.length > 0;
+    const isAbs = isAbstraction(box.text);
 
-    ctx.fillStyle = selected ? COLORS.boxSelectedFill : isRouter ? COLORS.routerFill : COLORS.boxFill;
+    ctx.fillStyle = selected ? COLORS.boxSelectedFill
+      : isRouter ? COLORS.routerFill
+      : isAbs ? COLORS.abstractionFill
+      : COLORS.boxFill;
     ctx.fillRect(box.x, box.y, bw, BOX_HEIGHT);
-    ctx.strokeStyle = selected ? COLORS.boxSelectedStroke : isRouter ? COLORS.routerStroke : COLORS.boxStroke;
+    ctx.strokeStyle = selected ? COLORS.boxSelectedStroke
+      : isRouter ? COLORS.routerStroke
+      : isAbs ? COLORS.abstractionStroke
+      : COLORS.boxStroke;
     ctx.lineWidth = 1;
     if (isUnknown) ctx.setLineDash([4, 3]);
     ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
@@ -343,7 +419,7 @@ function finishEditing(confirm) {
     pushUndo();
     const newText = input.value.trim();
     box.text = newText;
-    const ports = getBoxPorts(newText);
+    const ports = getPorts(newText);
     box.inlets = ports.inlets; box.outlets = ports.outlets;
     // prune invalid cables
     for (const [id, c] of cables) {
@@ -370,7 +446,7 @@ input.addEventListener("blur", () => finishEditing(true));
 
 function isSynthSide(boxId) {
   const box = boxes.get(boxId); if (!box) return false;
-  const def = getBoxDef(box.text);
+  const def = getDef(box.text);
   const zone = def ? def.zone : "any";
   return zone === "synth" || (zone === "any" && isSynthZone(box.x, box.y));
 }
@@ -395,7 +471,7 @@ function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
     const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
     const newText = "all " + (oldChannels + 1);
     router.text = newText;
-    const ports = getBoxPorts(newText);
+    const ports = getPorts(newText);
     router.inlets = ports.inlets; router.outlets = ports.outlets;
     const channel = oldChannels;
     cables.set(nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: channel });
@@ -403,7 +479,7 @@ function autoRoute(srcBoxId, srcOutlet, dstBoxId, dstInlet) {
     sortRouterChannels(routerId);
   } else {
     routerId = nextId++;
-    const ports = getBoxPorts("all 1");
+    const ports = getPorts("all 1");
     boxes.set(routerId, { x: midX - 20, y: synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
     cables.set(nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
     cables.set(nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet: dstInlet });
@@ -499,7 +575,7 @@ function removeRouterChannel(routerId, channel) {
     return;
   }
   router.text = "all " + (oldChannels - 1);
-  const ports = getBoxPorts(router.text);
+  const ports = getPorts(router.text);
   router.inlets = ports.inlets; router.outlets = ports.outlets;
   for (const [, c] of cables) {
     if (c.dstBox === routerId && c.dstInlet > channel) c.dstInlet--;
@@ -673,6 +749,8 @@ window.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   // Cmd+Z — undo
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); return; }
+  // Cmd+Shift+S — save as abstraction
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "s") { e.preventDefault(); saveAsAbstraction(); return; }
   // Cmd+S — save patch
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatchToServer(); return; }
   // Cmd+O — load patch
@@ -738,7 +816,7 @@ function applyToServer() {
 function handleState(msg) {
   boxes.clear(); cables.clear(); boxValues.clear();
   for (const [id, box] of msg.boxes) {
-    const p = getBoxPorts(box.text);
+    const p = getPorts(box.text);
     box.inlets = p.inlets; box.outlets = p.outlets;
     boxes.set(id, box);
   }
@@ -775,6 +853,31 @@ async function savePatchToServer() {
     const res = await fetch(`/patches/${encodeURIComponent(name)}`, { method: "PUT", body: serialize() });
     if (res.ok) { currentPatchName = name; console.log("Patch saved:", name); }
   } catch (e) { console.error("Save failed:", e); }
+}
+
+async function saveAsAbstraction() {
+  // Validate: patch must contain at least one inlet or outlet
+  let hasInterface = false;
+  for (const box of boxes.values()) {
+    const type = boxTypeName(box.text);
+    if (type === "inlet" || type === "outlet") { hasInterface = true; break; }
+  }
+  if (!hasInterface) {
+    console.error("Cannot save as abstraction: patch must contain at least one inlet or outlet box");
+    alert("Add inlet and/or outlet boxes to define the abstraction's interface");
+    return;
+  }
+
+  const name = prompt("Abstraction name:");
+  if (!name) return;
+
+  try {
+    const res = await fetch(`/abstractions/${encodeURIComponent(name)}`, { method: "PUT", body: serialize() });
+    if (res.ok) {
+      console.log("Abstraction saved:", name);
+      await loadAbstractions();  // Refresh registry
+    }
+  } catch (e) { console.error("Save abstraction failed:", e); }
 }
 
 async function showPatchList() {
@@ -824,7 +927,7 @@ function autoCreateSources(deviceName) {
     let found = false;
     for (const box of boxes.values()) if (box.text === name) { found = true; break; }
     if (found) continue;
-    const p = getBoxPorts(name);
+    const p = getPorts(name);
     boxes.set(nextId++, { x: 20, y: nextY, text: name, inlets: p.inlets, outlets: p.outlets });
     nextY += 60; created = true;
   }
@@ -849,4 +952,5 @@ function setupMIDI(ma) {
 }
 
 initMIDI();
+loadAbstractions();
 render();

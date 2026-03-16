@@ -30,6 +30,12 @@ const BOX_TYPES = {
   "grid-region":  { zone: "ctrl", description: "Monome Grid region.", args: "x y w h mode", example: "grid-region 0 0 8 2 sig",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Region output" }] },
 
+  // --- abstraction interface ---
+  inlet:          { zone: "any", description: "Abstraction inlet. Index determines port order.", args: "index", example: "inlet 0",
+                    inlets: [], outlets: [{ name: "in", type: "passthrough", description: "Connected inside abstraction" }] },
+  outlet:         { zone: "any", description: "Abstraction outlet. Index determines port order.", args: "index", example: "outlet 0",
+                    inlets: [{ name: "out", type: "passthrough", description: "Connected inside abstraction" }], outlets: [] },
+
   // --- values ---
   const:          { zone: "any", description: "Constant value.", args: "value", example: "const 220",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Constant output" }] },

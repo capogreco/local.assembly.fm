@@ -437,6 +437,123 @@ function removeCablesForBox(boxId: number): void {
   for (const [id, c] of cables) if (c.srcBox === boxId || c.dstBox === boxId) cables.delete(id);
 }
 
+// --- Abstraction expansion ---
+
+function expandAbstractions(): number {
+  let idOffset = 100000;
+  let nextCableId = patchNextId + 50000;
+
+  for (const [boxId, box] of [...boxes]) {
+    const absName = boxTypeName(box.text);
+    const absDef = loadedAbstractions.get(absName);
+    if (!absDef) continue;
+
+    // Build inlet/outlet index → internal box mapping
+    const inletMap = new Map<number, number>();   // inlet index → local box id
+    const outletMap = new Map<number, number>();  // outlet index → local box id
+
+    for (const [localId, intBox] of absDef.boxes) {
+      const type = boxTypeName(intBox.text);
+      const idx = parseInt(intBox.text.split(/\s+/)[1]) || 0;
+      if (type === "inlet") inletMap.set(idx, localId);
+      if (type === "outlet") outletMap.set(idx, localId);
+    }
+
+    // Clone internal boxes (excluding inlet/outlet boxes)
+    const localToGlobal = new Map<number, number>();
+    for (const [localId, intBox] of absDef.boxes) {
+      const type = boxTypeName(intBox.text);
+      if (type === "inlet" || type === "outlet") continue;
+
+      const globalId = localId + idOffset;
+      localToGlobal.set(localId, globalId);
+      // Clone box with position offset from abstraction instance
+      const clonedBox = { ...intBox, x: intBox.x, y: intBox.y };
+      const p = getBoxPorts(clonedBox.text);
+      clonedBox.inlets = p.inlets;
+      clonedBox.outlets = p.outlets;
+      boxes.set(globalId, clonedBox);
+    }
+
+    // Clone internal cables (skip those touching inlet/outlet)
+    for (const [, cable] of absDef.cables) {
+      const srcBox = absDef.boxes.get(cable.srcBox);
+      const dstBox = absDef.boxes.get(cable.dstBox);
+      const srcType = srcBox ? boxTypeName(srcBox.text) : "";
+      const dstType = dstBox ? boxTypeName(dstBox.text) : "";
+
+      if (srcType === "inlet" || dstType === "outlet") continue;
+
+      const srcGlobal = localToGlobal.get(cable.srcBox);
+      const dstGlobal = localToGlobal.get(cable.dstBox);
+      if (srcGlobal === undefined || dstGlobal === undefined) continue;
+
+      cables.set(nextCableId++, {
+        srcBox: srcGlobal,
+        srcOutlet: cable.srcOutlet,
+        dstBox: dstGlobal,
+        dstInlet: cable.dstInlet,
+      });
+    }
+
+    // Rewire external cables through inlet/outlet
+    for (const [cableId, cable] of [...cables]) {
+      if (cable.dstBox === boxId) {
+        // Cable INTO abstraction: find what inlet N connects to
+        const inletLocalId = inletMap.get(cable.dstInlet);
+        if (inletLocalId === undefined) {
+          cables.delete(cableId);
+          continue;
+        }
+        // Find cables from inlet box to internal boxes
+        for (const [, intCable] of absDef.cables) {
+          if (intCable.srcBox === inletLocalId) {
+            const targetGlobal = localToGlobal.get(intCable.dstBox);
+            if (targetGlobal !== undefined) {
+              cables.set(nextCableId++, {
+                srcBox: cable.srcBox,
+                srcOutlet: cable.srcOutlet,
+                dstBox: targetGlobal,
+                dstInlet: intCable.dstInlet,
+              });
+            }
+          }
+        }
+        cables.delete(cableId);
+      }
+
+      if (cable.srcBox === boxId) {
+        // Cable FROM abstraction: find what connects to outlet N
+        const outletLocalId = outletMap.get(cable.srcOutlet);
+        if (outletLocalId === undefined) {
+          cables.delete(cableId);
+          continue;
+        }
+        for (const [, intCable] of absDef.cables) {
+          if (intCable.dstBox === outletLocalId) {
+            const sourceGlobal = localToGlobal.get(intCable.srcBox);
+            if (sourceGlobal !== undefined) {
+              cables.set(nextCableId++, {
+                srcBox: sourceGlobal,
+                srcOutlet: intCable.srcOutlet,
+                dstBox: cable.dstBox,
+                dstInlet: cable.dstInlet,
+              });
+            }
+          }
+        }
+        cables.delete(cableId);
+      }
+    }
+
+    // Remove the abstraction instance box
+    boxes.delete(boxId);
+    idOffset += 10000;
+  }
+
+  return nextCableId;
+}
+
 // --- Apply (replaces entire graph state from GPI) ---
 
 // deno-lint-ignore no-explicit-any
@@ -450,6 +567,9 @@ function handleApply(msg: any): void {
   for (const [id, cable] of msg.cables) cables.set(id, cable);
   patchNextId = msg.nextId || 1;
   if (msg.synthBorderY !== undefined) synthBorderY = msg.synthBorderY;
+
+  // expand abstractions inline
+  expandAbstractions();
 
   // rebuild ctrl evaluation
   initAllBoxState();
@@ -769,7 +889,44 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
 // --- Patch storage API ---
 
 const PATCHES_DIR = "./patches";
+const ABSTRACTIONS_DIR = "./abstractions";
 await Deno.mkdir(PATCHES_DIR, { recursive: true });
+await Deno.mkdir(ABSTRACTIONS_DIR, { recursive: true });
+
+// --- Abstraction loading ---
+
+interface AbstractionDef {
+  boxes: Map<number, any>;
+  cables: Map<number, any>;
+}
+
+const loadedAbstractions = new Map<string, AbstractionDef>();
+
+async function loadAbstractions(): Promise<void> {
+  loadedAbstractions.clear();
+  try {
+    for await (const entry of Deno.readDir(ABSTRACTIONS_DIR)) {
+      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+      const name = entry.name.replace(".json", "");
+      try {
+        const data = JSON.parse(await Deno.readTextFile(`${ABSTRACTIONS_DIR}/${entry.name}`));
+        const absBoxes = new Map<number, any>();
+        const absCables = new Map<number, any>();
+        for (const [id, box] of data.boxes) absBoxes.set(id, box);
+        for (const [id, cable] of data.cables) absCables.set(id, cable);
+        loadedAbstractions.set(name, { boxes: absBoxes, cables: absCables });
+      } catch (e) {
+        console.error(`Failed to load abstraction ${name}:`, e);
+      }
+    }
+    console.log(`Loaded ${loadedAbstractions.size} abstraction(s)`);
+  } catch {
+    // Directory may not exist yet
+  }
+}
+
+// Load abstractions on startup
+await loadAbstractions();
 
 function sanitizeName(name: string): string | null {
   const clean = name.replace(/[^a-zA-Z0-9_\- ]/g, "").trim();
@@ -827,6 +984,61 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
   return new Response("Not found", { status: 404 });
 }
 
+// --- Abstraction storage API ---
+
+async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
+  const headers = { "content-type": "application/json" };
+
+  // GET /abstractions — list available abstractions
+  if (req.method === "GET" && url.pathname === "/abstractions") {
+    const abstractions: string[] = [];
+    for await (const entry of Deno.readDir(ABSTRACTIONS_DIR)) {
+      if (entry.isFile && entry.name.endsWith(".json")) abstractions.push(entry.name.replace(".json", ""));
+    }
+    abstractions.sort();
+    return new Response(JSON.stringify(abstractions), { headers });
+  }
+
+  // GET /abstractions/name — load an abstraction
+  if (req.method === "GET" && url.pathname.startsWith("/abstractions/")) {
+    const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
+    if (!name) return new Response("Invalid name", { status: 400 });
+    try {
+      const data = await Deno.readTextFile(`${ABSTRACTIONS_DIR}/${name}.json`);
+      return new Response(data, { headers });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  }
+
+  // PUT /abstractions/name — save an abstraction
+  if (req.method === "PUT" && url.pathname.startsWith("/abstractions/")) {
+    const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
+    if (!name) return new Response("Invalid name", { status: 400 });
+    const data = await req.text();
+    await Deno.writeTextFile(`${ABSTRACTIONS_DIR}/${name}.json`, data);
+    console.log(`Abstraction saved: ${name}`);
+    await loadAbstractions();  // Reload registry
+    return new Response(JSON.stringify({ ok: true, name }), { headers });
+  }
+
+  // DELETE /abstractions/name — delete an abstraction
+  if (req.method === "DELETE" && url.pathname.startsWith("/abstractions/")) {
+    const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
+    if (!name) return new Response("Invalid name", { status: 400 });
+    try {
+      await Deno.remove(`${ABSTRACTIONS_DIR}/${name}.json`);
+      console.log(`Abstraction deleted: ${name}`);
+      await loadAbstractions();  // Reload registry
+      return new Response(JSON.stringify({ ok: true }), { headers });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  }
+
+  return new Response("Not found", { status: 404 });
+}
+
 // --- HTTPS handler ---
 
 function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promise<Response> {
@@ -839,6 +1051,7 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
   if (url.pathname === "/events") return handleSSE(req, info);
   if (url.pathname === "/auth") { authenticatedIPs.add((info.remoteAddr as Deno.NetAddr).hostname); return new Response("ok"); }
   if (url.pathname.startsWith("/patches")) return handlePatchAPI(req, url);
+  if (url.pathname.startsWith("/abstractions")) return handleAbstractionAPI(req, url);
   return serveFile(url.pathname === "/" ? "/index.html" : url.pathname);
 }
 
