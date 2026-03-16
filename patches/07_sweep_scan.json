@@ -1,0 +1,56 @@
+{"boxes":[
+[1,{"x":200,"y":80,"text":"breath"}],
+[2,{"x":400,"y":80,"text":"nod"}],
+
+[3,{"x":200,"y":200,"text":"** 2"}],
+[4,{"x":200,"y":300,"text":"metro 0.08"}],
+
+[5,{"x":200,"y":380,"text":"sweep"}],
+[6,{"x":150,"y":600,"text":"sine-osc"}],
+
+[10,{"x":50,"y":280,"text":"phasor 2"}],
+[11,{"x":50,"y":380,"text":"scale 200 8000"}],
+
+[12,{"x":350,"y":280,"text":"ar 0.001 0.03"}],
+
+[20,{"x":450,"y":380,"text":"sweep"}],
+[21,{"x":450,"y":600,"text":"noise"}],
+[22,{"x":450,"y":280,"text":"ar 0.0005 0.015"}],
+[23,{"x":600,"y":280,"text":"scale 2000 16000"}],
+[24,{"x":600,"y":180,"text":"phasor 1"}],
+
+[30,{"x":400,"y":200,"text":"scale 0 0.8"}],
+
+[40,{"x":700,"y":380,"text":"all 1"}],
+[41,{"x":700,"y":600,"text":"sine-osc"}],
+[42,{"x":700,"y":280,"text":"const 55"}]
+],"cables":[
+[100,{"srcBox":1,"srcOutlet":0,"dstBox":3,"dstInlet":0}],
+[101,{"srcBox":3,"srcOutlet":0,"dstBox":4,"dstInlet":0}],
+[102,{"srcBox":4,"srcOutlet":0,"dstBox":5,"dstInlet":1}],
+
+[110,{"srcBox":10,"srcOutlet":0,"dstBox":11,"dstInlet":0}],
+[111,{"srcBox":11,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[112,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":0}],
+
+[113,{"srcBox":4,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[114,{"srcBox":12,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[115,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":1}],
+
+[120,{"srcBox":4,"srcOutlet":0,"dstBox":20,"dstInlet":1}],
+[121,{"srcBox":4,"srcOutlet":0,"dstBox":22,"dstInlet":0}],
+[122,{"srcBox":22,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[123,{"srcBox":20,"srcOutlet":0,"dstBox":21,"dstInlet":2}],
+
+[124,{"srcBox":24,"srcOutlet":0,"dstBox":23,"dstInlet":0}],
+[125,{"srcBox":23,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[126,{"srcBox":20,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+
+[130,{"srcBox":2,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
+[131,{"srcBox":30,"srcOutlet":0,"dstBox":21,"dstInlet":1}],
+
+[140,{"srcBox":42,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[141,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":0}],
+[142,{"srcBox":3,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[143,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":1}]
+],"nextId":200,"synthBorderY":450,"comment":"Spatial sweep scanner. Metro sweeps sine pips across phones — phasor modulates frequency so each phone in the sweep gets a different pitch (rising scan). Second sweep layer does the same with noise bursts, phasor sweeps cutoff. Nod controls noise resonance. Sub-bass sine anchors everything. Breath squared controls density."}

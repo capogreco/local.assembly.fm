@@ -29,8 +29,10 @@ let voices = [];
 let N = countDisplay ? parseInt(countDisplay.textContent) || 6 : 1;
 
 const ENGINES = {
-  formant:          { module: "processor.js",    worklet: "voice-processor", channels: 4 },
-  "karplus-strong": { module: "ks-processor.js", worklet: "ks-processor",   channels: 1 },
+  formant:          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
+  "karplus-strong": { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
+  "sine-osc":       { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
+  noise:            { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
 };
 
 async function createEngine(type, destination) {
@@ -251,8 +253,16 @@ requestAnimationFrame(clientTick);
 
 // --- Rebuild (ensemble voice count change) ---
 
+let rebuildTimer = null;
+
 function rebuild() {
-  buildVoices();
+  // debounce: wait 200ms after last click before rebuilding
+  if (rebuildTimer) clearTimeout(rebuildTimer);
+  if (countDisplay) countDisplay.textContent = N;
+  rebuildTimer = setTimeout(() => {
+    rebuildTimer = null;
+    buildVoices();
+  }, 200);
 }
 
 // --- Init ---

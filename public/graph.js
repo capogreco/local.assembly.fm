@@ -130,6 +130,37 @@ function buildGraph(patch) {
       case "counter":
         node.state = { count: parseFloat(box.args) || 0, min: parseFloat(box.args) || 0, max: parseFloat(box.args.split(/\s+/)[1]) || 7 };
         break;
+      case "ar": {
+        const arParts = (box.args || "0.1 0.5").split(/\s+/).map(Number);
+        node.state = { value: 0, phase: "idle", elapsed: 0, attack: arParts[0] || 0.1, release: arParts[1] || 0.5 };
+        break;
+      }
+      case "adsr": {
+        const adsrParts = (box.args || "0.05 0.1 0.7 0.3").split(/\s+/).map(Number);
+        node.state = { value: 0, phase: "idle", elapsed: 0, a: adsrParts[0] || 0.05, d: adsrParts[1] || 0.1, s: adsrParts[2] || 0.7, r: adsrParts[3] || 0.3, gateOpen: false };
+        break;
+      }
+      case "ramp": {
+        const rampParts = (box.args || "0 1 0.5").split(/\s+/).map(Number);
+        node.state = { value: rampParts[0] || 0, from: rampParts[0] || 0, to: rampParts[1] || 1, duration: rampParts[2] || 0.5, phase: "idle", elapsed: 0 };
+        break;
+      }
+      case "delay": {
+        node.state = { queue: [], time: parseFloat(box.args) || 0.5 };
+        break;
+      }
+      case "slew": {
+        node.state = { value: 0, target: 0, rate: parseFloat(box.args) || 0.05 };
+        break;
+      }
+      case "lag": {
+        node.state = { value: 0, target: 0, coeff: parseFloat(box.args) || 0.2 };
+        break;
+      }
+      case "sample-hold": {
+        node.state = { value: 0 };
+        break;
+      }
     }
 
     graph.boxes.set(box.id, node);
@@ -183,10 +214,8 @@ function buildGraph(patch) {
 
 // check if an inlet is an event trigger that should call handleEvent
 function isEventTrigger(type, inlet) {
-  // inlet 0 is the trigger for these types
-  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk")) return true;
-  // inlet 1 is reset for phasor
-  if (inlet === 1 && type === "phasor") return true;
+  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay")) return true;
+  if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
 }
 
@@ -248,6 +277,18 @@ function evaluateNode(graph, boxId) {
       const divs = parseFloat(args[0]) || 12;
       return Math.round((iv[0] || 0) * divs) / divs;
     }
+    case "sine": return Math.sin((iv[0] || 0) * Math.PI * 2) * 0.5 + 0.5;
+    case "tri": {
+      const yaw = parseFloat(args[0]) || 0.5;
+      const t = iv[0] || 0;
+      return t < yaw ? (yaw > 0 ? t / yaw : 0) : (yaw < 1 ? (1 - t) / (1 - yaw) : 0);
+    }
+    case "ar": return node.state ? node.state.value : 0;
+    case "adsr": return node.state ? node.state.value : 0;
+    case "ramp": return node.state ? node.state.value : 0;
+    case "slew": return node.state ? node.state.value : (iv[0] || 0);
+    case "lag": return node.state ? node.state.value : (iv[0] || 0);
+    case "sample-hold": return node.state ? node.state.value : 0;
     default:
       return iv[0] || 0; // passthrough
   }
@@ -287,6 +328,16 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
       }
     } else if (dstNode.type === "phasor") {
       // phasor number inlets (pause/period) — store value, don't propagate
+    } else if ((dstNode.type === "slew" || dstNode.type === "lag") && cable.dstInlet === 0) {
+      if (dstNode.state) dstNode.state.target = value;
+    } else if (dstNode.type === "sample-hold" && cable.dstInlet === 0) {
+      // store for sampling — don't propagate until triggered
+    } else if (dstNode.type === "adsr" && cable.dstInlet === 0) {
+      // gate value — store for tick loop, don't propagate
+    } else if (dstNode.type === "ar") {
+      // number inlets (attack/release time) — store for tick
+      if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
+      if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
     } else {
       // evaluate the destination box and propagate further
       const result = evaluateNode(graph, cable.dstBox);
@@ -341,6 +392,32 @@ function handleEvent(graph, boxId) {
         outputValue = node.state.count;
       }
       break;
+    case "ar":
+      if (node.state) {
+        // update attack/release from inlets if connected
+        if (node.inletValues[1] > 0) node.state.attack = node.inletValues[1];
+        if (node.inletValues[2] > 0) node.state.release = node.inletValues[2];
+        node.state.phase = "attack";
+        node.state.elapsed = 0;
+      }
+      return {}; // no immediate output — tick drives it
+    case "ramp":
+      if (node.state) {
+        node.state.phase = "running";
+        node.state.elapsed = 0;
+      }
+      return {};
+    case "delay":
+      if (node.state) {
+        node.state.queue.push({ value: 1, remaining: node.state.time });
+      }
+      return {};
+    case "sample-hold":
+      if (node.state) {
+        node.state.value = node.inletValues[0] || 0;
+        return propagateInGraph(graph, boxId, 0, node.state.value);
+      }
+      return {};
     default:
       return {};
   }
@@ -380,11 +457,100 @@ function tickGraph(graph, dt) {
         node.state.elapsed += dt;
         if (node.state.elapsed >= node.state.interval) {
           node.state.elapsed -= node.state.interval;
-          const updates = propagateInGraph(graph, id, 0, 1);
-          for (const [eid, params] of Object.entries(updates)) {
-            if (!allUpdates[eid]) allUpdates[eid] = {};
-            Object.assign(allUpdates[eid], params);
+          const u = propagateInGraph(graph, id, 0, 1);
+          mergeUpdates(allUpdates, u);
+        }
+        break;
+      }
+      case "ar": {
+        const s = node.state;
+        if (s.phase === "idle") break;
+        s.elapsed += dt;
+        if (s.phase === "attack") {
+          s.value = Math.min(1, s.elapsed / s.attack);
+          if (s.elapsed >= s.attack) { s.phase = "release"; s.elapsed = 0; }
+        } else if (s.phase === "release") {
+          s.value = Math.max(0, 1 - s.elapsed / s.release);
+          if (s.elapsed >= s.release) {
+            s.value = 0; s.phase = "idle";
+            mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0)); // end event
           }
+        }
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
+        break;
+      }
+      case "adsr": {
+        const s = node.state;
+        const gateNow = (node.inletValues[0] || 0) > 0;
+        if (gateNow && !s.gateOpen) {
+          // gate opened
+          s.gateOpen = true; s.phase = "attack"; s.elapsed = 0;
+        } else if (!gateNow && s.gateOpen) {
+          // gate closed
+          s.gateOpen = false;
+          if (s.phase !== "idle") { s.phase = "release"; s.elapsed = 0; }
+        }
+        if (s.phase === "idle") break;
+        s.elapsed += dt;
+        if (s.phase === "attack") {
+          s.value = Math.min(1, s.elapsed / s.a);
+          if (s.elapsed >= s.a) { s.phase = "decay"; s.elapsed = 0; }
+        } else if (s.phase === "decay") {
+          s.value = 1 - (1 - s.s) * Math.min(1, s.elapsed / s.d);
+          if (s.elapsed >= s.d) { s.phase = "sustain"; s.value = s.s; }
+        } else if (s.phase === "sustain") {
+          s.value = s.s;
+        } else if (s.phase === "release") {
+          const startVal = s.value; // release from wherever we are
+          s.value = startVal * Math.max(0, 1 - s.elapsed / s.r);
+          if (s.elapsed >= s.r) {
+            s.value = 0; s.phase = "idle";
+            mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0));
+          }
+        }
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
+        break;
+      }
+      case "ramp": {
+        const s = node.state;
+        if (s.phase !== "running") break;
+        s.elapsed += dt;
+        const t = Math.min(1, s.elapsed / s.duration);
+        s.value = s.from + (s.to - s.from) * t;
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
+        if (t >= 1) {
+          s.phase = "idle";
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0)); // end event
+        }
+        break;
+      }
+      case "delay": {
+        const s = node.state;
+        for (let i = s.queue.length - 1; i >= 0; i--) {
+          s.queue[i].remaining -= dt;
+          if (s.queue[i].remaining <= 0) {
+            mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.queue[i].value));
+            s.queue.splice(i, 1);
+          }
+        }
+        break;
+      }
+      case "slew": {
+        const s = node.state;
+        if (Math.abs(s.value - s.target) > 0.0001) {
+          const maxDelta = dt / s.rate;
+          const diff = s.target - s.value;
+          s.value += Math.sign(diff) * Math.min(Math.abs(diff), maxDelta);
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
+        }
+        break;
+      }
+      case "lag": {
+        const s = node.state;
+        if (Math.abs(s.value - s.target) > 0.0001) {
+          const alpha = 1 - Math.exp(-dt / s.coeff);
+          s.value += (s.target - s.value) * alpha;
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
         }
         break;
       }

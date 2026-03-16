@@ -1,0 +1,63 @@
+{"boxes":[
+[1,{"x":150,"y":80,"text":"breath"}],
+[2,{"x":350,"y":80,"text":"nod"}],
+[3,{"x":500,"y":80,"text":"tilt"}],
+
+[4,{"x":150,"y":200,"text":"adsr 1.0 0.5 0.7 2.0"}],
+[5,{"x":150,"y":380,"text":"all 4"}],
+[6,{"x":100,"y":700,"text":"formant"}],
+
+[10,{"x":50,"y":500,"text":"sig 1,2,3 shuffle"}],
+[11,{"x":200,"y":500,"text":"sig 1,2,3,4 shuffle"}],
+[12,{"x":125,"y":570,"text":"/"}],
+[13,{"x":50,"y":650,"text":"const 55"}],
+[14,{"x":125,"y":650,"text":"*"}],
+[15,{"x":125,"y":730,"text":"lag 0.8"}],
+
+[20,{"x":350,"y":200,"text":"scale 0 1"}],
+[21,{"x":500,"y":200,"text":"scale 0 1"}],
+
+[30,{"x":400,"y":500,"text":"spread 0 1"}],
+
+[40,{"x":50,"y":300,"text":"phasor 12"}],
+
+[50,{"x":550,"y":500,"text":"range 0.1 0.6"}],
+
+[60,{"x":600,"y":380,"text":"all 2"}],
+[61,{"x":600,"y":600,"text":"sine-osc"}],
+[62,{"x":600,"y":280,"text":"lag 1.5"}],
+[63,{"x":500,"y":500,"text":"sig 55,110,165,220,330,440 shuffle"}],
+[64,{"x":500,"y":300,"text":"phasor 8"}]
+],"cables":[
+[100,{"srcBox":1,"srcOutlet":0,"dstBox":4,"dstInlet":0}],
+[101,{"srcBox":4,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[102,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":5}],
+
+[110,{"srcBox":40,"srcOutlet":1,"dstBox":10,"dstInlet":0}],
+[111,{"srcBox":40,"srcOutlet":1,"dstBox":11,"dstInlet":0}],
+[112,{"srcBox":10,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[113,{"srcBox":11,"srcOutlet":0,"dstBox":12,"dstInlet":1}],
+[114,{"srcBox":13,"srcOutlet":0,"dstBox":14,"dstInlet":0}],
+[115,{"srcBox":12,"srcOutlet":0,"dstBox":14,"dstInlet":1}],
+[116,{"srcBox":14,"srcOutlet":0,"dstBox":15,"dstInlet":0}],
+[117,{"srcBox":15,"srcOutlet":0,"dstBox":5,"dstInlet":1}],
+[118,{"srcBox":5,"srcOutlet":1,"dstBox":6,"dstInlet":0}],
+
+[120,{"srcBox":2,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[121,{"srcBox":20,"srcOutlet":0,"dstBox":5,"dstInlet":2}],
+[122,{"srcBox":5,"srcOutlet":2,"dstBox":6,"dstInlet":1}],
+
+[123,{"srcBox":3,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+[124,{"srcBox":21,"srcOutlet":0,"dstBox":5,"dstInlet":3}],
+[125,{"srcBox":5,"srcOutlet":3,"dstBox":6,"dstInlet":2}],
+
+[130,{"srcBox":30,"srcOutlet":0,"dstBox":6,"dstInlet":3}],
+[131,{"srcBox":50,"srcOutlet":0,"dstBox":6,"dstInlet":4}],
+
+[140,{"srcBox":64,"srcOutlet":1,"dstBox":63,"dstInlet":0}],
+[141,{"srcBox":63,"srcOutlet":0,"dstBox":62,"dstInlet":0}],
+[142,{"srcBox":62,"srcOutlet":0,"dstBox":60,"dstInlet":0}],
+[143,{"srcBox":60,"srcOutlet":0,"dstBox":61,"dstInlet":0}],
+[144,{"srcBox":4,"srcOutlet":0,"dstBox":60,"dstInlet":1}],
+[145,{"srcBox":60,"srcOutlet":1,"dstBox":61,"dstInlet":1}]
+],"nextId":200,"synthBorderY":450,"comment":"Slow harmonic drone. Long ADSR (1s attack, 2s release). Phasor EOC triggers HRG with small integer ratios (1-3/1-4) through lag 0.8 for glacial frequency glides. Nod/tilt control formant vowel space. Spread distributes zingAmount across instances. Range gives per-instance symmetry. Second layer: sine-osc with lag-smoothed frequency from sig, amplitude from ADSR."}

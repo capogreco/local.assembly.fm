@@ -1,0 +1,61 @@
+{"boxes":[
+[1,{"x":200,"y":80,"text":"breath"}],
+[2,{"x":400,"y":80,"text":"bite"}],
+
+[3,{"x":200,"y":200,"text":"scale 0.5 4"}],
+[4,{"x":200,"y":300,"text":"metro 0.25"}],
+
+[5,{"x":200,"y":380,"text":"sweep"}],
+[6,{"x":300,"y":600,"text":"karplus-strong"}],
+
+[10,{"x":50,"y":500,"text":"sig 1-6 shuffle"}],
+[11,{"x":200,"y":500,"text":"sig 1-8 shuffle"}],
+[12,{"x":125,"y":570,"text":"/"}],
+[13,{"x":50,"y":650,"text":"const 110"}],
+[14,{"x":125,"y":650,"text":"*"}],
+
+[20,{"x":400,"y":200,"text":"scale 0.2 1"}],
+[21,{"x":400,"y":300,"text":"ar 0.001 0.1"}],
+
+[30,{"x":550,"y":500,"text":"range 0.3 0.9"}],
+[31,{"x":550,"y":600,"text":"karplus-strong"}],
+[32,{"x":500,"y":380,"text":"all 2"}],
+
+[40,{"x":50,"y":300,"text":"delay 0.05"}],
+[41,{"x":50,"y":380,"text":"delay 0.1"}],
+
+[50,{"x":650,"y":80,"text":"phasor 8"}],
+[51,{"x":650,"y":180,"text":"quantize 8"}],
+[52,{"x":650,"y":280,"text":"scale 0.5 1"}]
+],"cables":[
+[100,{"srcBox":1,"srcOutlet":0,"dstBox":3,"dstInlet":0}],
+[101,{"srcBox":3,"srcOutlet":0,"dstBox":4,"dstInlet":0}],
+[102,{"srcBox":4,"srcOutlet":0,"dstBox":5,"dstInlet":1}],
+
+[110,{"srcBox":4,"srcOutlet":0,"dstBox":10,"dstInlet":0}],
+[111,{"srcBox":4,"srcOutlet":0,"dstBox":11,"dstInlet":0}],
+[112,{"srcBox":10,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[113,{"srcBox":11,"srcOutlet":0,"dstBox":12,"dstInlet":1}],
+[114,{"srcBox":13,"srcOutlet":0,"dstBox":14,"dstInlet":0}],
+[115,{"srcBox":12,"srcOutlet":0,"dstBox":14,"dstInlet":1}],
+[116,{"srcBox":14,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[117,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":0}],
+
+[120,{"srcBox":2,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[121,{"srcBox":20,"srcOutlet":0,"dstBox":32,"dstInlet":0}],
+[122,{"srcBox":32,"srcOutlet":0,"dstBox":6,"dstInlet":3}],
+
+[123,{"srcBox":4,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+[124,{"srcBox":21,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[125,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":4}],
+
+[130,{"srcBox":30,"srcOutlet":0,"dstBox":6,"dstInlet":1}],
+
+[140,{"srcBox":4,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[141,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":0}],
+
+[150,{"srcBox":50,"srcOutlet":0,"dtBox":51,"dstInlet":0}],
+[151,{"srcBox":51,"srcOutlet":0,"dstBox":52,"dstInlet":0}],
+[152,{"srcBox":52,"srcOutlet":0,"dstBox":32,"dstInlet":1}],
+[153,{"srcBox":32,"srcOutlet":1,"dstBox":6,"dstInlet":2}]
+],"nextId":200,"synthBorderY":450,"comment":"Karplus-Strong pluck cascade. Breath controls metro rate (fast breath = dense plucks). Metro sweeps across phones, each gets HRG frequency. Bite controls brightness via AR envelope. Range gives per-instance damping. Phasor steps brightness in 8 quantized levels through all router. Delayed metro echoes for polyrhythmic cascading."}

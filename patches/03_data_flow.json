@@ -1,0 +1,70 @@
+{"boxes":[
+[1,{"x":150,"y":80,"text":"breath"}],
+[2,{"x":350,"y":80,"text":"nod"}],
+[3,{"x":500,"y":80,"text":"tilt"}],
+
+[4,{"x":150,"y":200,"text":"adsr 0.01 0.05 0.9 0.15"}],
+
+[5,{"x":150,"y":380,"text":"all 4"}],
+[6,{"x":100,"y":600,"text":"formant"}],
+
+[10,{"x":50,"y":500,"text":"sig 1-12 shuffle"}],
+[11,{"x":200,"y":500,"text":"sig 1-8 shuffle"}],
+[12,{"x":125,"y":570,"text":"/"}],
+[13,{"x":50,"y":650,"text":"const 110"}],
+[14,{"x":125,"y":650,"text":"*"}],
+
+[20,{"x":350,"y":200,"text":"scale 0 1"}],
+[21,{"x":500,"y":200,"text":"scale 0 1"}],
+
+[30,{"x":400,"y":380,"text":"one"}],
+[31,{"x":400,"y":280,"text":"metro 0.08"}],
+[32,{"x":550,"y":280,"text":"ar 0.001 0.04"}],
+[33,{"x":550,"y":380,"text":"sig 110,220,440,880,1760,3520,7040 random"}],
+[34,{"x":400,"y":600,"text":"sine-osc"}],
+
+[40,{"x":650,"y":380,"text":"fraction 0.4"}],
+[41,{"x":650,"y":280,"text":"phasor 0.25"}],
+[42,{"x":750,"y":280,"text":"tri 0.1"}],
+[43,{"x":750,"y":380,"text":"scale 1000 15000"}],
+[44,{"x":650,"y":600,"text":"noise"}],
+[45,{"x":650,"y":200,"text":"const 0.08"}],
+
+[50,{"x":50,"y":280,"text":"phasor 4"}]
+],"cables":[
+[100,{"srcBox":1,"srcOutlet":0,"dstBox":4,"dstInlet":0}],
+[101,{"srcBox":4,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[102,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":5}],
+
+[110,{"srcBox":50,"srcOutlet":1,"dstBox":10,"dstInlet":0}],
+[111,{"srcBox":50,"srcOutlet":1,"dstBox":11,"dstInlet":0}],
+[112,{"srcBox":10,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[113,{"srcBox":11,"srcOutlet":0,"dstBox":12,"dstInlet":1}],
+[114,{"srcBox":13,"srcOutlet":0,"dstBox":14,"dstInlet":0}],
+[115,{"srcBox":12,"srcOutlet":0,"dstBox":14,"dstInlet":1}],
+[116,{"srcBox":14,"srcOutlet":0,"dstBox":5,"dstInlet":1}],
+[117,{"srcBox":5,"srcOutlet":1,"dstBox":6,"dstInlet":0}],
+
+[120,{"srcBox":2,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[121,{"srcBox":20,"srcOutlet":0,"dstBox":5,"dstInlet":2}],
+[122,{"srcBox":5,"srcOutlet":2,"dstBox":6,"dstInlet":1}],
+
+[123,{"srcBox":3,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+[124,{"srcBox":21,"srcOutlet":0,"dstBox":5,"dstInlet":3}],
+[125,{"srcBox":5,"srcOutlet":3,"dstBox":6,"dstInlet":2}],
+
+[130,{"srcBox":31,"srcOutlet":0,"dstBox":30,"dstInlet":1}],
+[131,{"srcBox":31,"srcOutlet":0,"dstBox":33,"dstInlet":0}],
+[132,{"srcBox":33,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
+[133,{"srcBox":30,"srcOutlet":0,"dstBox":34,"dstInlet":0}],
+[134,{"srcBox":31,"srcOutlet":0,"dstBox":32,"dstInlet":0}],
+[135,{"srcBox":32,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
+[136,{"srcBox":30,"srcOutlet":0,"dstBox":34,"dstInlet":1}],
+
+[140,{"srcBox":41,"srcOutlet":0,"dstBox":42,"dstInlet":0}],
+[141,{"srcBox":42,"srcOutlet":0,"dstBox":43,"dstInlet":0}],
+[142,{"srcBox":43,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[143,{"srcBox":40,"srcOutlet":0,"dstBox":44,"dstInlet":0}],
+[144,{"srcBox":45,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[145,{"srcBox":40,"srcOutlet":0,"dstBox":44,"dstInlet":2}]
+],"nextId":200,"synthBorderY":450,"comment":"Three layers. Formant drone: breath ADSR amplitude, phasor-driven HRG frequency, nod/tilt control vowel XY. Sine pulses: fast metro triggers random octave frequencies via one-router, each phone gets a different pulse. Noise texture: slow saw-shaped phasor sweeps cutoff through fraction router — random 40% of phones get the sweep."}

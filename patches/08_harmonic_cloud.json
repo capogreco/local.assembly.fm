@@ -1,0 +1,55 @@
+{"boxes":[
+[1,{"x":150,"y":80,"text":"breath"}],
+[2,{"x":350,"y":80,"text":"bite"}],
+[3,{"x":500,"y":80,"text":"tilt"}],
+
+[4,{"x":150,"y":200,"text":"adsr 0.5 0.3 0.6 1.5"}],
+[5,{"x":150,"y":380,"text":"all 3"}],
+[6,{"x":100,"y":700,"text":"sine-osc"}],
+
+[10,{"x":50,"y":500,"text":"const 55"}],
+[11,{"x":50,"y":600,"text":"*"}],
+[12,{"x":200,"y":500,"text":"sig 1,2,3,4,5,6,8,10,12 shuffle"}],
+[13,{"x":200,"y":600,"text":"lag 0.5"}],
+
+[20,{"x":350,"y":200,"text":"scale 0 0.4"}],
+
+[30,{"x":500,"y":380,"text":"fraction 0.5"}],
+[31,{"x":500,"y":600,"text":"sine-osc"}],
+[32,{"x":500,"y":500,"text":"sig 110,220,330,440,550,660,880 shuffle"}],
+[33,{"x":500,"y":280,"text":"metro 0.5"}],
+[34,{"x":650,"y":280,"text":"ar 0.01 0.4"}],
+
+[40,{"x":700,"y":380,"text":"all 1"}],
+[41,{"x":700,"y":600,"text":"noise"}],
+[42,{"x":700,"y":500,"text":"range 1000 10000"}],
+
+[50,{"x":50,"y":300,"text":"phasor 6"}]
+],"cables":[
+[100,{"srcBox":1,"srcOutlet":0,"dstBox":4,"dstInlet":0}],
+[101,{"srcBox":4,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[102,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":1}],
+
+[110,{"srcBox":50,"srcOutlet":1,"dstBox":12,"dstInlet":0}],
+[111,{"srcBox":12,"srcOutlet":0,"dstBox":13,"dstInlet":0}],
+[112,{"srcBox":10,"srcOutlet":0,"dstBox":11,"dstInlet":0}],
+[113,{"srcBox":13,"srcOutlet":0,"dstBox":11,"dstInlet":1}],
+[114,{"srcBox":11,"srcOutlet":0,"dstBox":5,"dstInlet":1}],
+[115,{"srcBox":5,"srcOutlet":1,"dstBox":6,"dstInlet":0}],
+
+[120,{"srcBox":2,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[121,{"srcBox":20,"srcOutlet":0,"dstBox":5,"dstInlet":2}],
+[122,{"srcBox":5,"srcOutlet":2,"dstBox":41,"dstInlet":2}],
+
+[130,{"srcBox":33,"srcOutlet":0,"dstBox":32,"dstInlet":0}],
+[131,{"srcBox":32,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
+[132,{"srcBox":30,"srcOutlet":0,"dstBox":31,"dstInlet":0}],
+[133,{"srcBox":33,"srcOutlet":0,"dstBox":34,"dstInlet":0}],
+[134,{"srcBox":34,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
+[135,{"srcBox":30,"srcOutlet":0,"dstBox":31,"dstInlet":1}],
+
+[140,{"srcBox":42,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[141,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":0}],
+[142,{"srcBox":20,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[143,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":2}]
+],"nextId":200,"synthBorderY":450,"comment":"Harmonic cloud. Sine-osc with harmonic series integers (1-12) multiplied by 55Hz base, lagged for slow glides between partials. Phasor EOC shuffles the harmonic every 6 seconds. Fraction router randomly distributes second sine layer — half the phones get a new frequency every 0.5s. Noise layer with per-instance random cutoff, bite controls amplitude."}

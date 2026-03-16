@@ -13,6 +13,7 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
   let sse = null;
   let healthInterval = null;
   let clientId = null;
+  let destroyed = false;
   const statusBar = statusEl?.parentElement;
 
   function setStatus(label) {
@@ -55,7 +56,7 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
       setStatus("disconnected");
       if (sse.readyState === EventSource.CLOSED) {
         sse = null;
-        setTimeout(connectSSE, 2000);
+        if (!destroyed) setTimeout(connectSSE, 2000);
       }
     });
   }
@@ -88,6 +89,7 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
     ws.addEventListener("error", () => {
       clearTimeout(wsTimeout);
       ws = null;
+      if (destroyed) return;
       if (wsOnly) { setStatus("disconnected"); setTimeout(tryWebSocket, 2000); }
       else if (!sse) connectSSE();
     });
@@ -96,12 +98,14 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
       clearTimeout(wsTimeout);
       clearInterval(healthInterval);
       ws = null;
+      if (destroyed) return;
       if (wsOnly) { setStatus("disconnected"); setTimeout(tryWebSocket, 2000); }
       else if (!sse) connectSSE();
     });
   }
 
   function close() {
+    destroyed = true;
     if (ws) { ws.close(); ws = null; }
     if (sse) { sse.close(); sse = null; }
     clearInterval(healthInterval);

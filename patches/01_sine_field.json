@@ -1,0 +1,44 @@
+{"boxes":[
+[1,{"x":200,"y":80,"text":"breath"}],
+[2,{"x":200,"y":200,"text":"adsr 0.3 0.1 0.8 1.0"}],
+[3,{"x":200,"y":380,"text":"all 2"}],
+
+[10,{"x":100,"y":550,"text":"sig 1-8 shuffle"}],
+[11,{"x":250,"y":550,"text":"sig 1-6 shuffle"}],
+[12,{"x":175,"y":620,"text":"/"}],
+[13,{"x":50,"y":700,"text":"const 220"}],
+[14,{"x":100,"y":700,"text":"*"}],
+[15,{"x":100,"y":780,"text":"slew 0.3"}],
+[16,{"x":200,"y":850,"text":"sine-osc"}],
+
+[20,{"x":400,"y":80,"text":"phasor 6"}],
+[21,{"x":400,"y":180,"text":"sine"}],
+[22,{"x":400,"y":280,"text":"scale 0.3 0.7"}],
+[23,{"x":400,"y":380,"text":"all 1"}],
+
+[30,{"x":550,"y":550,"text":"spread 110 880"}],
+[31,{"x":550,"y":650,"text":"jitter 0.02"}],
+[32,{"x":550,"y":850,"text":"sine-osc"}]
+],"cables":[
+[100,{"srcBox":1,"srcOutlet":0,"dstBox":2,"dstInlet":0}],
+[101,{"srcBox":2,"srcOutlet":0,"dstBox":3,"dstInlet":0}],
+[102,{"srcBox":3,"srcOutlet":0,"dstBox":16,"dstInlet":1}],
+
+[110,{"srcBox":1,"srcOutlet":1,"dstBox":3,"dstInlet":1}],
+[111,{"srcBox":3,"srcOutlet":1,"dstBox":10,"dstInlet":0}],
+[112,{"srcBox":3,"srcOutlet":1,"dstBox":11,"dstInlet":0}],
+[113,{"srcBox":10,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[114,{"srcBox":11,"srcOutlet":0,"dstBox":12,"dstInlet":1}],
+[115,{"srcBox":13,"srcOutlet":0,"dstBox":14,"dstInlet":0}],
+[116,{"srcBox":12,"srcOutlet":0,"dstBox":14,"dstInlet":1}],
+[117,{"srcBox":14,"srcOutlet":0,"dstBox":15,"dstInlet":0}],
+[118,{"srcBox":15,"srcOutlet":0,"dstBox":16,"dstInlet":0}],
+
+[120,{"srcBox":20,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+[121,{"srcBox":21,"srcOutlet":0,"dstBox":22,"dstInlet":0}],
+[122,{"srcBox":22,"srcOutlet":0,"dstBox":23,"dstInlet":0}],
+[123,{"srcBox":23,"srcOutlet":0,"dstBox":32,"dstInlet":1}],
+
+[130,{"srcBox":30,"srcOutlet":0,"dstBox":31,"dstInlet":0}],
+[131,{"srcBox":31,"srcOutlet":0,"dstBox":32,"dstInlet":0}]
+],"nextId":200,"synthBorderY":450,"comment":"Pure sine field. Breath opens ADSR amplitude. Onset triggers HRG frequency with slew portamento. Spread distributes a second sine-osc layer across instances. Slow sine LFO modulates the spread layer amplitude."}

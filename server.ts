@@ -5,6 +5,42 @@ const HTTP_PORT = 8080;
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.10";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
 
+// --- Status display ---
+
+const status = {
+  gpi: 0,
+  synth: 0,
+  sse: 0,
+  applied: false,
+  lastEvent: "",
+  lastEventTime: 0,
+};
+
+function event(msg: string): void {
+  status.lastEvent = msg;
+  status.lastEventTime = Date.now();
+  // print event above the status line
+  Deno.stdout.writeSync(new TextEncoder().encode(`\r\x1b[K  ${msg}\n`));
+  drawStatus();
+}
+
+function drawStatus(): void {
+  const synth = synthWsClients.size;
+  const sse = sseClients.size;
+  const gpi = gpiSockets.size;
+  const total = synth + sse;
+  const state = status.applied ? "\x1b[32m●\x1b[0m applied" : "\x1b[33m○\x1b[0m idle";
+  const clients = total === 0 ? "\x1b[90m0 clients\x1b[0m" : `\x1b[36m${total} client${total !== 1 ? "s" : ""}\x1b[0m`;
+  const gpiLabel = gpi > 0 ? "\x1b[32mGPI\x1b[0m" : "\x1b[90mGPI\x1b[0m";
+  const ws = synth > 0 ? `${synth}ws` : "";
+  const sseLabel = sse > 0 ? `${sse}sse` : "";
+  const transport = [ws, sseLabel].filter(Boolean).join("+") || "";
+  const transportStr = transport ? ` (${transport})` : "";
+
+  const line = `  ${gpiLabel}  ${clients}${transportStr}  ${state}`;
+  Deno.stdout.writeSync(new TextEncoder().encode(`\r\x1b[K${line}`));
+}
+
 // --- Import shared box types ---
 
 // deno-lint-ignore no-explicit-any
@@ -64,6 +100,84 @@ function broadcastSynth(msg: Record<string, unknown>): void {
     if (socket.readyState === WebSocket.OPEN) socket.send(data);
   }
   for (const [, send] of sseClients) send(msg);
+}
+
+function sendToClient(clientId: number, msg: Record<string, unknown>): void {
+  const data = JSON.stringify(msg);
+  const ws = synthWsClients.get(clientId);
+  if (ws?.readyState === WebSocket.OPEN) { ws.send(data); return; }
+  const sse = sseClients.get(clientId);
+  if (sse) sse(msg);
+}
+
+function getSynthClientIds(): number[] {
+  return [...synthWsClients.keys(), ...sseClients.keys()];
+}
+
+// --- Router state (for one/sweep/fraction targeting) ---
+
+const routerState = new Map<number, { index: number }>();
+
+function handleRouterInlet(routerBoxId: number, inlet: number, value: number): void {
+  const box = boxes.get(routerBoxId);
+  if (!box) return;
+  const routerType = boxTypeName(box.text);
+
+  // for `one` and `sweep`: inlet 1 is the trigger to advance
+  if (inlet === 1 && (routerType === "one" || routerType === "sweep")) {
+    if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+    const state = routerState.get(routerBoxId)!;
+    const clients = getSynthClientIds();
+    if (clients.length > 0) state.index = (state.index + 1) % clients.length;
+    return;
+  }
+
+  // value inlet — send via the router's targeting logic
+  sendViaRouter(routerBoxId, inlet, value);
+}
+
+function sendViaRouter(routerBoxId: number, channel: number, value: number): void {
+  const box = boxes.get(routerBoxId);
+  if (!box) return;
+  const routerType = boxTypeName(box.text);
+  const msg = { type: "rv", r: routerBoxId, ch: channel, v: value } as Record<string, unknown>;
+  latestValues.set(routerBoxId + ":" + channel, JSON.stringify(msg));
+
+  const clients = getSynthClientIds();
+  if (clients.length === 0) return;
+
+  switch (routerType) {
+    case "all":
+      broadcastSynth(msg);
+      break;
+    case "one": {
+      // send to one client, same one until triggered to advance
+      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+      const state = routerState.get(routerBoxId)!;
+      const id = clients[state.index % clients.length];
+      sendToClient(id, msg);
+      break;
+    }
+    case "sweep": {
+      // send to current client, advance on each value
+      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+      const state = routerState.get(routerBoxId)!;
+      const id = clients[state.index % clients.length];
+      sendToClient(id, msg);
+      state.index = (state.index + 1) % clients.length;
+      break;
+    }
+    case "fraction": {
+      // send to random subset based on fraction arg
+      const frac = parseFloat(box.text.split(/\s+/)[1]) || 0.5;
+      for (const id of clients) {
+        if (Math.random() < frac) sendToClient(id, msg);
+      }
+      break;
+    }
+    default:
+      broadcastSynth(msg);
+  }
 }
 
 function sendGPI(msg: Record<string, unknown>): void {
@@ -157,6 +271,9 @@ function evaluateBox(box: Box, iv: number[]): number {
     case "const": return parseFloat(args[0]) || 0;
     case "gate": return (iv[1] || 0) > 0 ? a : 0;
     case "quantize": { const d = parseFloat(args[0]) || 12; return Math.round(a * d) / d; }
+    case "sine": return Math.sin(a * Math.PI * 2) * 0.5 + 0.5;
+    case "tri": { const yaw = parseFloat(args[0]) || 0.5; return a < yaw ? (yaw > 0 ? a / yaw : 0) : (yaw < 1 ? (1 - a) / (1 - yaw) : 0); }
+    case "sample-hold": return a; // passthrough — actual hold logic is stateful
     default: return a;
   }
 }
@@ -168,10 +285,7 @@ function propagate(boxId: number, outletIndex: number, value: number): void {
     const def = getBoxDef(dst.text);
     if (!def) continue;
     if (def.zone === "router") {
-      // send rv to synth clients
-      const msg = { type: "rv", r: cable.dstBox, ch: cable.dstInlet, v: value };
-      latestValues.set(cable.dstBox + ":" + cable.dstInlet, JSON.stringify(msg));
-      broadcastSynth(msg);
+      handleRouterInlet(cable.dstBox, cable.dstInlet, value);
     } else if (def.zone !== "synth") {
       // ctrl-side or any-zone box above border: evaluate
       let iv = inletValues.get(cable.dstBox);
@@ -253,9 +367,7 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: number): 
     const def = getBoxDef(dst.text);
     if (!def) continue;
     if (def.zone === "router") {
-      const msg = { type: "rv", r: cable.dstBox, ch: cable.dstInlet, v: value };
-      latestValues.set(cable.dstBox + ":" + cable.dstInlet, JSON.stringify(msg));
-      broadcastSynth(msg);
+      handleRouterInlet(cable.dstBox, cable.dstInlet, value);
     } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
       // check if this inlet is an event/trigger type — fire event handler
       const inletDef = def.inlets[cable.dstInlet];
@@ -311,6 +423,27 @@ function initBoxState(id: number, box: Box): void {
     case "drunk":
       boxState.set(id, { value: Math.random(), step: parseFloat(args[0]) || 0.01 });
       break;
+    case "ar":
+      boxState.set(id, { value: 0, phase: "idle", elapsed: 0, attack: parseFloat(args[0]) || 0.1, release: parseFloat(args[1]) || 0.5 });
+      break;
+    case "adsr":
+      boxState.set(id, { value: 0, phase: "idle", elapsed: 0, a: parseFloat(args[0]) || 0.05, d: parseFloat(args[1]) || 0.1, s: parseFloat(args[2]) || 0.7, r: parseFloat(args[3]) || 0.3, gateOpen: false });
+      break;
+    case "ramp":
+      boxState.set(id, { value: parseFloat(args[0]) || 0, from: parseFloat(args[0]) || 0, to: parseFloat(args[1]) || 1, duration: parseFloat(args[2]) || 0.5, phase: "idle", elapsed: 0 });
+      break;
+    case "delay":
+      boxState.set(id, { queue: [], time: parseFloat(args[0]) || 0.5 });
+      break;
+    case "slew":
+      boxState.set(id, { value: 0, target: 0, rate: parseFloat(args[0]) || 0.05 });
+      break;
+    case "lag":
+      boxState.set(id, { value: 0, target: 0, coeff: parseFloat(args[0]) || 0.2 });
+      break;
+    case "sample-hold":
+      boxState.set(id, { value: 0 });
+      break;
   }
 }
 
@@ -355,8 +488,88 @@ function tick(): void {
         state.elapsed += TICK_DT;
         if (state.elapsed >= state.interval) {
           state.elapsed -= state.interval;
-          // fire event through outlet 0
           propagateAndNotify(id, 0, 1);
+        }
+        break;
+      }
+      case "ar": {
+        if (state.phase === "idle") break;
+        state.elapsed += TICK_DT;
+        if (state.phase === "attack") {
+          state.value = Math.min(1, state.elapsed / state.attack);
+          if (state.elapsed >= state.attack) { state.phase = "release"; state.elapsed = 0; }
+        } else if (state.phase === "release") {
+          state.value = Math.max(0, 1 - state.elapsed / state.release);
+          if (state.elapsed >= state.release) { state.value = 0; state.phase = "idle"; propagateAndNotify(id, 1, 0); }
+        }
+        boxValues.set(id, state.value);
+        queueValueUpdate(id, state.value);
+        propagateAndNotify(id, 0, state.value);
+        break;
+      }
+      case "adsr": {
+        const gateNow = (inletValues.get(id)?.[0] || 0) > 0;
+        if (gateNow && !state.gateOpen) { state.gateOpen = true; state.phase = "attack"; state.elapsed = 0; }
+        else if (!gateNow && state.gateOpen) { state.gateOpen = false; if (state.phase !== "idle") { state.phase = "release"; state.elapsed = 0; } }
+        if (state.phase === "idle") break;
+        state.elapsed += TICK_DT;
+        if (state.phase === "attack") {
+          state.value = Math.min(1, state.elapsed / state.a);
+          if (state.elapsed >= state.a) { state.phase = "decay"; state.elapsed = 0; }
+        } else if (state.phase === "decay") {
+          state.value = 1 - (1 - state.s) * Math.min(1, state.elapsed / state.d);
+          if (state.elapsed >= state.d) { state.phase = "sustain"; state.value = state.s; }
+        } else if (state.phase === "sustain") {
+          state.value = state.s;
+        } else if (state.phase === "release") {
+          const sv = state.value;
+          state.value = sv * Math.max(0, 1 - state.elapsed / state.r);
+          if (state.elapsed >= state.r) { state.value = 0; state.phase = "idle"; propagateAndNotify(id, 1, 0); }
+        }
+        boxValues.set(id, state.value);
+        queueValueUpdate(id, state.value);
+        propagateAndNotify(id, 0, state.value);
+        break;
+      }
+      case "ramp": {
+        if (state.phase !== "running") break;
+        state.elapsed += TICK_DT;
+        const t = Math.min(1, state.elapsed / state.duration);
+        state.value = state.from + (state.to - state.from) * t;
+        boxValues.set(id, state.value);
+        queueValueUpdate(id, state.value);
+        propagateAndNotify(id, 0, state.value);
+        if (t >= 1) { state.phase = "idle"; propagateAndNotify(id, 1, 0); }
+        break;
+      }
+      case "delay": {
+        for (let i = state.queue.length - 1; i >= 0; i--) {
+          state.queue[i].remaining -= TICK_DT;
+          if (state.queue[i].remaining <= 0) {
+            propagateAndNotify(id, 0, state.queue[i].value);
+            state.queue.splice(i, 1);
+          }
+        }
+        break;
+      }
+      case "slew": {
+        const iv = inletValues.get(id);
+        if (iv) state.target = iv[0] || 0;
+        if (Math.abs(state.value - state.target) > 0.0001) {
+          const maxDelta = TICK_DT / state.rate;
+          const diff = state.target - state.value;
+          state.value += Math.sign(diff) * Math.min(Math.abs(diff), maxDelta);
+          setBoxValueAndNotify(id, state.value);
+        }
+        break;
+      }
+      case "lag": {
+        const iv = inletValues.get(id);
+        if (iv) state.target = iv[0] || 0;
+        if (Math.abs(state.value - state.target) > 0.0001) {
+          const alpha = 1 - Math.exp(-TICK_DT / state.coeff);
+          state.value += (state.target - state.value) * alpha;
+          setBoxValueAndNotify(id, state.value);
         }
         break;
       }
@@ -373,14 +586,27 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   if (!state) return false;
 
   if (name === "phasor") {
-    // inlet 0 = pause, inlet 2 = period
     if (inlet === 0) { state.paused = value > 0; return true; }
     if (inlet === 2) { state.period = Math.max(0.001, value); return true; }
   }
-  if (name === "metro") {
-    // metro could accept interval changes on inlet 0
-    // (not defined yet, but future-proof)
+  // slew/lag: inlet 0 sets target, tick does the smoothing
+  if (name === "slew" || name === "lag") {
+    if (inlet === 0) { state.target = value; return true; }
   }
+  // sample-hold: inlet 0 is the value to sample (stored in inletValues), inlet 1 is trigger (handled by handleEventBox)
+  if (name === "sample-hold" && inlet === 0) {
+    return true;
+  }
+  // adsr: inlet 0 is gate — store for tick loop
+  if (name === "adsr" && inlet === 0) {
+    return true;
+  }
+  // ar: inlets 1,2 are attack/release time overrides — store for tick
+  if (name === "ar") {
+    if (inlet === 1) { state.attack = Math.max(0.001, value); return true; }
+    if (inlet === 2) { state.release = Math.max(0.001, value); return true; }
+  }
+  // ramp: not triggered by number inlets, just stores
   return false;
 }
 
@@ -414,6 +640,25 @@ function handleEventBox(id: number, _value: number): void {
     case "drunk": {
       state.value += (Math.random() * 2 - 1) * state.step;
       state.value = Math.max(0, Math.min(1, state.value));
+      setBoxValueAndNotify(id, state.value);
+      break;
+    }
+    case "ar": {
+      state.phase = "attack"; state.elapsed = 0;
+      break;
+    }
+    case "ramp": {
+      state.phase = "running"; state.elapsed = 0;
+      break;
+    }
+    case "delay": {
+      state.queue.push({ value: _value, remaining: state.time });
+      break;
+    }
+    case "sample-hold": {
+      // on trigger (inlet 1), sample the current value of inlet 0
+      const iv = inletValues.get(id);
+      state.value = iv?.[0] || 0;
       setBoxValueAndNotify(id, state.value);
       break;
     }
@@ -580,8 +825,8 @@ function handleApply(msg: any): void {
 
   // confirm to GPI
   sendGPI({ type: "applied" });
-
-  console.log("Patch applied");
+  status.applied = true;
+  event("patch applied");
 }
 
 // deno-lint-ignore no-explicit-any
@@ -710,7 +955,7 @@ function deployPatch(): void {
   deployedPatch = serializeSynthPatch();
   latestValues.clear();
   broadcastSynth(deployedPatch);
-  console.log("Patch deployed");
+  event("patch deployed to " + totalSynthClients() + " clients");
   sendGPI({ type: "deployed" });
   // re-evaluate consts so rv messages flow immediately after deploy
   evaluateAllConsts();
@@ -742,7 +987,8 @@ function handleGpiWs(req: Request): Response {
 
   socket.addEventListener("open", () => {
     gpiSockets.add(socket);
-    console.log(`GPI connected (${gpiSockets.size} total)`);
+    event("GPI connected");
+    drawStatus();
     socket.send(JSON.stringify(getFullState()));
     socket.send(JSON.stringify({ type: "count", clients: totalSynthClients() }));
   });
@@ -771,7 +1017,8 @@ function handleGpiWs(req: Request): Response {
 
   socket.addEventListener("close", () => {
     gpiSockets.delete(socket);
-    console.log(`GPI disconnected (${gpiSockets.size} total)`);
+    event("GPI disconnected");
+    drawStatus();
   });
 
   return response;
@@ -787,7 +1034,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   socket.addEventListener("open", () => {
     synthWsClients.set(id, socket);
     trackConnect(clientIP, id);
-    console.log(`Synth WS ${id} connected from ${clientIP} (${totalSynthClients()} total)`);
+    drawStatus();
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
     if (deployedPatch) {
       socket.send(JSON.stringify(deployedPatch));
@@ -808,7 +1055,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   socket.addEventListener("close", () => {
     synthWsClients.delete(id);
     trackDisconnect(clientIP, id);
-    console.log(`Synth WS ${id} disconnected (${totalSynthClients()} total)`);
+    drawStatus();
     broadcastClientCount();
   });
 
@@ -830,7 +1077,7 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
       };
       sseClients.set(id, send);
       trackConnect(clientIP, id);
-      console.log(`SSE ${id} connected from ${clientIP} (${totalSynthClients()} total)`);
+      drawStatus();
       send({ type: "welcome", id, clients: totalSynthClients() });
       if (deployedPatch) {
         send(deployedPatch);
@@ -841,7 +1088,7 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
     cancel() {
       sseClients.delete(id);
       trackDisconnect(clientIP, id);
-      console.log(`SSE ${id} disconnected (${totalSynthClients()} total)`);
+      drawStatus();
       broadcastClientCount();
     },
   });
@@ -870,7 +1117,7 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
       if (url.pathname === "/connecttest.txt") return new Response("Microsoft Connect Test", { headers: { "content-type": "text/plain" } });
       return new Response("<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", { headers: { "content-type": "text/html" } });
     }
-    console.log(`CNA: redirecting ${clientIP} to HTTPS via ${url.pathname}`);
+    event(`CNA redirect ${clientIP}`);
     return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}`, 302);
   }
 
@@ -919,7 +1166,7 @@ async function loadAbstractions(): Promise<void> {
         console.error(`Failed to load abstraction ${name}:`, e);
       }
     }
-    console.log(`Loaded ${loadedAbstractions.size} abstraction(s)`);
+    event(`loaded ${loadedAbstractions.size} abstraction(s)`);
   } catch {
     // Directory may not exist yet
   }
@@ -964,7 +1211,7 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
     if (!name) return new Response("Invalid name", { status: 400 });
     const data = await req.text();
     await Deno.writeTextFile(`${PATCHES_DIR}/${name}.json`, data);
-    console.log(`Patch saved: ${name}`);
+    event(`saved patch: ${name}`);
     return new Response(JSON.stringify({ ok: true, name }), { headers });
   }
 
@@ -974,7 +1221,7 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
     if (!name) return new Response("Invalid name", { status: 400 });
     try {
       await Deno.remove(`${PATCHES_DIR}/${name}.json`);
-      console.log(`Patch deleted: ${name}`);
+      event(`deleted patch: ${name}`);
       return new Response(JSON.stringify({ ok: true }), { headers });
     } catch {
       return new Response("Not found", { status: 404 });
@@ -1017,7 +1264,7 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
     if (!name) return new Response("Invalid name", { status: 400 });
     const data = await req.text();
     await Deno.writeTextFile(`${ABSTRACTIONS_DIR}/${name}.json`, data);
-    console.log(`Abstraction saved: ${name}`);
+    event(`saved abstraction: ${name}`);
     await loadAbstractions();  // Reload registry
     return new Response(JSON.stringify({ ok: true, name }), { headers });
   }
@@ -1028,7 +1275,7 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
     if (!name) return new Response("Invalid name", { status: 400 });
     try {
       await Deno.remove(`${ABSTRACTIONS_DIR}/${name}.json`);
-      console.log(`Abstraction deleted: ${name}`);
+      event(`deleted abstraction: ${name}`);
       await loadAbstractions();  // Reload registry
       return new Response(JSON.stringify({ ok: true }), { headers });
     } catch {
@@ -1058,20 +1305,24 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
 // --- Start ---
 
 const tlsAvailable = await hasCerts();
-console.log(`HOST_IP: ${HOST_IP}`);
+
+const banner = `
+  \x1b[1mlocal.assembly.fm\x1b[0m
+  ${tlsAvailable ? "HTTPS + HTTP portal" : "dev mode (HTTP only)"}
+  synth:    ${tlsAvailable ? `https://localhost:${HTTPS_PORT}/` : `http://localhost:${HTTP_PORT}/`}
+  ctrl:     ${tlsAvailable ? `https://localhost:${HTTPS_PORT}/ctrl.html` : `http://localhost:${HTTP_PORT}/ctrl.html`}
+  ensemble: ${tlsAvailable ? `https://localhost:${HTTPS_PORT}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}
+`;
+console.log(banner);
 
 if (tlsAvailable) {
-  console.log("TLS certs found — starting HTTPS + HTTP portal");
-  console.log(`Synth:  https://localhost:${HTTPS_PORT}/`);
-  console.log(`Ctrl:   https://localhost:${HTTPS_PORT}/ctrl.html`);
   Deno.serve({ port: HTTP_PORT, hostname: "0.0.0.0" }, (req, info) => portalHandler(req, info));
   Deno.serve({ port: HTTPS_PORT, cert: await Deno.readTextFile(CERT_FILE), key: await Deno.readTextFile(KEY_FILE) }, (req, info) => httpsHandler(req, info));
 } else {
-  console.log("No TLS certs — dev mode (HTTP only)");
-  console.log(`Synth:  http://localhost:${HTTP_PORT}/`);
-  console.log(`Ctrl:   http://localhost:${HTTP_PORT}/ctrl.html`);
   Deno.serve({ port: HTTP_PORT, hostname: "0.0.0.0" }, (req, info) => httpsHandler(req, info));
 }
+
+drawStatus();
 
 setInterval(() => {
   broadcastSynth({ type: "health", ts: Date.now() });

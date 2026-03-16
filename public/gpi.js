@@ -963,6 +963,13 @@ const mainEditor = new PatchEditor(canvas, {
     else if (mainEditor.applied) { ctx.fillStyle = "#686"; ctx.fillText("applied", 12, 8); }
     else { ctx.fillStyle = "#555"; ctx.fillText("edit", 12, 8); }
 
+    // Patch name
+    if (currentPatchName) {
+      ctx.fillStyle = "#555";
+      ctx.textAlign = "center";
+      ctx.fillText(currentPatchName, w / 2, 8);
+    }
+
     // MIDI devices
     ctx.fillStyle = "#444";
     ctx.textAlign = "right";

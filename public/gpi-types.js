@@ -63,16 +63,39 @@ const BOX_TYPES = {
   metro:          { zone: "any", description: "Periodic null event emitter.", args: "interval", example: "metro 0.5",
                     inlets: [], outlets: [{ name: "out", type: "event", description: "Null event at interval" }] },
 
-  // --- modulators ---
-  lfo:            { zone: "any", description: "Low frequency oscillator driven by phase input.", args: "depth shape", example: "lfo 0.5 sine",
-                    inlets: [{ name: "phase", type: "number", description: "Phase input (0-1)" }],
-                    outlets: [{ name: "value", type: "number", description: "Oscillator output" }] },
-  ramp:           { zone: "any", description: "Linear ramp between two values, triggered by null event.", args: "from to", example: "ramp 0 1",
+  // --- phase shapers (0-1 in → shaped out) ---
+  sine:           { zone: "any", description: "Sine waveshaper. Maps 0-1 phase to sine curve.",
+                    inlets: [{ name: "in", type: "number", description: "Phase (0-1)" }],
+                    outlets: [{ name: "out", type: "number", description: "Shaped output (0-1)" }] },
+  tri:            { zone: "any", description: "Triangle waveshaper with adjustable symmetry.", args: "yaw", example: "tri 0.5",
+                    inlets: [{ name: "in", type: "number", description: "Phase (0-1)" }],
+                    outlets: [{ name: "out", type: "number", description: "Shaped output (0-1)" }] },
+
+  // --- envelopes ---
+  ar:             { zone: "any", description: "Attack-release envelope. Triggered by event.", args: "attack release", example: "ar 0.1 0.5",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire envelope" },
+                      { name: "attack", type: "number", description: "Attack time in seconds" },
+                      { name: "release", type: "number", description: "Release time in seconds" }],
+                    outlets: [
+                      { name: "value", type: "number", description: "Envelope output (0-1)" },
+                      { name: "end", type: "event", description: "Null event at end of release" }] },
+  adsr:           { zone: "any", description: "ADSR envelope. Gate-driven: >0 opens, 0 releases.", args: "a d s r", example: "adsr 0.05 0.1 0.7 0.3",
+                    inlets: [
+                      { name: "gate", type: "number", description: "Gate signal (>0 = open)" }],
+                    outlets: [
+                      { name: "value", type: "number", description: "Envelope output (0-1)" },
+                      { name: "end", type: "event", description: "Null event at end of release" }] },
+  ramp:           { zone: "any", description: "Linear ramp between two values over duration.", args: "from to duration", example: "ramp 0 1 0.5",
                     inlets: [{ name: "trigger", type: "event", description: "Start ramp" }],
-                    outlets: [{ name: "value", type: "number", description: "Current ramp value" }] },
-  envelope:       { zone: "any", description: "Breakpoint envelope driven by phase.",
-                    inlets: [{ name: "phase", type: "number", description: "Phase input (0-1)" }],
-                    outlets: [{ name: "value", type: "number", description: "Envelope value" }] },
+                    outlets: [
+                      { name: "value", type: "number", description: "Current ramp value" },
+                      { name: "end", type: "event", description: "Null event at end of ramp" }] },
+
+  // --- scheduling ---
+  delay:          { zone: "any", description: "Delay a value or event.", args: "time", example: "delay 0.5",
+                    inlets: [{ name: "in", type: "passthrough", description: "Value or event to delay" }],
+                    outlets: [{ name: "out", type: "passthrough", description: "Delayed output" }] },
   sequence:       { zone: "any", description: "Step through values on each null event.", args: "values", example: "sequence 0,0.5,1,0.5",
                     inlets: [{ name: "trigger", type: "event", description: "Advance to next step" }],
                     outlets: [{ name: "value", type: "number", description: "Current step value" }] },
@@ -166,7 +189,24 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "trigger", type: "event", description: "Advance to next phone" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on current phone" }] },
 
+  "sample-hold":  { zone: "any", description: "Capture value on trigger, hold until next.",
+                    inlets: [
+                      { name: "in", type: "number", description: "Value to sample" },
+                      { name: "trigger", type: "event", description: "Sample now" }],
+                    outlets: [{ name: "out", type: "number", description: "Held value" }] },
+
   // --- engines (synth-side) ---
+  "sine-osc":     { zone: "synth", description: "Pure sine tone oscillator.",
+                    inlets: [
+                      { name: "freq", type: "number", description: "Frequency in Hz" },
+                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
+                    outlets: [] },
+  noise:          { zone: "synth", description: "Filtered noise generator.",
+                    inlets: [
+                      { name: "cutoff", type: "number", description: "Lowpass cutoff in Hz (20-20000)" },
+                      { name: "resonance", type: "number", description: "Filter resonance (0-1)" },
+                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
+                    outlets: [] },
   shepard:        { zone: "synth", description: "Shepard tone generator.",
                     inlets: [
                       { name: "baseFreq", type: "number", description: "Base frequency in Hz" },
