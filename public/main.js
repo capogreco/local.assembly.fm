@@ -127,6 +127,7 @@ async function loadPatchForVoice(voice, patch) {
 }
 
 function voiceOnMessage(voice, msg) {
+  if (graphDebug && msg.type !== "health") console.log("msg:", msg.type, msg);
   if (msg.type === "patch" && audioCtx) {
     currentPatch = msg;
     loadPatchForVoice(voice, msg);
@@ -140,6 +141,14 @@ function voiceOnMessage(voice, msg) {
       if (engine) sendParams(engine, params);
     }
     updateParamDisplay();
+  }
+  if (msg.type === "rv-env" && voice.graph) {
+    processRouterEnvelope(voice.graph, msg);
+    // envelope values are ticked in clientTick via tickEnvelopes
+  }
+  if ((msg.type === "rv-slew" || msg.type === "rv-lag") && voice.graph) {
+    processRouterSlew(voice.graph, msg);
+    // slew/lag values are ticked in clientTick via tickEnvelopes
   }
   if (msg.type === "re" && voice.graph) {
     const updates = processRouterEvent(voice.graph, msg.r);
@@ -242,6 +251,8 @@ function clientTick(time) {
   for (const voice of voices) {
     if (!voice.graph || voice.patchLoading) continue;
     const updates = tickGraph(voice.graph, dt);
+    const envUpdates = tickEnvelopes(voice.graph, dt);
+    mergeUpdates(updates, envUpdates);
     for (const [id, params] of Object.entries(updates)) {
       const engine = voice.engines.get(Number(id));
       if (engine) sendParams(engine, params);

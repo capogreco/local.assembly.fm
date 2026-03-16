@@ -2,55 +2,56 @@
 [1,{"x":200,"y":80,"text":"breath"}],
 [2,{"x":400,"y":80,"text":"nod"}],
 
-[3,{"x":200,"y":200,"text":"** 2"}],
-[4,{"x":200,"y":300,"text":"metro 0.08"}],
+[3,{"x":200,"y":180,"text":"** 2"}],
+[4,{"x":200,"y":270,"text":"metro 0.08"}],
 
-[5,{"x":200,"y":380,"text":"sweep"}],
-[6,{"x":150,"y":600,"text":"sine-osc"}],
+[5,{"x":400,"y":180,"text":"scale 0 0.8"}],
 
-[10,{"x":50,"y":280,"text":"phasor 2"}],
-[11,{"x":50,"y":380,"text":"scale 200 8000"}],
+[6,{"x":700,"y":180,"text":"const 55"}],
 
-[12,{"x":350,"y":280,"text":"ar 0.001 0.03"}],
+[10,{"x":200,"y":439,"text":"sweep"}],
+[11,{"x":450,"y":439,"text":"sweep"}],
+[12,{"x":700,"y":439,"text":"all 1"}],
 
-[20,{"x":450,"y":380,"text":"sweep"}],
-[21,{"x":450,"y":600,"text":"noise"}],
-[22,{"x":450,"y":280,"text":"ar 0.0005 0.015"}],
-[23,{"x":600,"y":280,"text":"scale 2000 16000"}],
-[24,{"x":600,"y":180,"text":"phasor 1"}],
+[20,{"x":150,"y":530,"text":"phasor 2"}],
+[21,{"x":150,"y":610,"text":"scale 200 8000"}],
+[22,{"x":150,"y":750,"text":"sine-osc"}],
 
-[30,{"x":400,"y":200,"text":"scale 0 0.8"}],
+[25,{"x":250,"y":530,"text":"ar 0.001 0.03"}],
 
-[40,{"x":700,"y":380,"text":"all 1"}],
-[41,{"x":700,"y":600,"text":"sine-osc"}],
-[42,{"x":700,"y":280,"text":"const 55"}]
+[30,{"x":450,"y":530,"text":"phasor 1"}],
+[31,{"x":450,"y":610,"text":"scale 2000 16000"}],
+[32,{"x":450,"y":750,"text":"noise"}],
+
+[35,{"x":550,"y":530,"text":"ar 0.0005 0.015"}],
+
+[40,{"x":700,"y":600,"text":"sine-osc"}]
 ],"cables":[
 [100,{"srcBox":1,"srcOutlet":0,"dstBox":3,"dstInlet":0}],
 [101,{"srcBox":3,"srcOutlet":0,"dstBox":4,"dstInlet":0}],
-[102,{"srcBox":4,"srcOutlet":0,"dstBox":5,"dstInlet":1}],
+[102,{"srcBox":4,"srcOutlet":0,"dstBox":10,"dstInlet":1}],
+[103,{"srcBox":4,"srcOutlet":0,"dstBox":11,"dstInlet":1}],
 
-[110,{"srcBox":10,"srcOutlet":0,"dstBox":11,"dstInlet":0}],
-[111,{"srcBox":11,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
-[112,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":0}],
+[110,{"srcBox":10,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
+[111,{"srcBox":20,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+[112,{"srcBox":21,"srcOutlet":0,"dstBox":22,"dstInlet":0}],
 
-[113,{"srcBox":4,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
-[114,{"srcBox":12,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
-[115,{"srcBox":5,"srcOutlet":0,"dstBox":6,"dstInlet":1}],
+[113,{"srcBox":10,"srcOutlet":0,"dstBox":25,"dstInlet":0}],
+[114,{"srcBox":25,"srcOutlet":0,"dstBox":22,"dstInlet":1}],
 
-[120,{"srcBox":4,"srcOutlet":0,"dstBox":20,"dstInlet":1}],
-[121,{"srcBox":4,"srcOutlet":0,"dstBox":22,"dstInlet":0}],
-[122,{"srcBox":22,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
-[123,{"srcBox":20,"srcOutlet":0,"dstBox":21,"dstInlet":2}],
+[120,{"srcBox":11,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
+[121,{"srcBox":30,"srcOutlet":0,"dstBox":31,"dstInlet":0}],
+[122,{"srcBox":31,"srcOutlet":0,"dstBox":32,"dstInlet":0}],
 
-[124,{"srcBox":24,"srcOutlet":0,"dstBox":23,"dstInlet":0}],
-[125,{"srcBox":23,"srcOutlet":0,"dstBox":20,"dstInlet":0}],
-[126,{"srcBox":20,"srcOutlet":0,"dstBox":21,"dstInlet":0}],
+[123,{"srcBox":11,"srcOutlet":0,"dstBox":35,"dstInlet":0}],
+[124,{"srcBox":35,"srcOutlet":0,"dstBox":32,"dstInlet":2}],
 
-[130,{"srcBox":2,"srcOutlet":0,"dstBox":30,"dstInlet":0}],
-[131,{"srcBox":30,"srcOutlet":0,"dstBox":21,"dstInlet":1}],
+[125,{"srcBox":2,"srcOutlet":0,"dstBox":5,"dstInlet":0}],
+[126,{"srcBox":5,"srcOutlet":0,"dstBox":11,"dstInlet":0}],
+[127,{"srcBox":11,"srcOutlet":0,"dstBox":32,"dstInlet":1}],
 
-[140,{"srcBox":42,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
-[141,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":0}],
-[142,{"srcBox":3,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
-[143,{"srcBox":40,"srcOutlet":0,"dstBox":41,"dstInlet":1}]
-],"nextId":200,"synthBorderY":450,"comment":"Spatial sweep scanner. Metro sweeps sine pips across phones — phasor modulates frequency so each phone in the sweep gets a different pitch (rising scan). Second sweep layer does the same with noise bursts, phasor sweeps cutoff. Nod controls noise resonance. Sub-bass sine anchors everything. Breath squared controls density."}
+[130,{"srcBox":6,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[131,{"srcBox":12,"srcOutlet":0,"dstBox":40,"dstInlet":0}],
+[132,{"srcBox":3,"srcOutlet":0,"dstBox":12,"dstInlet":0}],
+[133,{"srcBox":12,"srcOutlet":0,"dstBox":40,"dstInlet":1}]
+],"nextId":200,"synthBorderY":450,"comment":"Spatial sweep scanner. Metro sweeps sine pips and noise bursts across phones. Phasor runs synth-side so each phone in the sweep gets a different pitch via scale shaping. AR envelopes triggered through sweep routers below border. Second sweep does noise with phasor-swept cutoff. Nod controls noise resonance via sweep router. Sub-bass sine anchors via all router with breath amplitude."}

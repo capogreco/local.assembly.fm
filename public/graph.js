@@ -6,6 +6,11 @@
  * router values to produce engine parameter updates.
  */
 
+// --- Debug ---
+let graphDebug = false;
+function enableGraphDebug() { graphDebug = true; console.log("graph debug ON"); }
+function disableGraphDebug() { graphDebug = false; }
+
 // --- Helpers ---
 
 // deep-merge engine param updates: { engineId: { param: value } }
@@ -92,6 +97,7 @@ function buildGraph(patch) {
     boxes: new Map(),     // id -> { type, args, inletValues, state, outletCables }
     entries: new Map(),   // routerId -> [{ targetBox, targetInlet }]
     engines: new Map(),   // boxId -> { type, paramNames }
+    envelopes: new Map(), // "routerId:channel" -> envelope state (from rv-env/rv-slew/rv-lag commands)
   };
 
   // build box nodes
@@ -118,9 +124,11 @@ function buildGraph(patch) {
       case "drunk":
         node.state = { value: Math.random(), step: parseFloat(box.args) || 0.01 };
         break;
-      case "phasor":
-        node.state = { phase: 0, period: parseFloat(box.args) || 1, paused: false };
+      case "phasor": {
+        const phasorParts = (box.args || "1").split(/\s+/);
+        node.state = { phase: 0, period: parseFloat(phasorParts[0]) || 1, paused: false, loop: phasorParts[1] !== "once" };
         break;
+      }
       case "metro":
         node.state = { elapsed: 0, interval: parseFloat(box.args) || 1 };
         break;
@@ -316,6 +324,7 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
       const engine = graph.engines.get(cable.dstBox);
       const paramName = engine.paramNames[cable.dstInlet];
       if (paramName) {
+        if (graphDebug) console.log(`  → engine box:${cable.dstBox} ${paramName}=${value}`);
         if (!updates[cable.dstBox]) updates[cable.dstBox] = {};
         updates[cable.dstBox][paramName] = value;
       }
@@ -329,7 +338,10 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
     } else if (dstNode.type === "phasor") {
       // phasor number inlets (pause/period) — store value, don't propagate
     } else if ((dstNode.type === "slew" || dstNode.type === "lag") && cable.dstInlet === 0) {
-      if (dstNode.state) dstNode.state.target = value;
+      if (dstNode.state) {
+        if (graphDebug) console.log(`  ${dstNode.type} box:${cable.dstBox} target=${value} (was ${dstNode.state.target})`);
+        dstNode.state.target = value;
+      }
     } else if (dstNode.type === "sample-hold" && cable.dstInlet === 0) {
       // store for sampling — don't propagate until triggered
     } else if (dstNode.type === "adsr" && cable.dstInlet === 0) {
@@ -341,6 +353,7 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
     } else {
       // evaluate the destination box and propagate further
       const result = evaluateNode(graph, cable.dstBox);
+      if (graphDebug) console.log(`  eval box:${cable.dstBox} type:${dstNode.type} inlet[${cable.dstInlet}]=${value} iv=[${dstNode.inletValues}] → ${result}`);
       const further = propagateInGraph(graph, cable.dstBox, 0, result);
       for (const [eid, params] of Object.entries(further)) {
         if (!updates[eid]) updates[eid] = {};
@@ -422,6 +435,7 @@ function handleEvent(graph, boxId) {
       return {};
   }
 
+  if (graphDebug) console.log(`  event box:${boxId} type:${node.type} → ${outputValue}`);
   return propagateInGraph(graph, boxId, 0, outputValue);
 }
 
@@ -438,7 +452,12 @@ function tickGraph(graph, dt) {
         const period = node.inletValues[2] > 0 ? node.inletValues[2] : node.state.period;
         node.state.phase += dt / period;
         if (node.state.phase >= 1) {
-          node.state.phase -= 1;
+          if (node.state.loop) {
+            node.state.phase -= 1;
+          } else {
+            node.state.phase = 1;
+            node.state.paused = true; // one-shot done
+          }
           // end-of-cycle event on outlet 1
           const eocUpdates = propagateInGraph(graph, id, 1, 0);
           for (const [eid, params] of Object.entries(eocUpdates)) {
@@ -565,6 +584,8 @@ function processRouterValue(graph, routerId, channel, value) {
   const entries = graph.entries.get(key);
   if (!entries) return {};
 
+  if (graphDebug) console.log(`rv r:${routerId} ch:${channel} v:${value} → ${entries.length} entries`);
+
   let allUpdates = {};
   for (const entry of entries) {
     const node = graph.boxes.get(entry.targetBox);
@@ -630,5 +651,175 @@ function processRouterEvent(graph, routerId) {
     const updates = handleEvent(graph, entry.targetBox);
     mergeUpdates(allUpdates, updates);
   }
+  return allUpdates;
+}
+
+// process an envelope command: { type: "rv-env", r, ch, env, params, gate }
+function processRouterEnvelope(graph, msg) {
+  const key = msg.r + ":" + (msg.ch || 0);
+
+  if (msg.gate === 0) {
+    // gate close — release existing envelope
+    const env = graph.envelopes.get(key);
+    if (env && env.type === "adsr") {
+      env.gateOpen = false;
+      if (env.phase !== "idle") { env.phase = "release"; env.elapsed = 0; }
+    }
+    return {};
+  }
+
+  if (msg.env === "adsr") {
+    graph.envelopes.set(key, {
+      type: "adsr",
+      a: msg.params.a, d: msg.params.d, s: msg.params.s, r: msg.params.r,
+      value: 0, phase: "attack", elapsed: 0, gateOpen: true,
+    });
+  } else if (msg.env === "ar") {
+    graph.envelopes.set(key, {
+      type: "ar",
+      attack: msg.params.attack, release: msg.params.release,
+      value: 0, phase: "attack", elapsed: 0,
+    });
+  } else if (msg.env === "ramp") {
+    graph.envelopes.set(key, {
+      type: "ramp",
+      from: msg.params.from, to: msg.params.to, duration: msg.params.duration,
+      value: msg.params.from, phase: "running", elapsed: 0,
+    });
+  } else if (msg.env === "phasor") {
+    if (msg.paused) {
+      // pause existing phasor
+      const env = graph.envelopes.get(key);
+      if (env && env.type === "phasor") env.paused = true;
+    } else {
+      const existing = graph.envelopes.get(key);
+      // if already running, update params but keep phase
+      if (existing && existing.type === "phasor" && !msg.reset) {
+        existing.period = msg.params.period;
+        existing.loop = msg.params.loop;
+        existing.paused = false;
+      } else {
+        graph.envelopes.set(key, {
+          type: "phasor",
+          period: msg.params.period, loop: msg.params.loop,
+          phase: 0, paused: false,
+        });
+      }
+    }
+  }
+
+  return {};
+}
+
+// process a slew/lag command: { type: "rv-slew"|"rv-lag", r, ch, v, time }
+function processRouterSlew(graph, msg) {
+  const key = msg.r + ":" + (msg.ch || 0);
+  const existing = graph.envelopes.get(key);
+  const currentValue = existing ? existing.value : msg.v;
+
+  graph.envelopes.set(key, {
+    type: msg.type === "rv-slew" ? "slew" : "lag",
+    target: msg.v,
+    time: msg.time,
+    value: currentValue,
+  });
+
+  return {};
+}
+
+// tick envelope commands — call from client tick loop alongside tickGraph
+function tickEnvelopes(graph, dt) {
+  const allUpdates = {};
+
+  for (const [key, env] of graph.envelopes) {
+    const [routerId, channel] = key.split(":").map(Number);
+    let changed = false;
+
+    switch (env.type) {
+      case "adsr": {
+        if (env.phase === "idle") break;
+        env.elapsed += dt;
+        if (env.phase === "attack") {
+          env.value = Math.min(1, env.elapsed / env.a);
+          if (env.elapsed >= env.a) { env.phase = "decay"; env.elapsed = 0; }
+          changed = true;
+        } else if (env.phase === "decay") {
+          env.value = 1 - (1 - env.s) * Math.min(1, env.elapsed / env.d);
+          if (env.elapsed >= env.d) { env.phase = "sustain"; env.value = env.s; }
+          changed = true;
+        } else if (env.phase === "sustain") {
+          env.value = env.s;
+          // no change needed each tick during sustain
+        } else if (env.phase === "release") {
+          const sv = env.value;
+          env.value = sv * Math.max(0, 1 - env.elapsed / env.r);
+          if (env.elapsed >= env.r) { env.value = 0; env.phase = "idle"; }
+          changed = true;
+        }
+        break;
+      }
+      case "ar": {
+        if (env.phase === "idle") break;
+        env.elapsed += dt;
+        if (env.phase === "attack") {
+          env.value = Math.min(1, env.elapsed / env.attack);
+          if (env.elapsed >= env.attack) { env.phase = "release"; env.elapsed = 0; }
+          changed = true;
+        } else if (env.phase === "release") {
+          env.value = Math.max(0, 1 - env.elapsed / env.release);
+          if (env.elapsed >= env.release) { env.value = 0; env.phase = "idle"; }
+          changed = true;
+        }
+        break;
+      }
+      case "ramp": {
+        if (env.phase !== "running") break;
+        env.elapsed += dt;
+        const t = Math.min(1, env.elapsed / env.duration);
+        env.value = env.from + (env.to - env.from) * t;
+        changed = true;
+        if (t >= 1) { env.phase = "idle"; }
+        break;
+      }
+      case "phasor": {
+        if (env.paused) break;
+        env.phase += dt / env.period;
+        if (env.phase >= 1) {
+          if (env.loop) {
+            env.phase -= 1;
+          } else {
+            env.phase = 1;
+            env.paused = true; // one-shot done
+          }
+        }
+        env.value = env.phase;
+        changed = true;
+        break;
+      }
+      case "slew": {
+        if (Math.abs(env.value - env.target) > 0.0001) {
+          const maxDelta = dt / env.time;
+          const diff = env.target - env.value;
+          env.value += Math.sign(diff) * Math.min(Math.abs(diff), maxDelta);
+          changed = true;
+        }
+        break;
+      }
+      case "lag": {
+        if (Math.abs(env.value - env.target) > 0.0001) {
+          const alpha = 1 - Math.exp(-dt / env.time);
+          env.value += (env.target - env.value) * alpha;
+          changed = true;
+        }
+        break;
+      }
+    }
+
+    if (changed) {
+      const updates = processRouterValue(graph, routerId, channel, env.value);
+      mergeUpdates(allUpdates, updates);
+    }
+  }
+
   return allUpdates;
 }

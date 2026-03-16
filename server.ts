@@ -8,7 +8,7 @@ const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
 // --- Status display ---
 
 const status = {
-  gpi: 0,
+  ctrl: 0,
   synth: 0,
   sse: 0,
   applied: false,
@@ -27,30 +27,30 @@ function event(msg: string): void {
 function drawStatus(): void {
   const synth = synthWsClients.size;
   const sse = sseClients.size;
-  const gpi = gpiSockets.size;
+  const ctrl = ctrlSockets.size;
   const total = synth + sse;
   const state = status.applied ? "\x1b[32m●\x1b[0m applied" : "\x1b[33m○\x1b[0m idle";
   const clients = total === 0 ? "\x1b[90m0 clients\x1b[0m" : `\x1b[36m${total} client${total !== 1 ? "s" : ""}\x1b[0m`;
-  const gpiLabel = gpi > 0 ? "\x1b[32mGPI\x1b[0m" : "\x1b[90mGPI\x1b[0m";
+  const ctrlLabel = ctrl > 0 ? "\x1b[32mctrl\x1b[0m" : "\x1b[90mctrl\x1b[0m";
   const ws = synth > 0 ? `${synth}ws` : "";
   const sseLabel = sse > 0 ? `${sse}sse` : "";
   const transport = [ws, sseLabel].filter(Boolean).join("+") || "";
   const transportStr = transport ? ` (${transport})` : "";
 
-  const line = `  ${gpiLabel}  ${clients}${transportStr}  ${state}`;
+  const line = `  ${ctrlLabel}  ${clients}${transportStr}  ${state}`;
   Deno.stdout.writeSync(new TextEncoder().encode(`\r\x1b[K${line}`));
 }
 
 // --- Import shared box types ---
 
 // deno-lint-ignore no-explicit-any
-const gpiTypes: any = {};
-const gpiSrc = await Deno.readTextFile("./public/gpi-types.js");
+const boxTypes: any = {};
+const boxTypesSrc = await Deno.readTextFile("./public/gpi-types.js");
 // Strip the ES module export line so we can evaluate as CJS
-const gpiSrcCjs = gpiSrc.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
-const gpiModule = new Function("exports", gpiSrcCjs);
-gpiModule(gpiTypes);
-const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef } = gpiTypes;
+const boxTypesCjs = boxTypesSrc.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
+const boxTypesModule = new Function("exports", boxTypesCjs);
+boxTypesModule(boxTypes);
+const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef } = boxTypes;
 
 // --- TLS cert check ---
 
@@ -90,7 +90,7 @@ let nextClientId = 1;
 const synthWsClients = new Map<number, WebSocket>();
 type SSESend = (data: Record<string, unknown>) => void;
 const sseClients = new Map<number, SSESend>();
-const gpiSockets = new Set<WebSocket>();
+const ctrlSockets = new Set<WebSocket>();
 
 function totalSynthClients(): number { return synthWsClients.size + sseClients.size; }
 
@@ -180,9 +180,82 @@ function sendViaRouter(routerBoxId: number, channel: number, value: number): voi
   }
 }
 
-function sendGPI(msg: Record<string, unknown>): void {
+// Send any message through a router's targeting logic (for commands like rv-env, rv-slew)
+function sendCommandViaRouter(routerBoxId: number, channel: number, msg: Record<string, unknown>): void {
+  const box = boxes.get(routerBoxId);
+  if (!box) return;
+  const routerType = boxTypeName(box.text);
+  const fullMsg = { ...msg, r: routerBoxId, ch: channel };
+
+  const clients = getSynthClientIds();
+  if (clients.length === 0) return;
+
+  switch (routerType) {
+    case "all":
+      broadcastSynth(fullMsg);
+      break;
+    case "one": {
+      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+      const state = routerState.get(routerBoxId)!;
+      sendToClient(clients[state.index % clients.length], fullMsg);
+      break;
+    }
+    case "sweep": {
+      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+      const state = routerState.get(routerBoxId)!;
+      sendToClient(clients[state.index % clients.length], fullMsg);
+      // Note: don't advance sweep index for commands — only value messages advance
+      break;
+    }
+    case "fraction": {
+      const frac = parseFloat(box.text.split(/\s+/)[1]) || 0.5;
+      for (const id of clients) if (Math.random() < frac) sendToClient(id, fullMsg);
+      break;
+    }
+    default:
+      broadcastSynth(fullMsg);
+  }
+}
+
+// Trace from a box outlet to find all routers it eventually reaches
+function traceToRouters(boxId: number, outletIndex: number): Array<{routerId: number, channel: number}> {
+  const results: Array<{routerId: number, channel: number}> = [];
+  const visited = new Set<string>();
+
+  function trace(bid: number, oi: number): void {
+    const key = bid + ":" + oi;
+    if (visited.has(key)) return;
+    visited.add(key);
+
+    for (const cable of cablesFromOutlet(bid, oi)) {
+      const dst = boxes.get(cable.dstBox);
+      if (!dst) continue;
+      const def = getBoxDef(dst.text);
+      if (!def) continue;
+      if (def.zone === "router") {
+        results.push({ routerId: cable.dstBox, channel: cable.dstInlet });
+      } else if (def.zone !== "synth") {
+        // trace through ctrl-side boxes to find routers beyond them
+        const outlets = def.outlets?.length || 1;
+        for (let i = 0; i < outlets; i++) trace(cable.dstBox, i);
+      }
+    }
+  }
+
+  trace(boxId, outletIndex);
+  return results;
+}
+
+// Send an envelope/slew command through all routers reachable from a box's outlet
+function sendEnvCommand(boxId: number, outletIndex: number, msg: Record<string, unknown>): void {
+  for (const { routerId, channel } of traceToRouters(boxId, outletIndex)) {
+    sendCommandViaRouter(routerId, channel, msg);
+  }
+}
+
+function sendCtrl(msg: Record<string, unknown>): void {
   const data = JSON.stringify(msg);
-  for (const socket of gpiSockets) {
+  for (const socket of ctrlSockets) {
     if (socket.readyState === WebSocket.OPEN) socket.send(data);
   }
 }
@@ -190,7 +263,7 @@ function sendGPI(msg: Record<string, unknown>): void {
 function broadcastClientCount(): void {
   const count = totalSynthClients();
   broadcastSynth({ type: "count", clients: count });
-  sendGPI({ type: "count", clients: count });
+  sendCtrl({ type: "count", clients: count });
 }
 
 // --- IP auth tracking ---
@@ -314,7 +387,7 @@ function evaluateConstBoxes(): void {
   }
 }
 
-// --- Batched value updates to GPI at ~30fps ---
+// --- Batched value updates to ctrl at ~30fps ---
 
 let pendingValueUpdates = new Map<number, number>();
 
@@ -327,7 +400,7 @@ setInterval(() => {
   const updates: Array<{ id: number; value: number }> = [];
   for (const [id, value] of pendingValueUpdates) updates.push({ id, value });
   pendingValueUpdates = new Map();
-  sendGPI({ type: "values", updates });
+  sendCtrl({ type: "values", updates });
 }, 33);
 
 // Hook into setBoxValue to queue display updates
@@ -351,8 +424,8 @@ function setBoxValueAndNotify(boxId: number, value: number): void {
   // breath/bite: outlet 0 = value, outlet 1 = onset event, outlet 2 = offset event
   if (name === "breath" || name === "bite") {
     propagateAndNotify(boxId, 0, value);
-    if (prev < ONSET_THRESHOLD && value >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, value);
-    if (prev >= ONSET_THRESHOLD && value < ONSET_THRESHOLD) propagateAndNotify(boxId, 2, value);
+    if (prev < ONSET_THRESHOLD && value >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 1);
+    if (prev >= ONSET_THRESHOLD && value < ONSET_THRESHOLD) propagateAndNotify(boxId, 2, 0);
     return;
   }
 
@@ -368,6 +441,12 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: number): 
     if (!def) continue;
     if (def.zone === "router") {
       handleRouterInlet(cable.dstBox, cable.dstInlet, value);
+    } else if (def.zone === "synth" && !isSynthZone(dst.x, dst.y)) {
+      // above-border engine — send param to ctrl client for local playback
+      const paramName = def.inlets[cable.dstInlet]?.name;
+      if (paramName) {
+        sendCtrl({ type: "engine-param", boxId: cable.dstBox, engineType: boxTypeName(dst.text), param: paramName, value });
+      }
     } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
       // check if this inlet is an event/trigger type — fire event handler
       const inletDef = def.inlets[cable.dstInlet];
@@ -408,9 +487,11 @@ function initBoxState(id: number, box: Box): void {
   const name = boxTypeName(box.text);
   const args = box.text.split(/\s+/).slice(1);
   switch (name) {
-    case "phasor":
-      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, paused: false });
+    case "phasor": {
+      const loop = args[1] !== "once";
+      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, paused: false, loop });
       break;
+    }
     case "metro":
       boxState.set(id, { elapsed: 0, interval: parseFloat(args[0]) || 1 });
       break;
@@ -477,8 +558,12 @@ function tick(): void {
         if (state.paused) break;
         state.phase += TICK_DT / state.period;
         if (state.phase >= 1) {
-          state.phase -= 1;
-          // end-of-cycle event on outlet 1
+          if (state.loop) {
+            state.phase -= 1;
+          } else {
+            state.phase = 1;
+            state.paused = true;
+          }
           propagateAndNotify(id, 1, 0);
         }
         setBoxValueAndNotify(id, state.phase);
@@ -489,6 +574,16 @@ function tick(): void {
         if (state.elapsed >= state.interval) {
           state.elapsed -= state.interval;
           propagateAndNotify(id, 0, 1);
+        }
+        break;
+      }
+      case "delay": {
+        for (let i = state.queue.length - 1; i >= 0; i--) {
+          state.queue[i].remaining -= TICK_DT;
+          if (state.queue[i].remaining <= 0) {
+            propagateAndNotify(id, 0, state.queue[i].value);
+            state.queue.splice(i, 1);
+          }
         }
         break;
       }
@@ -540,16 +635,6 @@ function tick(): void {
         queueValueUpdate(id, state.value);
         propagateAndNotify(id, 0, state.value);
         if (t >= 1) { state.phase = "idle"; propagateAndNotify(id, 1, 0); }
-        break;
-      }
-      case "delay": {
-        for (let i = state.queue.length - 1; i >= 0; i--) {
-          state.queue[i].remaining -= TICK_DT;
-          if (state.queue[i].remaining <= 0) {
-            propagateAndNotify(id, 0, state.queue[i].value);
-            state.queue.splice(i, 1);
-          }
-        }
         break;
       }
       case "slew": {
@@ -620,7 +705,6 @@ function handleEventBox(id: number, _value: number): void {
 
   switch (name) {
     case "phasor": {
-      // reset event on inlet 1
       state.phase = 0;
       setBoxValueAndNotify(id, 0);
       break;
@@ -799,7 +883,7 @@ function expandAbstractions(): number {
   return nextCableId;
 }
 
-// --- Apply (replaces entire graph state from GPI) ---
+// --- Apply (replaces entire graph state from ctrl) ---
 
 // deno-lint-ignore no-explicit-any
 function handleApply(msg: any): void {
@@ -823,8 +907,8 @@ function handleApply(msg: any): void {
   // deploy synth patch to clients
   deployPatch();
 
-  // confirm to GPI
-  sendGPI({ type: "applied" });
+  // confirm to ctrl
+  sendCtrl({ type: "applied" });
   status.applied = true;
   event("patch applied");
 }
@@ -956,12 +1040,12 @@ function deployPatch(): void {
   latestValues.clear();
   broadcastSynth(deployedPatch);
   event("patch deployed to " + totalSynthClients() + " clients");
-  sendGPI({ type: "deployed" });
+  sendCtrl({ type: "deployed" });
   // re-evaluate consts so rv messages flow immediately after deploy
   evaluateAllConsts();
 }
 
-// --- Full state sync for GPI ---
+// --- Full state sync for ctrl ---
 
 function getFullState(): Record<string, unknown> {
   const bv: Record<number, number> = {};
@@ -977,17 +1061,17 @@ function getFullState(): Record<string, unknown> {
 }
 
 function sendFullState(): void {
-  sendGPI(getFullState());
+  sendCtrl(getFullState());
 }
 
-// --- GPI WebSocket handler ---
+// --- Ctrl WebSocket handler ---
 
-function handleGpiWs(req: Request): Response {
+function handleCtrlWs(req: Request): Response {
   const { socket, response } = Deno.upgradeWebSocket(req);
 
   socket.addEventListener("open", () => {
-    gpiSockets.add(socket);
-    event("GPI connected");
+    ctrlSockets.add(socket);
+    event("ctrl connected");
     drawStatus();
     socket.send(JSON.stringify(getFullState()));
     socket.send(JSON.stringify({ type: "count", clients: totalSynthClients() }));
@@ -1016,8 +1100,8 @@ function handleGpiWs(req: Request): Response {
   });
 
   socket.addEventListener("close", () => {
-    gpiSockets.delete(socket);
-    event("GPI disconnected");
+    ctrlSockets.delete(socket);
+    event("ctrl disconnected");
     drawStatus();
   });
 
@@ -1125,7 +1209,7 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
   if (url.pathname === "/events") return handleSSE(req, info);
   // route WebSocket by path
   if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-    if (url.pathname === "/ws/gpi") return handleGpiWs(req);
+    if (url.pathname === "/ws/ctrl") return handleCtrlWs(req);
     return handleSynthWs(req, info);
   }
   const ext = url.pathname.split(".").pop()?.toLowerCase();
@@ -1292,7 +1376,7 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
   const url = new URL(req.url);
   // route WebSocket by path
   if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-    if (url.pathname === "/ws/gpi") return handleGpiWs(req);
+    if (url.pathname === "/ws/ctrl") return handleCtrlWs(req);
     return handleSynthWs(req, info);
   }
   if (url.pathname === "/events") return handleSSE(req, info);
@@ -1326,7 +1410,7 @@ drawStatus();
 
 setInterval(() => {
   broadcastSynth({ type: "health", ts: Date.now() });
-  for (const socket of gpiSockets) {
+  for (const socket of ctrlSockets) {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
   }
 }, 5000);

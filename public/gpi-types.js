@@ -52,7 +52,7 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "event", description: "Null event on click" }] },
 
   // --- time ---
-  phasor:         { zone: "any", description: "Sawtooth ramp 0-1 over period. Null event at end of cycle.", args: "period", example: "phasor 4",
+  phasor:         { zone: "any", description: "Sawtooth ramp 0-1 over period. 'once' = one-shot (no loop). Command-based through routers.", args: "period [once]", example: "phasor 4",
                     inlets: [
                       { name: "pause", type: "number", description: "0 = run, >0 = pause" },
                       { name: "reset", type: "event", description: "Reset phase to 0" },
