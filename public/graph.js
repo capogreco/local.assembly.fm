@@ -169,6 +169,18 @@ function buildGraph(patch) {
         node.state = { value: 0 };
         break;
       }
+      case "step": {
+        const parts = (box.args || "1 0.5").split(/\s+/).map(Number);
+        node.state = { active: false, remaining: 0, amplitude: parts[0] || 1, length: parts[1] || 0.5 };
+        break;
+      }
+      case "random": {
+        const parts = (box.args || "0 1").split(/\s+/).map(Number);
+        const min = parts[0] !== undefined ? parts[0] : 0;
+        const max = parts[1] !== undefined ? parts[1] : 1;
+        node.state = { min, max, value: min + Math.random() * (max - min) };
+        break;
+      }
     }
 
     graph.boxes.set(box.id, node);
@@ -222,7 +234,7 @@ function buildGraph(patch) {
 
 // check if an inlet is an event trigger that should call handleEvent
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay")) return true;
+  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "random")) return true;
   if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
 }
@@ -297,6 +309,8 @@ function evaluateNode(graph, boxId) {
     case "slew": return node.state ? node.state.value : (iv[0] || 0);
     case "lag": return node.state ? node.state.value : (iv[0] || 0);
     case "sample-hold": return node.state ? node.state.value : 0;
+    case "step": return node.state?.active ? node.state.amplitude : 0;
+    case "random": return node.state ? node.state.value : 0;
     default:
       return iv[0] || 0; // passthrough
   }
@@ -431,6 +445,21 @@ function handleEvent(graph, boxId) {
         return propagateInGraph(graph, boxId, 0, node.state.value);
       }
       return {};
+    case "step":
+      if (node.state) {
+        const amp = node.inletValues[1] !== undefined ? node.inletValues[1] : node.state.amplitude;
+        const len = node.inletValues[2] !== undefined ? node.inletValues[2] : node.state.length;
+        node.state.active = true;
+        node.state.remaining = len;
+        outputValue = amp;
+      }
+      break;
+    case "random":
+      if (node.state) {
+        node.state.value = node.state.min + Math.random() * (node.state.max - node.state.min);
+        outputValue = node.state.value;
+      }
+      break;
     default:
       return {};
   }
@@ -573,6 +602,16 @@ function tickGraph(graph, dt) {
         }
         break;
       }
+      case "step": {
+        if (!node.state.active) break;
+        node.state.remaining -= dt;
+        if (node.state.remaining <= 0) {
+          node.state.active = false;
+          node.state.remaining = 0;
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, 0));
+        }
+        break;
+      }
     }
   }
   return allUpdates;
@@ -611,6 +650,12 @@ function processRouterValue(graph, routerId, channel, value) {
       const updates = handleEvent(graph, entry.targetBox);
       mergeUpdates(allUpdates, updates);
     } else if (node.type === "sig" && entry.targetInlet === 0) {
+      const updates = handleEvent(graph, entry.targetBox);
+      mergeUpdates(allUpdates, updates);
+    } else if (node.type === "step" && entry.targetInlet === 0) {
+      const updates = handleEvent(graph, entry.targetBox);
+      mergeUpdates(allUpdates, updates);
+    } else if (node.type === "random" && entry.targetInlet === 0) {
       const updates = handleEvent(graph, entry.targetBox);
       mergeUpdates(allUpdates, updates);
     } else if ((node.type === "range" || node.type === "drunk") && entry.targetInlet === 0) {

@@ -38,8 +38,8 @@ class KSProcessor extends AudioWorkletProcessor {
     };
     this.current = { ...this.targets };
 
-    // ~50ms exponential smoothing
-    this.portamentoAlpha = 1 - Math.exp(-1 / (this.sr * 0.05));
+    // Portamento alpha: 1 = instant (no smoothing)
+    this.portamentoAlpha = 1;
 
     // Message port for parameter updates and excite triggers
     this.port.onmessage = (e) => {

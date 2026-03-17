@@ -91,6 +91,12 @@ const BOX_TYPES = {
                     outlets: [
                       { name: "value", type: "number", description: "Current ramp value" },
                       { name: "end", type: "event", description: "Null event at end of ramp" }] },
+  step:           { zone: "any", description: "Triggered one-shot gate. Jumps to amplitude, holds for length, drops to 0.", args: "amplitude length", example: "step 1 0.5",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire the envelope" },
+                      { name: "amplitude", type: "number", description: "Peak amplitude (overrides arg)" },
+                      { name: "length", type: "number", description: "Hold duration in seconds (overrides arg)" }],
+                    outlets: [{ name: "value", type: "number", description: "Current envelope value" }] },
 
   // --- scheduling ---
   delay:          { zone: "any", description: "Delay a value or event.", args: "time", example: "delay 0.5",
@@ -107,6 +113,9 @@ const BOX_TYPES = {
                     outlets: [{ name: "value", type: "number", description: "Current count" }] },
 
   // --- generators ---
+  random:         { zone: "any", description: "Random value on each trigger.", args: "min max", example: "random 0 1",
+                    inlets: [{ name: "trigger", type: "event", description: "Generate new random value" }],
+                    outlets: [{ name: "value", type: "number", description: "Random value in range" }] },
   sig:            { zone: "any", description: "Stochastic integer generator. Traverses integer array by behaviour.", args: "values behaviour", example: "sig 1,2,3,5 shuffle",
                     inlets: [
                       { name: "trigger", type: "event", description: "Advance to next value" },

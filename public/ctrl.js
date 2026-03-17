@@ -1265,7 +1265,7 @@ async function savePatch() {
   const name = prompt("Patch name:", currentPatchName || "");
   if (!name) return;
   const res = await fetch(`/patches/${encodeURIComponent(name)}`, { method: "PUT", body: mainEditor.serialize() });
-  if (res.ok) { currentPatchName = name; console.log("Saved:", name); }
+  if (res.ok) { currentPatchName = name; console.log("Saved:", name); mainEditor.render(); }
 }
 
 async function loadPatch() {

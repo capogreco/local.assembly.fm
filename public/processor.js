@@ -36,8 +36,8 @@ class VoiceProcessor extends AudioWorkletProcessor {
     };
     this.current = { ...this.targets };
 
-    // Portamento alpha: ~50ms exponential smoothing
-    this.portamentoAlpha = 1 - Math.exp(-1 / (this.sr * 0.05));
+    // Portamento alpha: 1 = instant (no smoothing)
+    this.portamentoAlpha = 1;
 
     // Vowel formant frequency corners (F1, F2, F3 in Hz)
     this.vowelFreqCorners = {
