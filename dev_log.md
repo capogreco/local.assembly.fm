@@ -828,3 +828,24 @@ Metro now accepts two inlets: toggle (0=run, >0=pause) and period (overrides arg
 - Jitter retry delay on failure (2-5s random) to prevent thundering herd
 - Increased WS open timeout from 2s to 5s
 
+## Serialosc Hot-Plug Fixes (2026-03-19)
+
+### Problem
+
+With grid and arc sharing a USB hub and the same OSC listener port (13000):
+
+1. **`/sys/disconnect` cleared both devices** — this message doesn't identify which device disconnected, so both `arcDeviceInfo` and `gridDeviceInfo` were wiped whenever either device was unplugged.
+
+2. **`/sys/connect` triggered redundant rediscovery** — caused reconnect loops with repeated `/sys/disconnect` → `/sys/connect` cycles.
+
+3. **`/serialosc/add` spammed on initial connect** — each detection re-configured the device, which caused serialosc to send more add messages, creating a feedback loop.
+
+4. **Hot-plug stopped working after first event** — serialosc only fires one `/serialosc/add` or `/serialosc/remove` notification per subscription. Without re-subscribing, subsequent plug/unplug events were silent.
+
+### Fixes
+
+- **Ignore `/sys/disconnect` and `/sys/connect` entirely** — these are ambiguous with multiple devices. Device lifecycle now handled exclusively via `/serialosc/add` (connect) and `/serialosc/remove` (disconnect), which carry device IDs.
+- **Skip re-detection for already-known devices** — if a `/serialosc/add` arrives for a device ID that's already registered, skip it. Breaks the feedback loop.
+- **Re-subscribe to serialosc notifications after every add/remove** — ensures hot-plug detection continues working indefinitely.
+- **Suppress `/sys/port`, `/sys/host`, `/sys/prefix` echo logs** — these are just the device echoing back config commands.
+
