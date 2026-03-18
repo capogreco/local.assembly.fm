@@ -1247,7 +1247,7 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     if (inlet === 2) { state.period = Math.max(0.001, value); return true; }
   }
   if (name === "metro") {
-    if (inlet === 0) { state.paused = value > 0; return true; }
+    if (inlet === 0) { state.paused = !(value > 0); return true; }
     if (inlet === 1) { state.interval = Math.max(0.001, value); return true; }
   }
   if (name === "toggle" && inlet === 0) {

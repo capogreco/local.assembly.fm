@@ -569,7 +569,7 @@ function tickGraph(graph, dt) {
       }
       case "metro": {
         if (node.state.paused) break;
-        if (node.inletValues[0] > 0) break;  // toggle inlet
+        if (node.inletValues[0] !== undefined && !(node.inletValues[0] > 0)) break;  // toggle: 1=run, 0=stop
         const metroInterval = node.inletValues[1] > 0 ? node.inletValues[1] : node.state.interval;
         node.state.elapsed += dt;
         if (node.state.elapsed >= metroInterval) {

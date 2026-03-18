@@ -69,7 +69,7 @@ const BOX_TYPES = {
                       { name: "eoc", type: "event", description: "Null event at end of cycle" }] },
   metro:          { zone: "any", description: "Periodic null event emitter.", args: "interval", example: "metro 0.5",
                     inlets: [
-                      { name: "toggle", type: "number", description: "0 = run, >0 = pause" },
+                      { name: "toggle", type: "number", description: "1 = run, 0 = stop" },
                       { name: "period", type: "number", description: "Interval in seconds" }],
                     outlets: [{ name: "out", type: "event", description: "Null event at interval" }] },
 
