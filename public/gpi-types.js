@@ -41,6 +41,8 @@ const BOX_TYPES = {
                     inlets: [{ name: "out", type: "passthrough", description: "Connected inside abstraction" }], outlets: [] },
   comment:        { zone: "any", description: "Documentation text. No ports, just displays text.", isComment: true,
                     inlets: [], outlets: [] },
+  "//":           { zone: "any", description: "Comment. Same as comment.", isComment: true,
+                    inlets: [], outlets: [] },
 
   // --- values ---
   const:          { zone: "any", description: "Constant value.", args: "value", example: "const 220",

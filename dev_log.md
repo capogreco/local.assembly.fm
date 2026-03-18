@@ -781,3 +781,26 @@ The inlet `type` field in gpi-types.js (`"event"` vs `"number"` vs `"passthrough
 - Server-side `sig`, `random`, `step` — added to `initBoxState` + `handleEventBox` so ctrl-side event chains (metro → sig) work
 - Ensemble voice count URL param — `?n=12` on ensemble.html
 
+## Editor UX + One Router + Envelope Modes (2026-03-19)
+
+### Tab to create connected box
+
+Pressing Tab with a single box selected creates a new empty box directly below, connected outlet 0 → inlet 0, and opens it for editing. Mirrors the double-click-on-cable workflow but from a selected box.
+
+### `//` comment shorthand
+
+`//` is now an alias for `comment` in the box type registry. Type `// my note` in a box for inline documentation.
+
+### One router auto-advance
+
+The `one` router now auto-advances to the next phone on every value received. Single inlet, no trigger cable needed. This eliminates the ordering issues with separate value/trigger paths and simplifies patching.
+
+### Envelope respect/interrupt modes
+
+Sigmoid and cosine envelopes now support two trigger modes via a trailing arg:
+
+- **respect** (default): if an envelope is still running, new triggers are ignored
+- **interrupt**: new triggers cancel the running envelope and restart
+
+Example: `cosine 1 0.3 0.2 1 interrupt` for percussive use, `sigmoid 0 1 2 0.5 6` (default respect) for long transitions that shouldn't be cut short.
+

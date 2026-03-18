@@ -1096,6 +1096,21 @@ class PatchEditor {
       }
     }
 
+    if (e.key === "Tab" && this.selection.size === 1) {
+      e.preventDefault();
+      const srcId = [...this.selection][0];
+      const srcBox = this.boxes.get(srcId);
+      if (!srcBox) return true;
+      this.pushUndo();
+      const id = this.nextId++;
+      this.boxes.set(id, { x: srcBox.x, y: srcBox.y + BOX_HEIGHT + 30, text: "", inlets: 1, outlets: 1 });
+      this.cables.set(this.nextId++, { srcBox: srcId, srcOutlet: 0, dstBox: id, dstInlet: 0 });
+      this.selection.clear();
+      this.selection.add(id);
+      this.startEditing(id);
+      return true;
+    }
+
     if (e.key === "Escape") {
       if (this.mode === "cabling") {
         this.mode = "idle";
