@@ -719,23 +719,11 @@ async function initGrid(): Promise<void> {
           }
         }
 
-        // Device disconnected — /sys/disconnect doesn't identify which device.
-        // We rely on /serialosc/remove (above) to clear the correct device.
-        // Just trigger rediscovery.
-        if (msg.address === "/sys/disconnect") {
-          event("device disconnected, will rediscover via /serialosc/remove");
-        }
-
-        // Device reconnected (sent by device when plugged back in)
-        if (msg.address === "/sys/connect") {
-          // Query serialosc if we don't have device info
-          if (gridDeviceInfo === null || arcDeviceInfo === null) {
-            event(`device reconnecting, querying serialosc...`);
-            const discoveryMsg = oscMessage("/serialosc/list", "si", "127.0.0.1", GRID_LISTEN_PORT);
-            const serialoscConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
-            await serialoscConn.send(discoveryMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
-            serialoscConn.close();
-          }
+        // /sys/disconnect and /sys/connect don't identify which device.
+        // With multiple devices sharing a listener port, these are ambiguous.
+        // We rely entirely on /serialosc/add and /serialosc/remove (which have device IDs).
+        if (msg.address === "/sys/disconnect" || msg.address === "/sys/connect") {
+          continue;
         }
 
         // Grid key press
