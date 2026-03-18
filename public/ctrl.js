@@ -1329,6 +1329,20 @@ function connectWS() {
           midiDeviceNames.splice(index, 1);
           mainEditor.render();
         }
+      } else if (msg.type === "arc-connected") {
+        const deviceName = `${msg.deviceType} (${msg.deviceId})`;
+        if (!midiDeviceNames.includes(deviceName)) {
+          midiDeviceNames.push(deviceName);
+          mainEditor.render();
+        }
+      } else if (msg.type === "arc-disconnected") {
+        // Remove the specific arc device from list
+        const deviceName = `${msg.deviceType} (${msg.deviceId})`;
+        const arcIndex = midiDeviceNames.indexOf(deviceName);
+        if (arcIndex !== -1) {
+          midiDeviceNames.splice(arcIndex, 1);
+          mainEditor.render();
+        }
       } else if (msg.type === "engine-param") {
         handleEngineParam(msg);
       }

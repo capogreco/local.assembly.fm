@@ -7,7 +7,7 @@
 
 const BOX_TYPES = {
   // --- sources (ctrl-side) ---
-  arc:            { zone: "ctrl", description: "Monome Arc encoder.", args: "index", example: "arc 0",
+  arc:            { zone: "ctrl", description: "Monome Arc encoder. Mode 0: continuous rotation (0-1).", args: "i m", example: "arc 0 0",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Encoder position (0-1)" }] },
   breath:         { zone: "ctrl", description: "BBC2 breath pressure. CC#2.",
                     inlets: [], outlets: [

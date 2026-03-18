@@ -419,6 +419,22 @@ const gridRegions = new Map<number, GridRegion>();  // boxId → region definiti
 const gridToggleStates = new Map<number, boolean>(); // boxId → toggle state (for grid-toggle)
 const gridArrayStates = new Map<number, GridArrayState>(); // boxId → array state (for grid-array)
 
+// Arc encoder state tracking
+interface ArcEncoder {
+  boxId: number;
+  encoder: number;  // 0-3 for arc 4
+  mode: number;     // 0 = continuous rotation (0-1)
+}
+
+const arcEncoders = new Map<number, ArcEncoder>();  // boxId → encoder definition
+const arcValues = new Map<number, number>();  // boxId → current value (0-1)
+
+// Arc OSC connection (via serialosc, separate from grid)
+let arcDevicePort: number | null = null;
+let arcDeviceInfo: { deviceType: string; deviceId: string } | null = null;
+const ARC_PREFIX = "/assembly";
+const ARC_SENSITIVITY = 0.0003;  // Fine-tuned for precise control
+
 // Find which grid region (if any) contains the given button coordinate
 function findGridRegion(x: number, y: number): GridRegion | null {
   for (const region of gridRegions.values()) {
@@ -429,11 +445,15 @@ function findGridRegion(x: number, y: number): GridRegion | null {
   return null;
 }
 
-// Build grid region registry from current patch boxes
+// Build grid region and arc encoder registry from current patch boxes
 function rebuildGridRegions(): void {
   gridRegions.clear();
+  arcEncoders.clear();
+
   for (const [boxId, box] of boxes) {
     const type = boxTypeName(box.text);
+
+    // Grid regions
     if (type === "grid-trig" || type === "grid-toggle" || type === "grid-array") {
       const args = box.text.split(/\s+/).slice(1).map(Number);
       if (args.length >= 4) {
@@ -455,6 +475,27 @@ function rebuildGridRegions(): void {
         }
       }
     }
+
+    // Arc encoders
+    if (type === "arc") {
+      const args = box.text.split(/\s+/).slice(1).map(Number);
+      if (args.length >= 2) {
+        const encoder = args[0];
+        const mode = args[1];
+        arcEncoders.set(boxId, { boxId, encoder, mode });
+        event(`registered arc encoder: box ${boxId} enc ${encoder} mode ${mode}`);
+        // Initialize value if not present
+        if (!arcValues.has(boxId)) {
+          arcValues.set(boxId, 0.5);
+          setBoxValueAndNotify(boxId, 0.5);
+        }
+      }
+    }
+  }
+
+  // Render all arc encoders after registration
+  if (arcReady) {
+    renderAllArcEncoders();
   }
 }
 
@@ -630,60 +671,97 @@ async function initGrid(): Promise<void> {
         // Device announcement (from /serialosc/list or /serialosc/add)
         if (msg.address === "/serialosc/device" || msg.address === "/serialosc/add") {
           const [deviceId, deviceType, devicePort] = msg.args;
-          event(`grid detected: ${deviceType} (${deviceId}) on port ${devicePort}`);
-          gridDevicePort = devicePort as number;
-          gridDeviceInfo = { deviceType: deviceType as string, deviceId: deviceId as string };
+          const devTypeStr = deviceType as string;
+          const devPortNum = devicePort as number;
+          const devIdStr = deviceId as string;
 
-          // Configure device
-          gridSysSend("/sys/port", "i", GRID_LISTEN_PORT);
-          gridSysSend("/sys/host", "s", "127.0.0.1");
-          gridSysSend("/sys/prefix", "s", GRID_PREFIX);
-          gridSend("/grid/led/all", "i", 0); // clear grid
+          // Check if it's an arc or grid
+          if (devTypeStr.includes("arc")) {
+            event(`arc detected: ${devTypeStr} (${devIdStr}) on port ${devPortNum}`);
+            arcDevicePort = devPortNum;
+            arcDeviceInfo = { deviceType: devTypeStr, deviceId: devIdStr };
 
-          // Render all active grid regions
-          for (const region of gridRegions.values()) {
-            renderGridRegion(region);
+            // Configure arc device
+            arcSysSend("/sys/port", "i", GRID_LISTEN_PORT);
+            arcSysSend("/sys/host", "s", "127.0.0.1");
+            arcSysSend("/sys/prefix", "s", ARC_PREFIX);
+
+            // Clear all rings
+            for (let i = 0; i < 4; i++) {
+              arcSend("/ring/all", "ii", i, 0);
+            }
+
+            // Render all active arc encoders
+            renderAllArcEncoders();
+
+            // Notify ctrl clients
+            sendCtrl({ type: "arc-connected", deviceType: devTypeStr, deviceId: devIdStr });
+          } else {
+            event(`grid detected: ${devTypeStr} (${devIdStr}) on port ${devPortNum}`);
+            gridDevicePort = devPortNum;
+            gridDeviceInfo = { deviceType: devTypeStr, deviceId: devIdStr };
+
+            // Configure device
+            gridSysSend("/sys/port", "i", GRID_LISTEN_PORT);
+            gridSysSend("/sys/host", "s", "127.0.0.1");
+            gridSysSend("/sys/prefix", "s", GRID_PREFIX);
+            gridSend("/grid/led/all", "i", 0); // clear grid
+
+            // Render all active grid regions
+            for (const region of gridRegions.values()) {
+              renderGridRegion(region);
+            }
+
+            // Notify ctrl clients
+            sendCtrl({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
           }
-
-          // Notify ctrl clients
-          sendCtrl({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
         }
 
         // Device removed (via serialosc) - happens after /sys/disconnect
         if (msg.address === "/serialosc/remove") {
           const [deviceId, deviceType, devicePort] = msg.args;
-          event(`grid removed via serialosc: ${deviceType} (${deviceId})`);
+          const devTypeStr = deviceType as string;
 
-          // Only notify if we haven't already (gridDeviceInfo would be null if /sys/disconnect was handled)
-          if (gridDeviceInfo) {
-            sendCtrl({ type: "grid-disconnected", deviceType: deviceType as string, deviceId: deviceId as string });
-            gridDeviceInfo = null;
-          }
-
-          // Keep the port for reconnection
-          if (gridDevicePort === null) {
-            gridDevicePort = devicePort as number;
+          if (devTypeStr.includes("arc")) {
+            event(`arc removed via serialosc: ${devTypeStr} (${deviceId})`);
+            if (arcDeviceInfo) {
+              sendCtrl({ type: "arc-disconnected", deviceType: devTypeStr, deviceId: deviceId as string });
+              arcDeviceInfo = null;
+            }
+            if (arcDevicePort === null) {
+              arcDevicePort = devicePort as number;
+            }
+          } else {
+            event(`grid removed via serialosc: ${devTypeStr} (${deviceId})`);
+            if (gridDeviceInfo) {
+              sendCtrl({ type: "grid-disconnected", deviceType: devTypeStr, deviceId: deviceId as string });
+              gridDeviceInfo = null;
+            }
+            if (gridDevicePort === null) {
+              gridDevicePort = devicePort as number;
+            }
           }
         }
 
-        // Device disconnected (sent by grid itself when unplugged) - happens first
+        // Device disconnected (sent by device itself when unplugged) - happens first
         if (msg.address === "/sys/disconnect") {
+          if (arcDeviceInfo) {
+            event(`arc disconnected: ${arcDeviceInfo.deviceType} (${arcDeviceInfo.deviceId})`);
+            sendCtrl({ type: "arc-disconnected", deviceType: arcDeviceInfo.deviceType, deviceId: arcDeviceInfo.deviceId });
+            arcDeviceInfo = null;
+          }
           if (gridDeviceInfo) {
             event(`grid disconnected: ${gridDeviceInfo.deviceType} (${gridDeviceInfo.deviceId})`);
-
-            // Notify ctrl clients (before clearing gridDeviceInfo)
             sendCtrl({ type: "grid-disconnected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
-
-            // Keep gridDevicePort for reconnection, only clear gridDeviceInfo
             gridDeviceInfo = null;
           }
         }
 
-        // Device reconnected (sent by grid when plugged back in)
+        // Device reconnected (sent by device when plugged back in)
         if (msg.address === "/sys/connect") {
           // Query serialosc if we don't have device info
-          if (gridDeviceInfo === null) {
-            event(`grid reconnecting, querying serialosc...`);
+          if (gridDeviceInfo === null || arcDeviceInfo === null) {
+            event(`device reconnecting, querying serialosc...`);
             const discoveryMsg = oscMessage("/serialosc/list", "si", "127.0.0.1", GRID_LISTEN_PORT);
             const serialoscConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
             await serialoscConn.send(discoveryMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
@@ -691,15 +769,95 @@ async function initGrid(): Promise<void> {
           }
         }
 
-        // Key press
+        // Grid key press
         if (msg.address === GRID_PREFIX + "/grid/key") {
           const [x, y, state] = msg.args as number[];
           handleGridKey(x, y, state === 1);
+        }
+
+        // Arc encoder delta
+        if (msg.address === ARC_PREFIX + "/enc/delta") {
+          const [encoder, delta] = msg.args as number[];
+          event(`arc enc ${encoder} delta ${delta}`);
+          handleArcDelta(encoder, delta);
         }
       }
     })();
   } catch (e) {
     console.error("Failed to init grid:", e);
+  }
+}
+
+// ============================================================
+// --- Arc Support (via serialosc OSC) ---
+// ============================================================
+
+// Send OSC message to arc device
+function arcSend(address: string, typeTag: string, ...args: (string | number)[]): void {
+  if (!gridSocket || arcDevicePort === null) return;
+  const msg = oscMessage(ARC_PREFIX + address, typeTag, ...args);
+  gridSocket.send(msg, { transport: "udp", hostname: "127.0.0.1", port: arcDevicePort });
+  event(`arcSend → port ${arcDevicePort}: ${address} [${args.join(", ")}]`);
+}
+
+// Send OSC system message to arc device
+function arcSysSend(address: string, typeTag: string, ...args: (string | number)[]): void {
+  if (!gridSocket || arcDevicePort === null) return;
+  const msg = oscMessage(address, typeTag, ...args);
+  gridSocket.send(msg, { transport: "udp", hostname: "127.0.0.1", port: arcDevicePort });
+  event(`arcSysSend → port ${arcDevicePort}: ${address} [${args.join(", ")}]`);
+}
+
+function handleArcDelta(encoder: number, delta: number): void {
+  if (encoder < 0 || encoder > 3) return;
+
+  // Find all arc boxes using this encoder
+  for (const [boxId, arcEnc] of arcEncoders.entries()) {
+    if (arcEnc.encoder === encoder) {
+      const currentValue = arcValues.get(boxId) ?? 0.5;  // Use ?? instead of || to handle 0 correctly
+      const newValue = Math.max(0, Math.min(1, currentValue + delta * ARC_SENSITIVITY));
+      arcValues.set(boxId, newValue);
+      setBoxValueAndNotify(boxId, newValue);
+      renderArcEncoder(encoder);
+    }
+  }
+}
+
+function renderArcEncoder(encoder: number): void {
+  if (arcDevicePort === null) return;
+
+  // Find first box using this encoder to get its value
+  for (const [boxId, arcEnc] of arcEncoders.entries()) {
+    if (arcEnc.encoder === encoder) {
+      const value = arcValues.get(boxId) ?? 0.5;  // Use ?? instead of || to handle 0 correctly
+
+      // Render LED ring as a filled arc from 6 o'clock (bottom)
+      // Arc has 64 LEDs per ring (0-63), with LED 0 at top (12 o'clock)
+      // LED 32 is at bottom (6 o'clock)
+      const numLeds = Math.floor(value * 64);
+      const ledData: number[] = new Array(64).fill(0);
+
+      // Fill LEDs from 6 o'clock (LED 32) clockwise
+      for (let i = 0; i < numLeds; i++) {
+        const ledIndex = (32 + i) % 64;
+        ledData[ledIndex] = 15; // Full brightness
+      }
+
+      // Send /ring/map message with all 64 LED values
+      const typeTags = "i" + "i".repeat(64);
+      arcSend("/ring/map", typeTags, encoder, ...ledData);
+      return;
+    }
+  }
+}
+
+function renderAllArcEncoders(): void {
+  const encodersRendered = new Set<number>();
+  for (const arcEnc of arcEncoders.values()) {
+    if (!encodersRendered.has(arcEnc.encoder)) {
+      renderArcEncoder(arcEnc.encoder);
+      encodersRendered.add(arcEnc.encoder);
+    }
   }
 }
 
@@ -1492,6 +1650,9 @@ function handleCtrlWs(req: Request): Response {
     if (gridDeviceInfo) {
       socket.send(JSON.stringify({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId }));
     }
+    if (arcDeviceInfo) {
+      socket.send(JSON.stringify({ type: "arc-connected", deviceType: arcDeviceInfo.deviceType, deviceId: arcDeviceInfo.deviceId }));
+    }
   });
 
   socket.addEventListener("message", (e) => {
@@ -1852,7 +2013,7 @@ if (isMacOS) {
       console.log("\x1b[33m  brew services start serialosc\x1b[0m");
       console.log("");
     } else {
-      // serialosc is running — initialize grid
+      // serialosc is running — initialize grid and arc (both via OSC)
       await initGrid();
     }
   } catch {

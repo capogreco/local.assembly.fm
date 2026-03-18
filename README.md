@@ -287,6 +287,40 @@ Example: In a region at (0, 0) with width 12:
 
 **Hot-plug detection:** Grid connection/disconnection is automatically detected and displayed in the status bar.
 
+### Monome Arc Integration
+
+The monome arc 4 is a continuous rotary encoder controller with LED ring feedback. Arc support uses serialosc (same as grid) for reliable cross-platform communication.
+
+**arc** — Continuous rotation encoder
+```
+arc i m
+```
+Where:
+- `i` = encoder index (0-3 for arc 4)
+- `m` = mode (currently only 0 supported: continuous rotation, outputs 0-1)
+
+**Behavior:**
+- Turning clockwise increases the value toward 1
+- Turning counter-clockwise decreases the value toward 0
+- Values clamp at boundaries (no wrapping)
+- Fine-grained control (sensitivity: 0.0003)
+
+**LED feedback:**
+- 64-LED ring per encoder
+- Visual indicator starts at 6 o'clock (bottom), fills clockwise
+- Brightness scales with value (0 = all off, 0.5 = half ring, 1 = full ring)
+
+**Hot-plug detection:** Arc connection/disconnection is automatically detected and displayed in the status bar with device type and ID.
+
+**Requirements:**
+- serialosc must be running (`brew services start serialosc` on macOS)
+- Arc devices are automatically detected on connection
+- Supports both grid and arc connected simultaneously
+
+Example: Control a synth parameter with encoder 0:
+```
+arc 0 0  →  smooth cutoff
+```
 
 
 ## ⚠️ Troubleshooting

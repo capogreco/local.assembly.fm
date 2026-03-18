@@ -465,3 +465,124 @@ Initial implementation had issues with hot-plug detection:
 - Single button toggles work without spurious state changes
 - Arrays output correctly through patch system (e.g., `[1, 2, 3, 4]`)
 - Tested with grid_test.json patch (grid-trig, grid-toggle, grid-array → print)
+
+---
+
+## Monome Arc Support (2026-03-18)
+
+### Implementation approach
+
+Initially attempted serial communication via CDC ACM (inspired by commit d746e01), but encountered fundamental issues:
+- Arc iii devices boot into a closed script mode with read-only serial from host
+- Special `^^` protocol commands required to enter REPL mode
+- Serial approach was unreliable and platform-specific
+
+**Switched to OSC via serialosc** (user's original suggestion):
+- Arc devices are detected by serialosc alongside grid devices
+- Same reliable OSC communication path
+- Cross-platform compatibility
+- Standard monome ecosystem integration
+
+### Arc box type
+
+Format: `arc i m` where:
+- `i` = encoder index (0-3 for arc 4)
+- `m` = mode (0 = continuous rotation, outputs 0-1)
+
+Added to `gpi-types.js`:
+```javascript
+arc: {
+  zone: "ctrl",
+  description: "Monome Arc encoder. Mode 0: continuous rotation (0-1).",
+  args: "i m",
+  example: "arc 0 0",
+  inlets: [],
+  outlets: [{ name: "value", type: "number", description: "Encoder position (0-1)" }]
+}
+```
+
+### OSC communication
+
+**Detection and configuration:**
+- Arc devices detected through existing serialosc discovery (`/serialosc/list`)
+- Device type string contains "arc" → route to arc handlers
+- Configuration messages: `/sys/port`, `/sys/host`, `/sys/prefix`
+- OSC prefix: `/assembly` (same as grid)
+
+**Encoder messages:**
+- Receive: `/assembly/enc/delta [encoder, delta]`
+- Delta values are encoder ticks (positive = clockwise, negative = counter-clockwise)
+- Sensitivity: `0.0003` (fine-tuned after testing)
+
+**LED control:**
+- Send: `/ring/map [encoder, led0, led1, ..., led63]` (64 LEDs per ring)
+- Arc has 64 LEDs per ring (0-63), LED 0 at 12 o'clock
+- Rendering starts at 6 o'clock (LED 32), fills clockwise
+- Brightness: 0 (off) to 15 (full)
+
+### State management
+
+Server.ts additions:
+```typescript
+const arcEncoders = new Map<number, ArcEncoder>();  // boxId → encoder definition
+const arcValues = new Map<number, number>();        // boxId → current value (0-1)
+let arcDevicePort: number | null = null;
+let arcDeviceInfo: { deviceType: string; deviceId: string } | null = null;
+```
+
+**Critical bug fix:** Using `??` instead of `||` for default values:
+```typescript
+const currentValue = arcValues.get(boxId) ?? 0.5;  // Correct
+const currentValue = arcValues.get(boxId) || 0.5;  // BUG: treats 0 as falsy
+```
+Without this fix, value 0 would wrap to 0.5 when turning counter-clockwise.
+
+### LED rendering
+
+**Visual design:**
+- Start at 6 o'clock (bottom) instead of 12 o'clock (top)
+- Fill clockwise as value increases from 0 to 1
+- Value 0.5 = half ring filled (180°)
+
+**Implementation:**
+```typescript
+const numLeds = Math.floor(value * 64);
+const ledData: number[] = new Array(64).fill(0);
+for (let i = 0; i < numLeds; i++) {
+  const ledIndex = (32 + i) % 64;  // Start at LED 32 (6 o'clock)
+  ledData[ledIndex] = 15;
+}
+arcSend("/ring/map", typeTags, encoder, ...ledData);
+```
+
+### Value clamping
+
+Values clamp at 0 and 1 (no wrapping):
+```typescript
+const newValue = Math.max(0, Math.min(1, currentValue + delta * ARC_SENSITIVITY));
+```
+
+### Hot-plug support
+
+Same pattern as grid:
+- `/serialosc/device` or `/serialosc/add` → configure and notify ctrl clients
+- `/sys/disconnect` → clear device info, keep port for reconnection
+- `/serialosc/remove` → deduplicate disconnect notification
+- `/sys/connect` → query serialosc to restore device info
+
+**Ctrl client integration:**
+- Arc device shown in status bar with device type and ID
+- Device info sent on ctrl websocket connection (server.ts:1653-1655)
+- Fixes refresh issue where arc was functional but not listed
+
+### Verification (working as of 2026-03-18)
+
+- Arc detected via serialosc on both macOS and Linux
+- Hot-plug detection working (shows "monome arc (m08212311)" in devices list)
+- Reconnection working (unplug → replug restores connection)
+- Encoder deltas correctly update box values
+- LED ring renders correctly starting from 6 o'clock
+- Value clamping prevents wrapping at 0 and 1
+- Sensitivity tuned for precise control (0.0003)
+- Ctrl client shows arc on refresh/reconnect
+- Tested with patches/arc_test.json (arc 0 0 → print)
