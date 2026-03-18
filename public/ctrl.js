@@ -250,6 +250,81 @@ class PatchEditor {
     if (data.synthBorderY !== undefined) this.synthBorderY = data.synthBorderY;
     this.selection.clear();
     this.cableSelection.clear();
+    // Auto-resize canvas to fit all boxes
+    this.ensureAllBoxesVisible();
+  }
+
+  ensureAllBoxesVisible() {
+    if (this.boxes.size === 0) return;
+
+    const margin = 50; // Margin from edges
+    const dpr = window.devicePixelRatio || 1;
+    const viewportWidth = this.canvas.width / dpr;
+    const viewportHeight = this.canvas.height / dpr;
+
+    // Separate boxes into ctrl-side and synth-side
+    const ctrlBoxes = [];
+    const synthBoxes = [];
+
+    for (const box of this.boxes.values()) {
+      if (box.y < this.synthBorderY) {
+        ctrlBoxes.push(box);
+      } else {
+        synthBoxes.push(box);
+      }
+    }
+
+    // Scale and reposition ctrl-side boxes
+    if (ctrlBoxes.length > 0) {
+      const ctrlBounds = this.getBounds(ctrlBoxes);
+      const ctrlZoneHeight = this.synthBorderY - margin;
+      const ctrlZoneWidth = viewportWidth - 2 * margin;
+
+      if (ctrlBounds.maxY > this.synthBorderY - margin || ctrlBounds.maxX > viewportWidth - margin) {
+        const scaleX = ctrlZoneWidth / (ctrlBounds.maxX - ctrlBounds.minX + 100);
+        const scaleY = ctrlZoneHeight / (ctrlBounds.maxY - ctrlBounds.minY + 100);
+        const scale = Math.min(scaleX, scaleY, 1); // Never scale up, only down
+
+        for (const box of ctrlBoxes) {
+          box.x = margin + (box.x - ctrlBounds.minX) * scale;
+          box.y = margin + (box.y - ctrlBounds.minY) * scale;
+        }
+      }
+    }
+
+    // Scale and reposition synth-side boxes
+    if (synthBoxes.length > 0) {
+      const synthBounds = this.getBounds(synthBoxes);
+      const synthZoneTop = this.synthBorderY + margin;
+      const synthZoneHeight = viewportHeight - this.synthBorderY - 2 * margin;
+      const synthZoneWidth = viewportWidth - 2 * margin;
+
+      if (synthBounds.maxY > viewportHeight - margin || synthBounds.maxX > viewportWidth - margin) {
+        const scaleX = synthZoneWidth / (synthBounds.maxX - synthBounds.minX + 100);
+        const scaleY = synthZoneHeight / (synthBounds.maxY - synthBounds.minY + 100);
+        const scale = Math.min(scaleX, scaleY, 1); // Never scale up, only down
+
+        for (const box of synthBoxes) {
+          box.x = margin + (box.x - synthBounds.minX) * scale;
+          box.y = synthZoneTop + (box.y - synthBounds.minY) * scale;
+        }
+      }
+    }
+  }
+
+  getBounds(boxes) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const boxWidth = 200; // Approximate box width
+    const boxHeight = 40; // Approximate box height
+
+    for (const box of boxes) {
+      if (box.x < minX) minX = box.x;
+      if (box.y < minY) minY = box.y;
+      if (box.x + boxWidth > maxX) maxX = box.x + boxWidth;
+      if (box.y + boxHeight > maxY) maxY = box.y + boxHeight;
+    }
+
+    return { minX, minY, maxX, maxY };
   }
 
   // --- Undo ---
@@ -1025,6 +1100,9 @@ class PatchEditor {
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = width * dpr;
     this.canvas.height = height * dpr;
+    // Update CSS dimensions to match logical size (prevents squishing)
+    this.canvas.style.width = width + "px";
+    this.canvas.style.height = height + "px";
     this.render();
   }
 }

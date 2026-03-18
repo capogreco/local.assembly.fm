@@ -145,3 +145,233 @@ iOS CNA), then attempts WebSocket upgrade in the background. If WS succeeds, SSE
 closed and transport switches over. If WS fails (e.g. iOS CNA), stays on SSE with
 no delay or disruption. Status bar shows current transport: "disconnected" / "sse" / "ws".
 This eliminates the previous 2-second timeout penalty for CNA clients.
+
+## 2026-03-18 — Step 3: macOS Deployment Setup (M2 MacBook Pro)
+
+### Context
+Performance tomorrow. First time deploying on macOS (M2 2022 MBP) instead of NUC.
+Hardware: NETGEAR GS305PP PoE switch, FritzBox 7490 DHCP server, 2x Ubiquiti U6+ APs.
+Goal: Get captive portal working via ethernet, use WiFi for internet/Claude access.
+
+### Certificate Generation (Let's Encrypt)
+
+**Challenge:** No existing certificates on Mac, need CA-signed certs for clean mobile experience.
+
+**Process:**
+```bash
+# Install certbot via Homebrew
+brew install certbot
+
+# Generate certificate with DNS-01 challenge
+sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm
+
+# Add TXT record to Namecheap DNS:
+# Host: _acme-challenge.local
+# Value: [provided by certbot]
+# Wait 2 minutes for DNS propagation
+
+# Copy certificates to project
+sudo cp /etc/letsencrypt/live/local.assembly.fm/fullchain.pem cert.pem
+sudo cp /etc/letsencrypt/live/local.assembly.fm/privkey.pem key.pem
+sudo chown $(whoami) cert.pem key.pem
+```
+
+**Result:** Certificate valid until 2026-06-16.
+
+### UniFi AP Adoption Challenges
+
+**Problem:** APs previously adopted on NUC. When UniFi controller started via Docker on Mac
+(`unifi/docker-compose.yml`), APs showed as "Device Unreachable" due to Docker networking
+on macOS (bridge mode can't easily reach physical ethernet devices).
+
+**Discovery:**
+- Mac IP: `192.168.178.24` (USB ethernet adapter `en5`)
+- APs at: `192.168.178.20`, `192.168.178.21`
+- APs pingable but Docker container couldn't reach them
+
+**Attempted Solutions (didn't work):**
+- Port mapping (8080, 8443, 10001/udp) — Docker can receive connections but can't initiate to LAN
+- Network mode: host (doesn't work properly on macOS Docker)
+- set-inform via curl to port 8080 — APs not responding on inform port (still tied to old controller)
+
+**Working Solution: Factory Reset + SSH Adoption**
+```bash
+# 1. Factory reset both U6+ APs
+# Physical: Press and hold reset button 10-15 seconds until LED changes pattern
+# LEDs will blink slowly when ready (blue = adoption mode)
+
+# 2. Power cycle (unplug ethernet, wait 10s, replug)
+# APs came back with same IPs (.20, .21) due to FritzBox DHCP reservations
+
+# 3. SSH with default credentials (factory reset succeeded)
+ssh ubnt@192.168.178.20  # password: ubnt
+ssh ubnt@192.168.178.21  # password: ubnt
+
+# 4. Manual set-inform to point APs at Mac's IP
+# In each SSH session:
+set-inform http://192.168.178.24:8080/inform
+
+# 5. APs showed solid bright blue LEDs (communicating with controller)
+
+# 6. In UniFi controller web interface (https://localhost:8443):
+# - Complete initial setup wizard (skip cloud, create local admin)
+# - Navigate to Devices section
+# - Click "Adopt" on both U6+ devices
+# - Wait 2-3 minutes for adoption to complete (status: "Connected")
+
+# 7. Create WiFi network:
+# Settings → WiFi Networks → Create New
+# - Type: Standard (NOT Hotspot - clients need to reach server)
+# - Name: assembly
+# - Security: WPA Personal
+# - Password: assembly
+```
+
+**Key Learning:** Docker UniFi controller on macOS has network isolation issues. SSH +
+set-inform + adoption via localhost interface works reliably.
+
+### DNS Configuration (dnsmasq)
+
+**Requirement:** All DNS queries from clients must resolve to server IP for captive portal.
+
+```bash
+# Install dnsmasq
+brew install dnsmasq
+
+# Create config file (fish shell syntax)
+echo "interface=en5
+address=/#/192.168.178.24" | sudo tee /opt/homebrew/etc/dnsmasq.d/assembly.conf
+
+# Start dnsmasq
+# --bind-interfaces required because macOS has system DNS on port 53 (loopback only)
+sudo /opt/homebrew/opt/dnsmasq/sbin/dnsmasq \
+  --keep-in-foreground \
+  --bind-interfaces \
+  --conf-file=/opt/homebrew/etc/dnsmasq.d/assembly.conf
+
+# Verify DNS working
+dig @192.168.178.24 example.com +short
+# Should return: 192.168.178.24
+```
+
+**FritzBox Configuration:**
+- Access: `http://192.168.178.1`
+- Navigate to DNS settings (varies by firmware, look in Network or DHCP sections)
+- Set DNS server to: `192.168.178.24`
+- This tells FritzBox to hand out Mac's IP as DNS server via DHCP
+
+**Verification:**
+- Phone connects to "assembly" WiFi
+- Check WiFi details on phone → DNS should show `192.168.178.24`
+- May need to forget network and reconnect for new DHCP lease
+
+### Port Forwarding Challenge (macOS pfctl)
+
+**Problem:** Deno server runs on ports 8080 (HTTP) and 8443 (HTTPS), but captive portal
+probes and standard web traffic use ports 80 and 443.
+
+**Attempted Solution: pfctl (macOS packet filter)**
+```bash
+# Create redirect rules
+echo "rdr pass on en5 inet proto tcp from any to any port 80 -> 127.0.0.1 port 8080
+rdr pass on en5 inet proto tcp from any to any port 443 -> 127.0.0.1 port 8443" \
+| sudo tee /etc/pf.anchors/assembly
+
+# Load rules into anchor
+sudo pfctl -a assembly -f /etc/pf.anchors/assembly
+sudo pfctl -e
+
+# Verify
+sudo pfctl -s rules | grep rdr
+```
+
+**Result:** Rules didn't load properly (showed nothing when queried). macOS pfctl is
+finicky and the redirect syntax may have issues with the interface or loopback target.
+
+**Working Solution: Run Server on Standard Ports**
+
+Changed server to use ports 80 and 443 directly, requires sudo:
+
+```bash
+# Edit server.ts
+# Changed:
+#   const HTTPS_PORT = 8443;
+#   const HTTP_PORT = 8080;
+# To:
+#   const HTTPS_PORT = 443;
+#   const HTTP_PORT = 80;
+
+# Run with sudo (required for ports < 1024)
+cd /Users/capo_greco/Documents/local.assembly.fm
+sudo HOST_IP=192.168.178.24 deno task start
+```
+
+**Result:** Captive portal works! Phone auto-detects network, portal notification appears,
+redirects to synth client.
+
+### Final Working Configuration
+
+**Network Topology:**
+```
+Mac (192.168.178.24, USB ethernet en5)
+  ↓
+NETGEAR GS305PP PoE Switch
+  ├─ FritzBox 7490 (192.168.178.1) — DHCP + gateway
+  ├─ U6+ AP #1 (192.168.178.20) — SSID "assembly"
+  └─ U6+ AP #2 (192.168.178.21) — SSID "assembly"
+```
+
+**Services Running on Mac:**
+
+1. **dnsmasq** (resolves all DNS to 192.168.178.24):
+```bash
+sudo /opt/homebrew/opt/dnsmasq/sbin/dnsmasq \
+  --keep-in-foreground \
+  --bind-interfaces \
+  --conf-file=/opt/homebrew/etc/dnsmasq.d/assembly.conf
+```
+
+2. **Deno Server** (ports 80/443, requires sudo):
+```bash
+cd /Users/capo_greco/Documents/local.assembly.fm
+sudo HOST_IP=192.168.178.24 deno task start
+```
+
+**Startup Checklist (for performance day):**
+
+1. Connect Mac to PoE switch via ethernet (USB adapter)
+2. Verify Mac has IP `192.168.178.24` (may need DHCP renewal or manual config)
+3. Start dnsmasq (command above) — leave running in terminal
+4. Start Deno server (command above) — leave running in terminal
+5. Verify U6+ APs have solid LEDs (powered via PoE)
+6. Test: Connect phone to "assembly" WiFi (password: `assembly`)
+7. Captive portal should auto-appear, or visit any HTTP URL to trigger redirect
+
+**Key Differences from NUC/Linux Setup:**
+
+| Aspect | NUC/Linux | macOS |
+|--------|-----------|-------|
+| Port forwarding | iptables | Not working (pfctl unreliable) — use ports 80/443 directly |
+| DNS | dnsmasq systemd service | dnsmasq via Homebrew, manual start |
+| Server ports | 8080/8443 with iptables redirect | 80/443 with sudo |
+| Ethernet interface | enp86s0 (Intel NUC) | en5 (USB adapter) |
+| Static IP | Manual via ip command | DHCP from FritzBox or manual in Network prefs |
+| Docker networking | Works (iptables PREROUTING) | Broken (can't reach LAN from container) |
+| UniFi adoption | Via Docker controller | Factory reset + SSH set-inform + Docker controller |
+
+**Known Issues:**
+
+- **Port forwarding:** pfctl rules don't load reliably, so server MUST run on 80/443
+- **sudo required:** Running on standard ports requires sudo (privilege escalation)
+- **Process management:** No systemd, must keep terminals open or use `screen`/`tmux`
+- **DHCP:** Mac IP might change on reboot if not statically configured
+- **Docker controller:** Only needed for AP adoption/config changes, not for performance
+
+**Verification (working as of 2026-03-18):**
+
+- Phone connects to "assembly" WiFi
+- Captive portal notification appears automatically
+- Tapping notification loads synth client (https)
+- Alternative: Typing any URL (e.g., `example.com`) redirects to synth
+- Server logs show SSE/WebSocket connections
+- Audio synthesis working on phone after "TAP TO START"

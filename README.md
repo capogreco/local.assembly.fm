@@ -119,6 +119,103 @@ deno task dev
 3. Captive portal appears automatically → tap "TAP TO START" → audio begins
 4. Fallback: open browser, type `local.assembly.fm`
 
+### macOS Setup (M2 MacBook Pro)
+
+**Alternative deployment on macOS** (tested on M2 2022 MBP). Key differences: no iptables (use direct ports), dnsmasq via Homebrew, Docker networking limitations.
+
+**Network Topology:**
+```
+Mac (192.168.178.24, USB ethernet en5)
+  ↓
+GS305PP PoE Switch
+  ├─ FritzBox (192.168.178.1) — DHCP + gateway
+  ├─ U6+ AP #1 (192.168.178.20)
+  └─ U6+ AP #2 (192.168.178.21)
+```
+
+**Prerequisites:**
+```bash
+# Install dependencies
+brew install certbot dnsmasq
+
+# Generate Let's Encrypt certificate
+sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm
+# Follow prompts to add TXT record to Namecheap DNS
+
+# Copy certificates
+sudo cp /etc/letsencrypt/live/local.assembly.fm/fullchain.pem cert.pem
+sudo cp /etc/letsencrypt/live/local.assembly.fm/privkey.pem key.pem
+sudo chown $(whoami) cert.pem key.pem
+```
+
+**Configure DNS (dnsmasq):**
+```bash
+# Create config
+echo "interface=en5
+address=/#/192.168.178.24" | sudo tee /opt/homebrew/etc/dnsmasq.d/assembly.conf
+
+# Configure FritzBox to hand out Mac IP as DNS:
+# 1. Open http://192.168.178.1
+# 2. Navigate to DNS settings (in Network or DHCP section)
+# 3. Set DNS server to: 192.168.178.24
+```
+
+**Adopt U6+ APs (if not already configured):**
+```bash
+# 1. Start UniFi controller
+cd unifi && docker compose up -d
+
+# 2. Factory reset APs (press reset button 10-15 seconds)
+
+# 3. SSH into each AP and set inform URL
+ssh ubnt@192.168.178.20  # password: ubnt
+set-inform http://192.168.178.24:8080/inform
+exit
+
+ssh ubnt@192.168.178.21
+set-inform http://192.168.178.24:8080/inform
+exit
+
+# 4. Open https://localhost:8443
+# 5. Complete setup wizard (skip cloud, create local admin)
+# 6. Adopt both APs in Devices section
+# 7. Create WiFi: Settings → WiFi Networks → Create New
+#    - Type: Standard
+#    - Name: assembly
+#    - Password: assembly
+
+# 8. Stop controller (APs retain config)
+docker compose down
+```
+
+**Run System (requires 2 terminal windows):**
+
+Terminal 1 — DNS:
+```bash
+sudo /opt/homebrew/opt/dnsmasq/sbin/dnsmasq \
+  --keep-in-foreground \
+  --bind-interfaces \
+  --conf-file=/opt/homebrew/etc/dnsmasq.d/assembly.conf
+```
+
+Terminal 2 — Server (ports 80/443):
+```bash
+cd /Users/capo_greco/Documents/local.assembly.fm
+sudo HOST_IP=192.168.178.24 deno task start
+```
+
+**Test:**
+- Connect phone to "assembly" WiFi (password: `assembly`)
+- Captive portal should auto-appear, or visit any URL to trigger redirect
+- Tap "TAP TO START" to begin audio synthesis
+
+**Important Notes:**
+- **Server must run on ports 80/443** (pfctl port forwarding unreliable on macOS)
+- **Requires sudo** for both dnsmasq and server (privileged ports)
+- **Keep terminals open** during performance (or use screen/tmux)
+- **Mac IP must be 192.168.178.24** (configure static IP if DHCP changes)
+- See `dev_log.md` for full troubleshooting details
+
 ### TLS Certificates (Let's Encrypt)
 
 Uses a real CA-signed cert for `local.assembly.fm` — no browser warnings. dnsmasq resolves the domain to `192.168.178.10` on the LAN.

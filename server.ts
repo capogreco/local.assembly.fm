@@ -1,7 +1,7 @@
 const CERT_FILE = "cert.pem";
 const KEY_FILE = "key.pem";
-const HTTPS_PORT = 8443;
-const HTTP_PORT = 8080;
+const HTTPS_PORT = 443;
+const HTTP_PORT = 80;
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.10";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
 
@@ -1390,12 +1390,26 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
 
 const tlsAvailable = await hasCerts();
 
+// Check if HOST_IP is configured (especially important on macOS)
+const isMacOS = Deno.build.os === "darwin";
+const isDefaultIP = HOST_IP === "192.168.178.10";
+const macIPExpected = "192.168.178.24";
+
+if (isMacOS && isDefaultIP) {
+  console.log("\x1b[33m⚠️  WARNING: HOST_IP not set!\x1b[0m");
+  console.log("\x1b[33mUsing default IP (192.168.178.10) but you're on macOS.\x1b[0m");
+  console.log("\x1b[33mFor macOS deployment, you should run:\x1b[0m");
+  console.log(`\x1b[33m  sudo HOST_IP=${macIPExpected} deno task start\x1b[0m`);
+  console.log("");
+}
+
 const banner = `
   \x1b[1mlocal.assembly.fm\x1b[0m
   ${tlsAvailable ? "HTTPS + HTTP portal" : "dev mode (HTTP only)"}
-  synth:    ${tlsAvailable ? `https://localhost:${HTTPS_PORT}/` : `http://localhost:${HTTP_PORT}/`}
-  ctrl:     ${tlsAvailable ? `https://localhost:${HTTPS_PORT}/ctrl.html` : `http://localhost:${HTTP_PORT}/ctrl.html`}
-  ensemble: ${tlsAvailable ? `https://localhost:${HTTPS_PORT}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}
+  Server IP: ${HOST_IP}
+  synth:    ${tlsAvailable ? `https://${HOST_DOMAIN}/` : `http://localhost:${HTTP_PORT}/`}
+  ctrl:     ${tlsAvailable ? `https://${HOST_DOMAIN}/ctrl.html` : `http://localhost:${HTTP_PORT}/ctrl.html`}
+  ensemble: ${tlsAvailable ? `https://${HOST_DOMAIN}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}
 `;
 console.log(banner);
 
