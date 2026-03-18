@@ -469,6 +469,7 @@ function rebuildGridRegions(): void {
         // Initialize state for new regions
         if (type === "grid-toggle") {
           gridToggleStates.set(boxId, false);
+          setBoxValueAndNotify(boxId, 0);
         }
         if (type === "grid-array") {
           gridArrayStates.set(boxId, { array: [1], heldButtons: new Set(), rangeGestureActive: false });
