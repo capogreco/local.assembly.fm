@@ -620,10 +620,14 @@ async function initGrid(): Promise<void> {
     event(`grid listener on port ${GRID_LISTEN_PORT}`);
 
     // Subscribe to serialosc notifications (for hot-plug detection)
-    const notifyMsg = oscMessage("/serialosc/notify", "si", "127.0.0.1", GRID_LISTEN_PORT);
-    const notifyConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
-    await notifyConn.send(notifyMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
-    notifyConn.close();
+    // serialosc only fires one notification per subscription, so we re-subscribe after each event
+    async function resubscribeNotify() {
+      const msg = oscMessage("/serialosc/notify", "si", "127.0.0.1", GRID_LISTEN_PORT);
+      const conn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
+      await conn.send(msg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
+      conn.close();
+    }
+    await resubscribeNotify();
 
     // Send discovery message to serialosc (for devices already connected)
     const discoveryMsg = oscMessage("/serialosc/list", "si", "127.0.0.1", GRID_LISTEN_PORT);
@@ -696,6 +700,7 @@ async function initGrid(): Promise<void> {
             // Notify ctrl clients
             sendCtrl({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
           }
+          await resubscribeNotify();
         }
 
         // Device removed (via serialosc) - happens after /sys/disconnect
@@ -717,6 +722,7 @@ async function initGrid(): Promise<void> {
               gridDeviceInfo = null;
             }
           }
+          await resubscribeNotify();
         }
 
         // /sys/disconnect and /sys/connect don't identify which device.
