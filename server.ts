@@ -169,12 +169,14 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: number): v
   sendViaRouter(routerBoxId, inlet, value);
 }
 
-function sendViaRouter(routerBoxId: number, channel: number, value: number): void {
+function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts: { advanceSweep: boolean; storeLatest: boolean }): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
   const routerType = boxTypeName(box.text);
-  const msg = { type: "rv", r: routerBoxId, ch: channel, v: value } as Record<string, unknown>;
-  latestValues.set(routerBoxId + ":" + channel, JSON.stringify(msg));
+
+  if (opts.storeLatest) {
+    latestValues.set(routerBoxId + ":" + (msg.ch || 0), JSON.stringify(msg));
+  }
 
   const clients = getSynthClientIds();
   if (clients.length === 0) return;
@@ -184,28 +186,21 @@ function sendViaRouter(routerBoxId: number, channel: number, value: number): voi
       broadcastSynth(msg);
       break;
     case "one": {
-      // send to one client, same one until triggered to advance
       if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
       const state = routerState.get(routerBoxId)!;
-      const id = clients[state.index % clients.length];
-      sendToClient(id, msg);
+      sendToClient(clients[state.index % clients.length], msg);
       break;
     }
     case "sweep": {
-      // send to current client, advance on each value
       if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
       const state = routerState.get(routerBoxId)!;
-      const id = clients[state.index % clients.length];
-      sendToClient(id, msg);
-      state.index = (state.index + 1) % clients.length;
+      sendToClient(clients[state.index % clients.length], msg);
+      if (opts.advanceSweep) state.index = (state.index + 1) % clients.length;
       break;
     }
     case "fraction": {
-      // send to random subset based on fraction arg
       const frac = parseFloat(box.text.split(/\s+/)[1]) || 0.5;
-      for (const id of clients) {
-        if (Math.random() < frac) sendToClient(id, msg);
-      }
+      for (const id of clients) if (Math.random() < frac) sendToClient(id, msg);
       break;
     }
     default:
@@ -213,41 +208,13 @@ function sendViaRouter(routerBoxId: number, channel: number, value: number): voi
   }
 }
 
-// Send any message through a router's targeting logic (for commands like rv-env, rv-slew)
+function sendViaRouter(routerBoxId: number, channel: number, value: number): void {
+  const msg = { type: "rv", r: routerBoxId, ch: channel, v: value } as Record<string, unknown>;
+  routerDispatch(routerBoxId, msg, { advanceSweep: true, storeLatest: true });
+}
+
 function sendCommandViaRouter(routerBoxId: number, channel: number, msg: Record<string, unknown>): void {
-  const box = boxes.get(routerBoxId);
-  if (!box) return;
-  const routerType = boxTypeName(box.text);
-  const fullMsg = { ...msg, r: routerBoxId, ch: channel };
-
-  const clients = getSynthClientIds();
-  if (clients.length === 0) return;
-
-  switch (routerType) {
-    case "all":
-      broadcastSynth(fullMsg);
-      break;
-    case "one": {
-      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
-      const state = routerState.get(routerBoxId)!;
-      sendToClient(clients[state.index % clients.length], fullMsg);
-      break;
-    }
-    case "sweep": {
-      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
-      const state = routerState.get(routerBoxId)!;
-      sendToClient(clients[state.index % clients.length], fullMsg);
-      // Note: don't advance sweep index for commands — only value messages advance
-      break;
-    }
-    case "fraction": {
-      const frac = parseFloat(box.text.split(/\s+/)[1]) || 0.5;
-      for (const id of clients) if (Math.random() < frac) sendToClient(id, fullMsg);
-      break;
-    }
-    default:
-      broadcastSynth(fullMsg);
-  }
+  routerDispatch(routerBoxId, { ...msg, r: routerBoxId, ch: channel }, { advanceSweep: false, storeLatest: false });
 }
 
 // Trace from a box outlet to find all routers it eventually reaches
@@ -949,42 +916,6 @@ function evaluateBox(box: Box, iv: number[]): number {
   }
 }
 
-function propagate(boxId: number, outletIndex: number, value: number): void {
-  for (const cable of cablesFromOutlet(boxId, outletIndex)) {
-    const dst = boxes.get(cable.dstBox);
-    if (!dst) continue;
-    const def = getBoxDef(dst.text);
-    if (!def) continue;
-    if (def.zone === "router") {
-      handleRouterInlet(cable.dstBox, cable.dstInlet, value);
-    } else if (def.zone !== "synth") {
-      // ctrl-side or any-zone box above border: evaluate
-      let iv = inletValues.get(cable.dstBox);
-      if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-      iv[cable.dstInlet] = value;
-      const result = evaluateBox(dst, iv);
-      boxValues.set(cable.dstBox, result);
-      const outlets = def.outlets?.length || 1;
-      for (let i = 0; i < outlets; i++) propagate(cable.dstBox, i, result);
-    }
-  }
-}
-
-function setBoxValue(boxId: number, value: number): void {
-  boxValues.set(boxId, value);
-  const box = boxes.get(boxId);
-  if (!box) return;
-  const def = getBoxDef(box.text);
-  const outlets = def ? def.outlets.length : 1;
-  for (let i = 0; i < outlets; i++) propagate(boxId, i, value);
-}
-
-function evaluateConstBoxes(): void {
-  for (const [id, box] of boxes) {
-    if (boxTypeName(box.text) === "const") setBoxValue(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
-  }
-}
-
 // --- Batched value updates to ctrl at ~30fps ---
 
 let pendingValueUpdates = new Map<number, number>();
@@ -1001,12 +932,6 @@ setInterval(() => {
   sendCtrl({ type: "values", updates });
 }, 33);
 
-// Hook into setBoxValue to queue display updates
-const _origSetBoxValue = setBoxValue;
-// We can't reassign a function declaration, so we wrap propagate instead
-const _origPropagate = propagate;
-
-// Override: after any boxValue changes, queue the update
 const ONSET_THRESHOLD = 0.01;
 
 function setBoxValueAndNotify(boxId: number, value: number): void {

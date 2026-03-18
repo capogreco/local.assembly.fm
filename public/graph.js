@@ -307,22 +307,12 @@ function evaluateNode(graph, boxId) {
     case "pow": return Math.pow(iv[0] || 0, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
     case "mtof": return 440 * Math.pow(2, ((iv[0] || 69) - 69) / 12);
     case "const": return parseFloat(args[0]) || 0;
-    case "slew":
-    case "lag":
-      // simplified: just pass through (proper implementation needs timing)
-      return iv[0] || 0;
     case "jitter": {
       const amount = parseFloat(args[0]) || 0.01;
       return (iv[0] || 0) + (Math.random() * 2 - 1) * amount;
     }
     case "sig":
       return node.state ? node.state.values[node.state.index] : 0;
-    case "range":
-      return node.state ? node.state.value : 0;
-    case "spread":
-      return node.state ? node.state.value : 0;
-    case "drunk":
-      return node.state ? node.state.value : 0;
     case "phasor":
       return node.state ? node.state.phase : 0;
     case "gate":
@@ -337,16 +327,12 @@ function evaluateNode(graph, boxId) {
       const t = iv[0] || 0;
       return t < yaw ? (yaw > 0 ? t / yaw : 0) : (yaw < 1 ? (1 - t) / (1 - yaw) : 0);
     }
-    case "ar": return node.state ? node.state.value : 0;
-    case "adsr": return node.state ? node.state.value : 0;
-    case "ramp": return node.state ? node.state.value : 0;
-    case "slew": return node.state ? node.state.value : (iv[0] || 0);
-    case "lag": return node.state ? node.state.value : (iv[0] || 0);
-    case "sample-hold": return node.state ? node.state.value : 0;
+    case "slew": case "lag":
+      return node.state ? node.state.value : (iv[0] || 0);
     case "step": return node.state?.active ? node.state.amplitude : 0;
-    case "sigmoid": return node.state ? node.state.value : 0;
-    case "cosine": return node.state ? node.state.value : 0;
-    case "random": return node.state ? node.state.value : 0;
+    case "range": case "spread": case "drunk": case "ar": case "adsr":
+    case "ramp": case "sample-hold": case "sigmoid": case "cosine": case "random":
+      return node.state ? node.state.value : 0;
     default:
       return iv[0] || 0; // passthrough
   }
@@ -570,18 +556,9 @@ function tickGraph(graph, dt) {
             node.state.phase = 1;
             node.state.paused = true; // one-shot done
           }
-          // end-of-cycle event on outlet 1
-          const eocUpdates = propagateInGraph(graph, id, 1, 0);
-          for (const [eid, params] of Object.entries(eocUpdates)) {
-            if (!allUpdates[eid]) allUpdates[eid] = {};
-            Object.assign(allUpdates[eid], params);
-          }
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0));
         }
-        const phaseUpdates = propagateInGraph(graph, id, 0, node.state.phase);
-        for (const [eid, params] of Object.entries(phaseUpdates)) {
-          if (!allUpdates[eid]) allUpdates[eid] = {};
-          Object.assign(allUpdates[eid], params);
-        }
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, node.state.phase));
         break;
       }
       case "metro": {
@@ -744,44 +721,20 @@ function processRouterValue(graph, routerId, channel, value) {
 
     node.inletValues[entry.targetInlet] = value;
 
-    // check inlet type — is this a trigger/event inlet?
-    // for SIG, inlet 0 is trigger
     if (node.type === "phasor") {
-      // inlet 0 = pause, inlet 1 = reset (event), inlet 2 = period
+      // phasor: inlet 0 = pause, inlet 1 = reset (event), inlet 2 = period
       if (entry.targetInlet === 1 && node.state) {
-        // reset event
-        const updates = handleEvent(graph, entry.targetBox);
-        mergeUpdates(allUpdates, updates);
+        mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
       }
-      // inlets 0 and 2 are stored in inletValues, read by tickGraph
       continue;
-    } else if (node.type === "sequence" && entry.targetInlet === 0) {
-      const updates = handleEvent(graph, entry.targetBox);
-      mergeUpdates(allUpdates, updates);
-    } else if (node.type === "counter" && entry.targetInlet === 0) {
-      const updates = handleEvent(graph, entry.targetBox);
-      mergeUpdates(allUpdates, updates);
-    } else if (node.type === "sig" && entry.targetInlet === 0) {
-      const updates = handleEvent(graph, entry.targetBox);
-      mergeUpdates(allUpdates, updates);
-    } else if (node.type === "step" && entry.targetInlet === 0) {
-      const updates = handleEvent(graph, entry.targetBox);
-      mergeUpdates(allUpdates, updates);
-    } else if ((node.type === "sigmoid" || node.type === "cosine") && entry.targetInlet === 0) {
-      const updates = handleEvent(graph, entry.targetBox);
-      mergeUpdates(allUpdates, updates);
-    } else if (node.type === "random" && entry.targetInlet === 0) {
-      const updates = handleEvent(graph, entry.targetBox);
-      mergeUpdates(allUpdates, updates);
+    } else if (isEventTrigger(node.type, entry.targetInlet)) {
+      mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
     } else if ((node.type === "range" || node.type === "drunk") && entry.targetInlet === 0) {
-      // range/drunk don't have explicit trigger inlets yet, but handle min/max updates
       if (node.state) {
         if (entry.targetInlet === 0) node.state.min = value;
         if (entry.targetInlet === 1) node.state.max = value;
       }
-      const result = evaluateNode(graph, entry.targetBox);
-      const updates = propagateInGraph(graph, entry.targetBox, 0, result);
-      mergeUpdates(allUpdates, updates);
+      mergeUpdates(allUpdates, propagateInGraph(graph, entry.targetBox, 0, evaluateNode(graph, entry.targetBox)));
     } else if (graph.engines.has(entry.targetBox)) {
       // direct to engine — produce update immediately
       const engine = graph.engines.get(entry.targetBox);
