@@ -238,6 +238,7 @@ function buildVoices() {
       statusEl,
       countEl,
       isEnsemble,
+      isEnsemble ? i * 50 : 0,
     );
 
     voices.push(voice);

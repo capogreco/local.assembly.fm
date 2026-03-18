@@ -8,7 +8,7 @@
  *   Returns { getClientId(), close() }
  */
 
-function connect(onMessage, statusEl, countEl, wsOnly) {
+function connect(onMessage, statusEl, countEl, wsOnly, delay) {
   let ws = null;
   let sse = null;
   let healthInterval = null;
@@ -62,21 +62,24 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
   }
 
   function tryWebSocket() {
+    if (destroyed || ws) return;
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${location.host}`;
 
     try { ws = new WebSocket(wsUrl); } catch { return; }
 
+    let settled = false;
     const wsTimeout = setTimeout(() => {
-      if (ws.readyState !== WebSocket.OPEN) { ws.close(); ws = null; }
-    }, 2000);
+      if (ws && ws.readyState !== WebSocket.OPEN) { ws.close(); }
+    }, 5000);
 
     ws.addEventListener("open", () => {
       clearTimeout(wsTimeout);
+      settled = true;
       if (sse) { sse.close(); sse = null; }
       setStatus("ws");
       healthInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "health" }));
         }
       }, 5000);
@@ -88,10 +91,7 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
 
     ws.addEventListener("error", () => {
       clearTimeout(wsTimeout);
-      ws = null;
-      if (destroyed) return;
-      if (wsOnly) { setStatus("disconnected"); setTimeout(tryWebSocket, 2000); }
-      else if (!sse) connectSSE();
+      // close handler will do cleanup and retry — don't duplicate
     });
 
     ws.addEventListener("close", () => {
@@ -99,7 +99,10 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
       clearInterval(healthInterval);
       ws = null;
       if (destroyed) return;
-      if (wsOnly) { setStatus("disconnected"); setTimeout(tryWebSocket, 2000); }
+      setStatus("disconnected");
+      const delay = settled ? 2000 : 2000 + Math.random() * 3000;
+      settled = false;
+      if (wsOnly) setTimeout(tryWebSocket, delay);
       else if (!sse) connectSSE();
     });
   }
@@ -111,10 +114,10 @@ function connect(onMessage, statusEl, countEl, wsOnly) {
     clearInterval(healthInterval);
   }
 
-  if (wsOnly) {
-    tryWebSocket();
+  if (delay > 0) {
+    setTimeout(() => { if (wsOnly) tryWebSocket(); else connectSSE(); }, delay);
   } else {
-    connectSSE();
+    if (wsOnly) tryWebSocket(); else connectSSE();
   }
 
   return { getClientId: () => clientId, close };

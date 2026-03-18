@@ -240,6 +240,7 @@ function sendCtrl(msg: Record<string, unknown>): void {
 
 function broadcastClientCount(): void {
   const count = totalSynthClients();
+  console.log(`  client count: ${count} (ws:${synthWsClients.size} sse:${sseClients.size})`);
   broadcastSynth({ type: "count", clients: count });
   sendCtrl({ type: "count", clients: count });
 }
