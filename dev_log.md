@@ -804,3 +804,27 @@ Sigmoid and cosine envelopes now support two trigger modes via a trailing arg:
 
 Example: `cosine 1 0.3 0.2 1 interrupt` for percussive use, `sigmoid 0 1 2 0.5 6` (default respect) for long transitions that shouldn't be cut short.
 
+## Interactive Boxes + Metro Animation + Connection Fix (2026-03-19)
+
+### Clickable toggle and event boxes
+
+No performance mode — interactive boxes trigger on click-without-drag (if you move the box even 1px, it's a drag not a click). This avoids accidental triggers while editing and means the performer can edit mid-show without mode switching.
+
+- **toggle**: click to flip 0/1, inlet 0 sets state programmatically. Value bar shows state.
+- **event**: click to emit null event from outlet 0.
+
+### Metro inlets and animation
+
+Metro now accepts two inlets: toggle (0=run, >0=pause) and period (overrides arg interval). The value bar fills 0→1 over each interval as a visual heartbeat, so you can see whether metros are ticking in the server.
+
+### WebSocket connection storm fix
+
+**Problem:** Ensemble mode with n=24 was showing 200+ clients. All 24 voices called `tryWebSocket()` simultaneously, overwhelming the browser's concurrent WS limit. Failed connections triggered retries from both `error` AND `close` handlers, doubling the retry rate. Each retry opened a new server-side connection before the old one fully closed.
+
+**Fixes:**
+- Only `close` handler retries (not `error`) — prevents double retry
+- Guard `tryWebSocket` against re-entry if a WS already exists
+- Stagger initial ensemble connections (50ms apart, 24 voices = 1.2s total)
+- Jitter retry delay on failure (2-5s random) to prevent thundering herd
+- Increased WS open timeout from 2s to 5s
+
