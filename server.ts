@@ -1032,13 +1032,23 @@ function setBoxValueAndNotify(boxId: number, value: number): void {
 }
 
 function propagateAndNotify(boxId: number, outletIndex: number, value: number): void {
+  // Two-phase propagation: deliver all values first, then fire deferred events.
+  // This guarantees values arrive at inlets before triggers fire,
+  // regardless of cable creation order.
+  const deferred: Array<() => void> = [];
+
   for (const cable of cablesFromOutlet(boxId, outletIndex)) {
     const dst = boxes.get(cable.dstBox);
     if (!dst) continue;
     const def = getBoxDef(dst.text);
     if (!def) continue;
     if (def.zone === "router") {
-      handleRouterInlet(cable.dstBox, cable.dstInlet, value);
+      const inletDef = def.inlets[cable.dstInlet];
+      if (inletDef && inletDef.type === "event") {
+        deferred.push(() => handleRouterInlet(cable.dstBox, cable.dstInlet, value));
+      } else {
+        handleRouterInlet(cable.dstBox, cable.dstInlet, value);
+      }
     } else if (def.zone === "synth" && !isSynthZone(dst.x, dst.y)) {
       // above-border engine — send param to ctrl client for local playback
       const paramName = def.inlets[cable.dstInlet]?.name;
@@ -1046,10 +1056,9 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: number): 
         sendCtrl({ type: "engine-param", boxId: cable.dstBox, engineType: boxTypeName(dst.text), param: paramName, value });
       }
     } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
-      // check if this inlet is an event/trigger type — fire event handler
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
-        handleEventBox(cable.dstBox, value);
+        deferred.push(() => handleEventBox(cable.dstBox, value));
       } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, value)) {
         // handled by stateful box (phasor, etc.)
       } else {
@@ -1064,6 +1073,9 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: number): 
       }
     }
   }
+
+  // Phase 2: fire all deferred events after values have been delivered
+  for (const fn of deferred) fn();
 }
 
 function isCtrlSide(box: Box): boolean {

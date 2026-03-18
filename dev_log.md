@@ -716,3 +716,68 @@ This ensures all inlet values (including those seeded by const boxes during `bui
 - Amplitude remains constant at 0.3 while frequency changes with router values
 - Router targeting working correctly: only the targeted voice produces sound
 
+## Sigmoid + Cosine Envelopes (2026-03-19)
+
+### Design
+
+Two new trigger envelopes that share a phase-distortion engine, each with five parameters:
+
+**Sigmoid** (`sigmoid start end duration duty curve`) — transition envelope, stays at end value.
+- Phase distortion via `duty`: controls where in the duration the transition occurs (0.5 = centered, 0.2 = early, 0.8 = late)
+- `curve` controls steepness: 0 = linear ramp, 6 = smooth S-curve, 20+ = near-step
+- At extreme curve + any duty = step envelope with controllable trigger point
+
+**Cosine** (`cosine amplitude duration duty curve`) — hump envelope, returns to zero.
+- `duty` controls asymmetry: 0.5 = symmetric, 0.2 = fast attack/slow decay (percussive), 0.8 = slow swell/fast drop
+- `curve` controls peakedness: 0.5 = broad, 1 = cosine, 2+ = sharp peak
+- Rise and fall are independent half-cosines split at the duty point
+
+### Shape functions
+
+```javascript
+function sigmoidShape(t, duty, curve) {
+  const d = Math.max(0.001, Math.min(0.999, duty));
+  let phi;
+  if (t <= d) phi = 0.5 * t / d;
+  else phi = 0.5 + 0.5 * (t - d) / (1 - d);
+  if (curve < 0.1) return phi;
+  const raw = x => 1 / (1 + Math.exp(-curve * (x - 0.5)));
+  const r0 = raw(0), r1 = raw(1);
+  return (raw(phi) - r0) / (r1 - r0);
+}
+
+function cosineShape(t, duty, curve) {
+  const d = Math.max(0.001, Math.min(0.999, duty));
+  let base;
+  if (t <= d) base = (1 - Math.cos(Math.PI * t / d)) / 2;
+  else base = (1 + Math.cos(Math.PI * (t - d) / (1 - d))) / 2;
+  return Math.pow(base, curve);
+}
+```
+
+### Architecture note
+
+Envelopes are synth-side only. They run in `graph.js` on clients at ~60Hz via `tickGraph()`. The server never ticks envelopes — it sends triggers and values through routers, and the client-side graph handles all time-based envelope animation.
+
+## Two-Phase Propagation (2026-03-19)
+
+### Problem
+
+When a source box (e.g. `metro`) fans out to multiple destinations via cables, the propagation order depended on cable creation order (Map iteration). This caused the `one` router's trigger inlet to fire before its value inlet received data, resulting in values going to wrong clients, skipped clients, and repeated hits.
+
+### Solution
+
+Split `propagateAndNotify` (server) and `propagateInGraph` (client) into two phases:
+
+1. **Phase 1 (store):** Deliver all values — set inlet values, evaluate math boxes, buffer router values. Event-type inlets are collected into a deferred queue instead of firing immediately.
+2. **Phase 2 (trigger):** After all values from this fan-out are delivered, fire the deferred events.
+
+The inlet `type` field in gpi-types.js (`"event"` vs `"number"` vs `"passthrough"`) is the discriminator. This guarantees values arrive before triggers regardless of cable draw order.
+
+### Other fixes in this session
+
+- `arcReady` ReferenceError — variable used but never declared, silently broke all patch applies via swallowed catch block
+- Silent error swallowing — changed `catch { /* ignore malformed */ }` to `catch (err) { console.error("WS error:", err); }`
+- Server-side `sig`, `random`, `step` — added to `initBoxState` + `handleEventBox` so ctrl-side event chains (metro → sig) work
+- Ensemble voice count URL param — `?n=12` on ensemble.html
+

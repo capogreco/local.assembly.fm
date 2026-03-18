@@ -358,7 +358,9 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
 
+  // Two-phase propagation: deliver all values first, then fire deferred events.
   const updates = {};
+  const deferred = [];
 
   for (const cable of node.outletCables) {
     if (cable.outlet !== outletIndex) continue;
@@ -379,12 +381,8 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
         updates[cable.dstBox][paramName] = value;
       }
     } else if (isEventTrigger(dstNode.type, cable.dstInlet)) {
-      // event inlet on a stateful box — advance state
-      const further = handleEvent(graph, cable.dstBox);
-      for (const [eid, params] of Object.entries(further)) {
-        if (!updates[eid]) updates[eid] = {};
-        Object.assign(updates[eid], params);
-      }
+      // defer event triggers to phase 2
+      deferred.push(cable.dstBox);
     } else if (dstNode.type === "phasor") {
       // phasor number inlets (pause/period) — store value, don't propagate
     } else if ((dstNode.type === "slew" || dstNode.type === "lag") && cable.dstInlet === 0) {
@@ -426,6 +424,15 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
         if (!updates[eid]) updates[eid] = {};
         Object.assign(updates[eid], params);
       }
+    }
+  }
+
+  // Phase 2: fire deferred event triggers after all values delivered
+  for (const dstBoxId of deferred) {
+    const further = handleEvent(graph, dstBoxId);
+    for (const [eid, params] of Object.entries(further)) {
+      if (!updates[eid]) updates[eid] = {};
+      Object.assign(updates[eid], params);
     }
   }
 

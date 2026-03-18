@@ -56,6 +56,8 @@ graph TD
 * **Distributed Audio Engine:** All DSP (synthesis) happens on the client side to save bandwidth. The server only sends lightweight control messages (JSON).
 * **Captive Portal:** Phones joining the WiFi land on a portal page automatically; tapping "ENTER" opens the synth client in the real browser.
 * **Offline-First:** Runs entirely on a local LAN; no ISP required.
+* **Phase-Distorted Envelopes:** Sigmoid (S-curve transition) and cosine (asymmetric hump) envelopes with duty cycle and curve parameters — two envelopes that cover everything from percussive spikes to smooth fades to hard steps.
+* **Two-Phase Propagation:** Values always arrive at inlets before triggers fire, regardless of cable draw order. No Pd-style right-to-left convention needed.
 
 
 ## Prerequisites
