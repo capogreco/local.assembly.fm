@@ -1046,6 +1046,9 @@ function initBoxState(id: number, box: Box): void {
     case "metro":
       boxState.set(id, { elapsed: 0, interval: parseFloat(args[0]) || 1, paused: false });
       break;
+    case "toggle":
+      boxState.set(id, { value: 0 });
+      break;
     case "sequence":
       boxState.set(id, { index: 0, values: (args[0] || "0").split(",").map(Number) });
       break;
@@ -1140,9 +1143,9 @@ function tick(): void {
         state.elapsed += TICK_DT;
         if (state.elapsed >= state.interval) {
           state.elapsed -= state.interval;
-          queueValueUpdate(id, 1);
           propagateAndNotify(id, 0, 1);
         }
+        queueValueUpdate(id, state.elapsed / state.interval);
         break;
       }
       case "delay": {
@@ -1245,6 +1248,11 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   if (name === "metro") {
     if (inlet === 0) { state.paused = value > 0; return true; }
     if (inlet === 1) { state.interval = Math.max(0.001, value); return true; }
+  }
+  if (name === "toggle" && inlet === 0) {
+    state.value = value > 0 ? 1 : 0;
+    setBoxValueAndNotify(id, state.value);
+    return true;
   }
   // slew/lag: inlet 0 sets target, tick does the smoothing
   if (name === "slew" || name === "lag") {
@@ -1700,6 +1708,14 @@ function handleCtrlWs(req: Request): Response {
           const id = findBoxByText("key");
           if (id !== null) setBoxValueAndNotify(id, msg.note);
         }
+      } else if (msg.type === "toggle-click") {
+        const state = boxState.get(msg.id);
+        if (state) {
+          state.value = msg.value;
+          setBoxValueAndNotify(msg.id, state.value);
+        }
+      } else if (msg.type === "event-click") {
+        propagateAndNotify(msg.id, 0, 1);
       } else if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }

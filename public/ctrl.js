@@ -1049,7 +1049,25 @@ class PatchEditor {
           if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
         }
       }
-      if (moved) this.pushUndo();
+      if (moved) {
+        this.pushUndo();
+      } else if (this.selection.size === 1) {
+        // click without drag — check for interactive boxes
+        const id = [...this.selection][0];
+        const box = this.boxes.get(id);
+        if (box) {
+          const type = boxTypeName(box.text);
+          if (type === "toggle") {
+            const cur = this.boxValues.get(id) || 0;
+            const next = cur > 0 ? 0 : 1;
+            this.boxValues.set(id, next);
+            send({ type: "toggle-click", id, value: next });
+            this.render();
+          } else if (type === "event") {
+            send({ type: "event-click", id });
+          }
+        }
+      }
       this.mode = "idle";
       this.dragStart = null;
       this.dragBoxPositions = null;
