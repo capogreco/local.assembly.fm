@@ -494,7 +494,12 @@ function rebuildGridRegions(): void {
     }
   }
 
-  // Render all arc encoders after registration
+  // Render all grid regions and arc encoders after registration
+  if (gridDevicePort !== null) {
+    for (const region of gridRegions.values()) {
+      renderGridRegion(region);
+    }
+  }
   if (arcReady) {
     renderAllArcEncoders();
   }
