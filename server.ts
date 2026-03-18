@@ -1403,6 +1403,27 @@ if (isMacOS && isDefaultIP) {
   console.log("");
 }
 
+// Check if dnsmasq is running (required for captive portal)
+if (isMacOS && tlsAvailable) {
+  try {
+    const dnsCheck = await Deno.resolveDns("test.example.com", "A", { nameServer: { ipAddr: HOST_IP, port: 53 } });
+    const allPointToHost = dnsCheck.every(record => record === HOST_IP);
+    if (!allPointToHost) {
+      console.log("\x1b[33m⚠️  WARNING: dnsmasq may not be configured correctly!\x1b[0m");
+      console.log("\x1b[33mCaptive portal requires all DNS queries to resolve to ${HOST_IP}\x1b[0m");
+      console.log("\x1b[33mStart dnsmasq with:\x1b[0m");
+      console.log("\x1b[33m  ./start-macos.sh dns\x1b[0m");
+      console.log("");
+    }
+  } catch {
+    console.log("\x1b[33m⚠️  WARNING: dnsmasq is not running!\x1b[0m");
+    console.log("\x1b[33mCaptive portal requires dnsmasq for DNS resolution.\x1b[0m");
+    console.log("\x1b[33mStart dnsmasq with:\x1b[0m");
+    console.log("\x1b[33m  ./start-macos.sh dns\x1b[0m");
+    console.log("");
+  }
+}
+
 const banner = `
   \x1b[1mlocal.assembly.fm\x1b[0m
   ${tlsAvailable ? "HTTPS + HTTP portal" : "dev mode (HTTP only)"}
