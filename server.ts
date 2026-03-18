@@ -1260,6 +1260,13 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     if (inlet === 0) { state.paused = !(value > 0); return true; }
     if (inlet === 1) { state.interval = Math.max(0.001, value); return true; }
   }
+  if (name === "sig" && (inlet === 1 || inlet === 2)) {
+    // store behaviour/values for next trigger — don't propagate
+    let iv = inletValues.get(id);
+    if (!iv) { iv = []; inletValues.set(id, iv); }
+    iv[inlet] = value;
+    return true;
+  }
   if (name === "toggle" && inlet === 0) {
     state.value = value > 0 ? 1 : 0;
     setBoxValueAndNotify(id, state.value);
@@ -1338,6 +1345,13 @@ function handleEventBox(id: number, _value: number): void {
       break;
     }
     case "sig": {
+      // update behaviour and values from inlets if connected
+      const iv = inletValues.get(id);
+      if (iv?.[1] !== undefined && typeof iv[1] === "string") state.behaviour = iv[1];
+      if (iv?.[2] !== undefined && Array.isArray(iv[2])) {
+        state.values = [...iv[2]];
+        if (state.index >= state.values.length) state.index = 0;
+      }
       const val = advanceSig(state);
       setBoxValueAndNotify(id, val);
       break;

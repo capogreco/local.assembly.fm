@@ -392,6 +392,8 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
       // number inlets (attack/release time) — store for tick
       if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
       if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
+    } else if (dstNode.type === "sig" && cable.dstInlet >= 1) {
+      // behaviour/values inlets — store in inletValues for next trigger
     } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
       // number inlets — store for next trigger
       if (dstNode.state) {
@@ -442,7 +444,15 @@ function handleEvent(graph, boxId) {
 
   switch (node.type) {
     case "sig":
-      if (node.state) outputValue = advanceSig(node.state);
+      if (node.state) {
+        // update behaviour and values from inlets if connected
+        if (node.inletValues[1] !== undefined && typeof node.inletValues[1] === "string") node.state.behaviour = node.inletValues[1];
+        if (node.inletValues[2] !== undefined && Array.isArray(node.inletValues[2])) {
+          node.state.values = [...node.inletValues[2]];
+          if (node.state.index >= node.state.values.length) node.state.index = 0;
+        }
+        outputValue = advanceSig(node.state);
+      }
       break;
     case "range":
       if (node.state) {
