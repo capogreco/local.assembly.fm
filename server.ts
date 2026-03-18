@@ -1089,8 +1089,10 @@ function initBoxState(id: number, box: Box): void {
       boxState.set(id, { value: 0 });
       break;
     case "sig": {
-      const values = expandIntegerNotation(args[0] || "1");
-      const behaviour = args[1] || "shuffle";
+      const sigBehaviours = ["shuffle", "asc", "desc", "random"];
+      const firstIsBehaviour = sigBehaviours.includes(args[0]);
+      const values = firstIsBehaviour ? [0] : expandIntegerNotation(args[0] || "1");
+      const behaviour = firstIsBehaviour ? args[0] : (args[1] || "shuffle");
       boxState.set(id, { values: [...values], behaviour, index: Math.floor(Math.random() * values.length) });
       break;
     }

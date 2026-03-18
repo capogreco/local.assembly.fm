@@ -38,10 +38,14 @@ function expandIntegerNotation(s) {
   return result;
 }
 
+const SIG_BEHAVIOURS = ["shuffle", "asc", "desc", "random"];
+
 function createSigState(args) {
   const parts = args.split(/\s+/);
-  const values = expandIntegerNotation(parts[0] || "1");
-  const behaviour = parts[1] || "shuffle";
+  // if first arg is a behaviour name, treat as behaviour-only (values come from inlet)
+  const firstIsBehaviour = SIG_BEHAVIOURS.includes(parts[0]);
+  const values = firstIsBehaviour ? [0] : expandIntegerNotation(parts[0] || "1");
+  const behaviour = firstIsBehaviour ? parts[0] : (parts[1] || "shuffle");
   return {
     values: [...values],
     behaviour,
