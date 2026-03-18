@@ -67,6 +67,10 @@ const BOX_TYPES = {
                     outlets: [
                       { name: "phase", type: "number", description: "Ramp (0-1)" },
                       { name: "eoc", type: "event", description: "Null event at end of cycle" }] },
+  lfo:            { zone: "any", description: "Sine LFO. Outputs 0-1.", args: "period", example: "lfo 4",
+                    inlets: [
+                      { name: "period", type: "number", description: "Cycle period in seconds" }],
+                    outlets: [{ name: "value", type: "number", description: "Sine output (0-1)" }] },
   metro:          { zone: "any", description: "Periodic null event emitter.", args: "interval", example: "metro 0.5",
                     inlets: [
                       { name: "toggle", type: "number", description: "1 = run, 0 = stop" },

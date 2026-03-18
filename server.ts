@@ -1047,6 +1047,9 @@ function initBoxState(id: number, box: Box): void {
   const name = boxTypeName(box.text);
   const args = box.text.split(/\s+/).slice(1);
   switch (name) {
+    case "lfo":
+      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1 });
+      break;
     case "phasor": {
       const loop = args[1] !== "once";
       boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, paused: false, loop });
@@ -1134,6 +1137,15 @@ function tick(): void {
     if (!state) continue;
 
     switch (name) {
+      case "lfo": {
+        const iv = inletValues.get(id);
+        const lfoPeriod = iv?.[0] > 0 ? iv[0] : state.period;
+        state.phase += TICK_DT / lfoPeriod;
+        if (state.phase >= 1) state.phase -= 1;
+        const lfoValue = Math.sin(state.phase * Math.PI * 2) * 0.5 + 0.5;
+        setBoxValueAndNotify(id, lfoValue);
+        break;
+      }
       case "phasor": {
         if (state.paused) break;
         state.phase += TICK_DT / state.period;
@@ -1252,6 +1264,9 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   const state = boxState.get(id);
   if (!state) return false;
 
+  if (name === "lfo") {
+    if (inlet === 0) { state.period = Math.max(0.001, value); return true; }
+  }
   if (name === "phasor") {
     if (inlet === 0) { state.paused = value > 0; return true; }
     if (inlet === 2) { state.period = Math.max(0.001, value); return true; }

@@ -152,6 +152,9 @@ function buildGraph(patch) {
       case "drunk":
         node.state = { value: Math.random(), step: parseFloat(box.args) || 0.01 };
         break;
+      case "lfo":
+        node.state = { phase: 0, period: parseFloat(box.args) || 1 };
+        break;
       case "phasor": {
         const phasorParts = (box.args || "1").split(/\s+/);
         node.state = { phase: 0, period: parseFloat(phasorParts[0]) || 1, paused: false, loop: phasorParts[1] !== "once" };
@@ -315,6 +318,7 @@ function evaluateNode(graph, boxId) {
     case "pow": return Math.pow(iv[0] || 0, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
     case "mtof": return 440 * Math.pow(2, ((iv[0] || 69) - 69) / 12);
     case "const": return parseFloat(args[0]) || 0;
+    case "lfo": return node.state ? Math.sin(node.state.phase * Math.PI * 2) * 0.5 + 0.5 : 0.5;
     case "jitter": {
       const amount = parseFloat(args[0]) || 0.01;
       return (iv[0] || 0) + (Math.random() * 2 - 1) * amount;
@@ -579,6 +583,14 @@ function tickGraph(graph, dt) {
           mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0));
         }
         mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, node.state.phase));
+        break;
+      }
+      case "lfo": {
+        const lfoPeriod = node.inletValues[0] > 0 ? node.inletValues[0] : node.state.period;
+        node.state.phase += dt / lfoPeriod;
+        if (node.state.phase >= 1) node.state.phase -= 1;
+        const lfoValue = Math.sin(node.state.phase * Math.PI * 2) * 0.5 + 0.5;
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, lfoValue));
         break;
       }
       case "metro": {
