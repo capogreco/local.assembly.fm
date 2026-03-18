@@ -1131,22 +1131,22 @@ const mainEditor = new PatchEditor(canvas, {
       ctx.fillText(currentPatchName, w / 2, 8);
     }
 
-    // MIDI devices
-    ctx.fillStyle = "#444";
-    ctx.textAlign = "right";
-    for (let i = 0; i < midiDeviceNames.length; i++) {
-      ctx.fillText(midiDeviceNames[i], w - 12, 12 + i * 14);
-    }
-
-    // Client count
-    ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, mainEditor.synthBorderY + 8);
-    ctx.textAlign = "left";
-
     // Connection dot
     ctx.beginPath();
     ctx.arc(w - 16, 16, 4, 0, Math.PI * 2);
     ctx.fillStyle = wsConnected ? "#686" : "#865";
     ctx.fill();
+
+    // MIDI/Grid devices (under connection dot)
+    ctx.fillStyle = "#444";
+    ctx.textAlign = "right";
+    for (let i = 0; i < midiDeviceNames.length; i++) {
+      ctx.fillText(midiDeviceNames[i], w - 12, 28 + i * 14);
+    }
+
+    // Client count
+    ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, mainEditor.synthBorderY + 8);
+    ctx.textAlign = "left";
   }
 });
 
@@ -1316,6 +1316,12 @@ function connectWS() {
       } else if (msg.type === "count") {
         connectedClients = msg.clients;
         mainEditor.render();
+      } else if (msg.type === "grid-connected") {
+        const deviceName = `${msg.deviceType} (${msg.deviceId})`;
+        if (!midiDeviceNames.includes(deviceName)) {
+          midiDeviceNames.push(deviceName);
+          mainEditor.render();
+        }
       } else if (msg.type === "engine-param") {
         handleEngineParam(msg);
       }

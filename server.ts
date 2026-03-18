@@ -5,6 +5,11 @@ const HTTP_PORT = 80;
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.10";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
 
+// OSC / monome grid constants
+const SERIALOSC_PORT = 12002;
+const GRID_LISTEN_PORT = 13000;
+const GRID_PREFIX = "/assembly";
+
 // --- Status display ---
 
 const status = {
@@ -292,6 +297,147 @@ function trackDisconnect(clientIP: string, id: number): void {
       }, 5000);
       deauthTimers.set(clientIP, timer);
     }
+  }
+}
+
+// ============================================================
+// --- OSC / Monome Grid Support ---
+// ============================================================
+
+// Grid state
+let gridSocket: Deno.DatagramConn | null = null;
+let gridDevicePort: number | null = null;
+const gridDeviceHost = "127.0.0.1";
+let gridDeviceInfo: { deviceType: string; deviceId: string } | null = null;
+
+// OSC message encoding
+function oscString(s: string): Uint8Array {
+  const nullTerm = new TextEncoder().encode(s + "\0");
+  const padLen = Math.ceil(nullTerm.length / 4) * 4;
+  const padded = new Uint8Array(padLen);
+  padded.set(nullTerm);
+  return padded;
+}
+
+function oscInt(n: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setInt32(0, n, false);
+  return buf;
+}
+
+function oscMessage(address: string, typeTags: string, ...args: (string | number)[]): Uint8Array {
+  const parts: Uint8Array[] = [oscString(address), oscString("," + typeTags)];
+  for (let i = 0; i < args.length; i++) {
+    if (typeTags[i] === "s") parts.push(oscString(args[i] as string));
+    else if (typeTags[i] === "i") parts.push(oscInt(args[i] as number));
+  }
+  const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const p of parts) { result.set(p, offset); offset += p.length; }
+  return result;
+}
+
+// OSC message parsing
+function parseOsc(data: Uint8Array): { address: string; args: (string | number)[] } | null {
+  let offset = 0;
+
+  // Read address
+  const addressEnd = data.indexOf(0, offset);
+  if (addressEnd === -1) return null;
+  const address = new TextDecoder().decode(data.slice(offset, addressEnd));
+  offset = Math.ceil((addressEnd + 1) / 4) * 4;
+
+  // Read type tag string
+  if (offset >= data.length) return null;
+  const typeTagEnd = data.indexOf(0, offset);
+  if (typeTagEnd === -1) return null;
+  const typeTags = new TextDecoder().decode(data.slice(offset + 1, typeTagEnd)); // skip leading ','
+  offset = Math.ceil((typeTagEnd + 1) / 4) * 4;
+
+  // Read arguments
+  const args: (string | number)[] = [];
+  for (const tag of typeTags) {
+    if (tag === "s") {
+      const strEnd = data.indexOf(0, offset);
+      if (strEnd === -1) return null;
+      args.push(new TextDecoder().decode(data.slice(offset, strEnd)));
+      offset = Math.ceil((strEnd + 1) / 4) * 4;
+    } else if (tag === "i") {
+      if (offset + 4 > data.length) return null;
+      args.push(new DataView(data.buffer, data.byteOffset + offset, 4).getInt32(0, false));
+      offset += 4;
+    }
+  }
+
+  return { address, args };
+}
+
+// Grid communication
+function gridSend(address: string, typeTags: string, ...args: (string | number)[]): void {
+  if (!gridSocket || gridDevicePort === null) return;
+  const msg = oscMessage(GRID_PREFIX + address, typeTags, ...args);
+  gridSocket.send(msg, { transport: "udp", hostname: gridDeviceHost, port: gridDevicePort });
+}
+
+function gridLed(x: number, y: number, level: number): void {
+  gridSend("/grid/led/level/set", "iii", x, y, level);
+}
+
+// serialosc initialization and device discovery
+async function initGrid(): Promise<void> {
+  try {
+    // Create UDP socket for grid communication
+    gridSocket = Deno.listenDatagram({ port: GRID_LISTEN_PORT, transport: "udp", hostname: "127.0.0.1" });
+    event(`grid listener on port ${GRID_LISTEN_PORT}`);
+
+    // Send discovery message to serialosc
+    const discoveryMsg = oscMessage("/serialosc/list", "si", "127.0.0.1", GRID_LISTEN_PORT);
+    const serialoscConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
+    await serialoscConn.send(discoveryMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
+    serialoscConn.close();
+
+    // Listen for responses
+    (async () => {
+      for await (const [data, _addr] of gridSocket!) {
+        const msg = parseOsc(new Uint8Array(data));
+        if (!msg) continue;
+
+        // Device announcement
+        if (msg.address === "/serialosc/device") {
+          const [deviceId, deviceType, devicePort] = msg.args;
+          event(`grid detected: ${deviceType} (${deviceId}) on port ${devicePort}`);
+          gridDevicePort = devicePort as number;
+          gridDeviceInfo = { deviceType: deviceType as string, deviceId: deviceId as string };
+
+          // Configure device
+          gridSend("/sys/port", "i", GRID_LISTEN_PORT);
+          gridSend("/sys/host", "s", "127.0.0.1");
+          gridSend("/sys/prefix", "s", GRID_PREFIX);
+          gridSend("/grid/led/all", "i", 0); // clear grid
+
+          // Test pattern: light up top-right button
+          gridLed(15, 0, 15);
+
+          // Notify ctrl clients
+          sendCtrl({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
+        }
+
+        // Key press
+        if (msg.address === GRID_PREFIX + "/grid/key") {
+          const [x, y, state] = msg.args as number[];
+          event(`grid key: (${x},${y}) ${state ? "down" : "up"}`);
+
+          // Top-right button test (for now, just log)
+          if (x === 15 && y === 0 && state === 1) {
+            event("grid test button pressed");
+            // TODO: integrate with patch editor grid-region boxes
+          }
+        }
+      }
+    })();
+  } catch (e) {
+    console.error("Failed to init grid:", e);
   }
 }
 
@@ -1075,6 +1221,9 @@ function handleCtrlWs(req: Request): Response {
     drawStatus();
     socket.send(JSON.stringify(getFullState()));
     socket.send(JSON.stringify({ type: "count", clients: totalSynthClients() }));
+    if (gridDeviceInfo) {
+      socket.send(JSON.stringify({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId }));
+    }
   });
 
   socket.addEventListener("message", (e) => {
@@ -1421,6 +1570,25 @@ if (isMacOS && tlsAvailable) {
     console.log("\x1b[33mStart dnsmasq with:\x1b[0m");
     console.log("\x1b[33m  ./start-macos.sh dns\x1b[0m");
     console.log("");
+  }
+}
+
+// Check if serialosc is running (required for monome grid/arc)
+if (isMacOS) {
+  try {
+    const psOutput = await new Deno.Command("pgrep", { args: ["serialoscd"] }).output();
+    if (!psOutput.success) {
+      console.log("\x1b[33m⚠️  WARNING: serialosc is not running!\x1b[0m");
+      console.log("\x1b[33mMonome grid/arc require serialosc daemon.\x1b[0m");
+      console.log("\x1b[33mStart serialosc with:\x1b[0m");
+      console.log("\x1b[33m  brew services start serialosc\x1b[0m");
+      console.log("");
+    } else {
+      // serialosc is running — initialize grid
+      await initGrid();
+    }
+  } catch {
+    // pgrep not found or other error - skip check
   }
 }
 
