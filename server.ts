@@ -704,39 +704,26 @@ async function initGrid(): Promise<void> {
           const devTypeStr = deviceType as string;
 
           if (devTypeStr.includes("arc")) {
-            event(`arc removed via serialosc: ${devTypeStr} (${deviceId})`);
             if (arcDeviceInfo) {
+              event(`arc removed: ${devTypeStr} (${deviceId})`);
               sendCtrl({ type: "arc-disconnected", deviceType: devTypeStr, deviceId: deviceId as string });
               arcDeviceInfo = null;
-            }
-            if (arcDevicePort === null) {
-              arcDevicePort = devicePort as number;
+              arcReady = false;
             }
           } else {
-            event(`grid removed via serialosc: ${devTypeStr} (${deviceId})`);
             if (gridDeviceInfo) {
+              event(`grid removed: ${devTypeStr} (${deviceId})`);
               sendCtrl({ type: "grid-disconnected", deviceType: devTypeStr, deviceId: deviceId as string });
               gridDeviceInfo = null;
-            }
-            if (gridDevicePort === null) {
-              gridDevicePort = devicePort as number;
             }
           }
         }
 
-        // Device disconnected (sent by device itself when unplugged) - happens first
+        // Device disconnected — /sys/disconnect doesn't identify which device.
+        // We rely on /serialosc/remove (above) to clear the correct device.
+        // Just trigger rediscovery.
         if (msg.address === "/sys/disconnect") {
-          if (arcDeviceInfo) {
-            event(`arc disconnected: ${arcDeviceInfo.deviceType} (${arcDeviceInfo.deviceId})`);
-            sendCtrl({ type: "arc-disconnected", deviceType: arcDeviceInfo.deviceType, deviceId: arcDeviceInfo.deviceId });
-            arcDeviceInfo = null;
-            arcReady = false;
-          }
-          if (gridDeviceInfo) {
-            event(`grid disconnected: ${gridDeviceInfo.deviceType} (${gridDeviceInfo.deviceId})`);
-            sendCtrl({ type: "grid-disconnected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
-            gridDeviceInfo = null;
-          }
+          event("device disconnected, will rediscover via /serialosc/remove");
         }
 
         // Device reconnected (sent by device when plugged back in)
