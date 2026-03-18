@@ -249,7 +249,43 @@ sudo docker compose down
 
 ## 🎵 Performance Control
 
-monome grid 128 + monome arc 4
+The system supports monome grid 128 and monome arc 4 controllers for live parameter control.
+
+### Monome Grid Integration
+
+Three grid box types are available in the patch editor (ctrl zone):
+
+**grid-trig** — Momentary trigger region
+```
+grid-trig x y w h
+```
+Outputs `1` when any button in the region is pressed, `0` when released. Entire region lights up while pressed.
+
+**grid-toggle** — Latching toggle region
+```
+grid-toggle x y w h
+```
+Each press flips the state between `0` and `1`. LED feedback shows current state (off = 0, full brightness = 1).
+
+**grid-array** — Integer array with range gestures
+```
+grid-array x y w h
+```
+Outputs a 1-indexed array of integers. Supports sophisticated range selection:
+
+- **Single press:** Toggle value in/out of array (button x=0 → value 1, x=1 → value 2, etc.)
+- **Hold + press:** Fill or clear range (inclusive endpoints)
+  - Hold **inactive** button → press second button → **fill range**
+  - Hold **active** button → press second button → **clear range**
+- LED brightness indicates state (dim = in array, off = not in array)
+
+Example: In a region at (0, 0) with width 12:
+- Press x=2 → outputs `[3]`
+- Press x=5 → outputs `[3, 6]`
+- Hold x=2, press x=5 → outputs `[3, 4, 5, 6]` (range fill)
+- Hold x=3 (active), press x=5 → outputs `[6]` (range clear)
+
+**Hot-plug detection:** Grid connection/disconnection is automatically detected and displayed in the status bar.
 
 
 

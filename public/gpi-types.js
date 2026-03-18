@@ -27,8 +27,12 @@ const BOX_TYPES = {
                     inlets: [], outlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
                       { name: "velocity", type: "number", description: "Velocity (0-1)" }] },
-  "grid-region":  { zone: "ctrl", description: "Monome Grid region.", args: "x y w h mode", example: "grid-region 0 0 8 2 sig",
-                    inlets: [], outlets: [{ name: "value", type: "number", description: "Region output" }] },
+  "grid-trig":    { zone: "ctrl", description: "Monome Grid trigger region. Outputs 1 on press, 0 on release.", args: "x y w h", example: "grid-trig 0 0 4 2",
+                    inlets: [], outlets: [{ name: "trig", type: "number", description: "1 when pressed, 0 when released" }] },
+  "grid-toggle":  { zone: "ctrl", description: "Monome Grid toggle region. Press to flip between 0 and 1.", args: "x y w h", example: "grid-toggle 4 0 2 1",
+                    inlets: [], outlets: [{ name: "state", type: "number", description: "Toggle state (0 or 1)" }] },
+  "grid-array":   { zone: "ctrl", description: "Monome Grid integer array. Press to toggle values, hold+press for range fill/clear.", args: "x y w h", example: "grid-array 0 2 12 1",
+                    inlets: [], outlets: [{ name: "array", type: "array", description: "Array of 1-indexed integers" }] },
 
   // --- abstraction interface ---
   inlet:          { zone: "any", description: "Abstraction inlet. Index determines port order.", args: "index", example: "inlet 0",

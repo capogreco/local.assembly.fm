@@ -375,3 +375,73 @@ sudo HOST_IP=192.168.178.24 deno task start
 - Alternative: Typing any URL (e.g., `example.com`) redirects to synth
 - Server logs show SSE/WebSocket connections
 - Audio synthesis working on phone after "TAP TO START"
+
+## 2026-03-18 — Monome Grid Support
+
+### What we built
+
+Implemented full monome grid integration with three new ctrl-zone box types for the patch editor:
+
+- **grid-trig**: Momentary trigger region (outputs 1 on press, 0 on release)
+- **grid-toggle**: Latching toggle region (flips 0/1 on each press)
+- **grid-array**: Integer array with range gesture support
+  - Single press: toggle value in/out of array
+  - Hold + press: fill range (if first button inactive) or clear range (if first button active)
+  - Values are 1-indexed (button x=0 → value 1)
+  - Ranges are inclusive of both endpoints
+
+### OSC Infrastructure
+
+**Communication flow:**
+- Server listens on port 12003 for grid messages
+- Discovers serialosc on port 12002 via `/serialosc/list`
+- Subscribes to `/serialosc/notify` for hot-plug detection
+- Configures grid with `/sys/port`, `/sys/host`, `/sys/prefix`
+- Sends LED updates via `/grid/led/set` (per-button) and `/grid/led/all` (clear)
+- Receives button presses via `/assembly/grid/key` (x, y, pressed)
+
+**Critical bug discovered and fixed:**
+Initial implementation prepended `GRID_PREFIX` to ALL messages including `/sys/*` configuration, sending `/assembly/sys/port` instead of `/sys/port`. This prevented the grid from being properly configured, so button presses were never received. Fixed by splitting into two functions:
+- `gridSend()` — adds prefix for LED/key messages (`/assembly/...`)
+- `gridSysSend()` — NO prefix for system configuration (`/sys/...`)
+
+### Grid-array gesture state machine
+
+Implementing the range gesture logic required careful state tracking to avoid spurious toggles:
+
+**State structure:**
+```typescript
+interface GridArrayState {
+  array: number[];           // Current array contents (1-indexed)
+  heldButtons: Set<number>;  // Held button x-coordinates
+  rangeGestureActive: boolean; // Prevents toggle on release after range
+}
+```
+
+**Behavior:**
+- Press: track as held, check if another button already held → perform range operation
+- Release: only toggle if ALL buttons released AND no range gesture occurred
+- Range fill/clear: determined by FIRST button's state (active = clear, inactive = fill)
+
+**Bug fixes during implementation:**
+1. Initially toggled on press → range detection broken (first button already active by time second pressed)
+2. Fixed by deferring toggles to release
+3. Release after range operation triggered spurious toggle → added `rangeGestureActive` flag
+
+### Patch editor integration
+
+- Added box type definitions to `gpi-types.js` with args format "x y w h"
+- Grid regions tracked in `Map<boxId, GridRegion>` on server
+- Regions rebuilt on patch apply/edit
+- LED rendering synchronized with box state
+- Array values propagate through patch cable system
+
+### Verification (working as of 2026-03-18)
+
+- Grid hot-plug detection working (shows "grid connected/disconnected" in status bar)
+- All three box types functioning correctly
+- LED feedback with appropriate brightness (toggle: 0/15, array: 4/15)
+- Range gestures: hold+press fills/clears inclusive ranges
+- Single button toggles work without spurious state changes
+- Arrays output correctly through patch system (e.g., `[1, 2, 3, 4]`)
+- Tested with grid_test.json patch (grid-trig, grid-toggle, grid-array → print)

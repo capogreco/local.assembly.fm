@@ -373,15 +373,227 @@ function parseOsc(data: Uint8Array): { address: string; args: (string | number)[
   return { address, args };
 }
 
-// Grid communication
+// Grid communication (with prefix for LED/key messages)
 function gridSend(address: string, typeTags: string, ...args: (string | number)[]): void {
-  if (!gridSocket || gridDevicePort === null) return;
+  if (!gridSocket || gridDevicePort === null) {
+    event(`gridSend failed: socket=${!!gridSocket} port=${gridDevicePort}`);
+    return;
+  }
+  event(`gridSend → port ${gridDevicePort}: ${GRID_PREFIX}${address} [${args.join(", ")}]`);
   const msg = oscMessage(GRID_PREFIX + address, typeTags, ...args);
+  gridSocket.send(msg, { transport: "udp", hostname: gridDeviceHost, port: gridDevicePort });
+}
+
+// Grid system messages (NO prefix - for /sys/* configuration)
+function gridSysSend(address: string, typeTags: string, ...args: (string | number)[]): void {
+  if (!gridSocket || gridDevicePort === null) {
+    event(`gridSysSend failed: socket=${!!gridSocket} port=${gridDevicePort}`);
+    return;
+  }
+  event(`gridSysSend → port ${gridDevicePort}: ${address} [${args.join(", ")}]`);
+  const msg = oscMessage(address, typeTags, ...args);
   gridSocket.send(msg, { transport: "udp", hostname: gridDeviceHost, port: gridDevicePort });
 }
 
 function gridLed(x: number, y: number, level: number): void {
   gridSend("/grid/led/level/set", "iii", x, y, level);
+}
+
+// Grid region state tracking
+interface GridRegion {
+  boxId: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  type: "grid-trig" | "grid-toggle" | "grid-array";
+}
+
+interface GridArrayState {
+  array: number[];           // Current array contents (1-indexed values)
+  heldButtons: Set<number>;  // Currently held button x-coordinates (for range gestures)
+  rangeGestureActive: boolean; // Track if a range gesture is in progress
+}
+
+const gridRegions = new Map<number, GridRegion>();  // boxId → region definition
+const gridToggleStates = new Map<number, boolean>(); // boxId → toggle state (for grid-toggle)
+const gridArrayStates = new Map<number, GridArrayState>(); // boxId → array state (for grid-array)
+
+// Find which grid region (if any) contains the given button coordinate
+function findGridRegion(x: number, y: number): GridRegion | null {
+  for (const region of gridRegions.values()) {
+    if (x >= region.x && x < region.x + region.w && y >= region.y && y < region.y + region.h) {
+      return region;
+    }
+  }
+  return null;
+}
+
+// Build grid region registry from current patch boxes
+function rebuildGridRegions(): void {
+  gridRegions.clear();
+  for (const [boxId, box] of boxes) {
+    const type = boxTypeName(box.text);
+    if (type === "grid-trig" || type === "grid-toggle" || type === "grid-array") {
+      const args = box.text.split(/\s+/).slice(1).map(Number);
+      if (args.length >= 4) {
+        gridRegions.set(boxId, {
+          boxId,
+          x: args[0],
+          y: args[1],
+          w: args[2],
+          h: args[3],
+          type: type as "grid-trig" | "grid-toggle" | "grid-array",
+        });
+        event(`registered ${type} region: box ${boxId} at (${args[0]},${args[1]}) size ${args[2]}×${args[3]}`);
+        // Initialize state for new regions
+        if (type === "grid-toggle" && !gridToggleStates.has(boxId)) {
+          gridToggleStates.set(boxId, false);
+        }
+        if (type === "grid-array" && !gridArrayStates.has(boxId)) {
+          gridArrayStates.set(boxId, { array: [], heldButtons: new Set(), rangeGestureActive: false });
+        }
+      }
+    }
+  }
+}
+
+// Grid key press handler
+function handleGridKey(x: number, y: number, pressed: boolean): void {
+  const region = findGridRegion(x, y);
+  if (!region) {
+    event(`grid key (${x},${y}): no region found`);
+    return;
+  }
+
+  event(`grid key (${x},${y}) ${pressed ? "down" : "up"} → ${region.type} box ${region.boxId}`);
+
+  if (region.type === "grid-trig") {
+    handleGridTrig(region, pressed);
+  } else if (region.type === "grid-toggle") {
+    handleGridToggle(region, x, y, pressed);
+  } else if (region.type === "grid-array") {
+    handleGridArray(region, x, y, pressed);
+  }
+}
+
+// grid-trig: outputs 1 on press, 0 on release
+function handleGridTrig(region: GridRegion, pressed: boolean): void {
+  setBoxValueAndNotify(region.boxId, pressed ? 1 : 0);
+  renderGridRegion(region);
+}
+
+// grid-toggle: press to flip between 0 and 1
+function handleGridToggle(region: GridRegion, x: number, y: number, pressed: boolean): void {
+  if (!pressed) return; // Only react to press, not release
+
+  const currentState = gridToggleStates.get(region.boxId) || false;
+  const newState = !currentState;
+  gridToggleStates.set(region.boxId, newState);
+  setBoxValueAndNotify(region.boxId, newState ? 1 : 0);
+  renderGridRegion(region);
+}
+
+// grid-array: toggle values, hold+press for range fill/clear
+function handleGridArray(region: GridRegion, x: number, y: number, pressed: boolean): void {
+  const state = gridArrayStates.get(region.boxId);
+  if (!state) return;
+
+  const relativeX = x - region.x;
+  const value = relativeX + 1; // Convert to 1-indexed value
+
+  if (pressed) {
+    event(`grid-array: press value=${value}, heldButtons=[${Array.from(state.heldButtons).join(",")}], array=[${state.array.join(",")}]`);
+
+    // Check if another button is already held (range gesture)
+    if (state.heldButtons.size > 0) {
+      // Range gesture: fill or clear based on FIRST button's state
+      state.rangeGestureActive = true;
+      const firstX = Array.from(state.heldButtons)[0];
+      const firstValue = firstX + 1;
+      const firstActive = state.array.includes(firstValue);
+
+      const minVal = Math.min(value, firstValue);
+      const maxVal = Math.max(value, firstValue);
+
+      if (firstActive) {
+        // Clear range: remove all values between min and max (inclusive)
+        event(`grid-array: CLEAR range [${minVal}..${maxVal}]`);
+        for (let v = minVal; v <= maxVal; v++) {
+          const idx = state.array.indexOf(v);
+          if (idx !== -1) state.array.splice(idx, 1);
+        }
+      } else {
+        // Fill range: add all values between min and max (inclusive)
+        event(`grid-array: FILL range [${minVal}..${maxVal}]`);
+        for (let v = minVal; v <= maxVal; v++) {
+          if (!state.array.includes(v)) state.array.push(v);
+        }
+      }
+      state.array.sort((a, b) => a - b);
+      setBoxValueAndNotify(region.boxId, state.array);
+    }
+
+    state.heldButtons.add(relativeX);
+  } else {
+    // Release
+    state.heldButtons.delete(relativeX);
+
+    // Only do single toggle if no range gesture occurred and all buttons are released
+    if (state.heldButtons.size === 0) {
+      if (!state.rangeGestureActive) {
+        event(`grid-array: single toggle value=${value}`);
+        const idx = state.array.indexOf(value);
+        if (idx !== -1) {
+          state.array.splice(idx, 1);
+        } else {
+          state.array.push(value);
+          state.array.sort((a, b) => a - b);
+        }
+        setBoxValueAndNotify(region.boxId, state.array);
+      }
+      // Reset range gesture flag when all buttons released
+      state.rangeGestureActive = false;
+    }
+  }
+
+  renderGridRegion(region);
+}
+
+// Render LED feedback for a grid region
+function renderGridRegion(region: GridRegion): void {
+  if (region.type === "grid-trig") {
+    // Light up entire region when pressed
+    const value = boxValues.get(region.boxId) || 0;
+    const level = value > 0 ? 15 : 0;
+    event(`grid-trig LED: region (${region.x},${region.y}) level=${level}`);
+    for (let dy = 0; dy < region.h; dy++) {
+      for (let dx = 0; dx < region.w; dx++) {
+        gridLed(region.x + dx, region.y + dy, level);
+      }
+    }
+  } else if (region.type === "grid-toggle") {
+    // Light up entire region if toggle is on
+    const state = gridToggleStates.get(region.boxId) || false;
+    const level = state ? 15 : 0;  // Bright when on, off when off
+    for (let dy = 0; dy < region.h; dy++) {
+      for (let dx = 0; dx < region.w; dx++) {
+        gridLed(region.x + dx, region.y + dy, level);
+      }
+    }
+  } else if (region.type === "grid-array") {
+    // Bright for active values, dim for inactive
+    const state = gridArrayStates.get(region.boxId);
+    if (!state) return;
+    for (let dx = 0; dx < region.w; dx++) {
+      const value = dx + 1;
+      const active = state.array.includes(value);
+      const level = active ? 15 : 4;
+      for (let dy = 0; dy < region.h; dy++) {
+        gridLed(region.x + dx, region.y + dy, level);
+      }
+    }
+  }
 }
 
 // serialosc initialization and device discovery
@@ -391,7 +603,13 @@ async function initGrid(): Promise<void> {
     gridSocket = Deno.listenDatagram({ port: GRID_LISTEN_PORT, transport: "udp", hostname: "127.0.0.1" });
     event(`grid listener on port ${GRID_LISTEN_PORT}`);
 
-    // Send discovery message to serialosc
+    // Subscribe to serialosc notifications (for hot-plug detection)
+    const notifyMsg = oscMessage("/serialosc/notify", "si", "127.0.0.1", GRID_LISTEN_PORT);
+    const notifyConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
+    await notifyConn.send(notifyMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
+    notifyConn.close();
+
+    // Send discovery message to serialosc (for devices already connected)
     const discoveryMsg = oscMessage("/serialosc/list", "si", "127.0.0.1", GRID_LISTEN_PORT);
     const serialoscConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
     await serialoscConn.send(discoveryMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
@@ -401,38 +619,48 @@ async function initGrid(): Promise<void> {
     (async () => {
       for await (const [data, _addr] of gridSocket!) {
         const msg = parseOsc(new Uint8Array(data));
-        if (!msg) continue;
+        if (!msg) {
+          event(`grid OSC: failed to parse message`);
+          continue;
+        }
 
-        // Device announcement
-        if (msg.address === "/serialosc/device") {
+        // Debug: log all incoming OSC messages
+        event(`grid OSC: ${msg.address} [${msg.args.join(", ")}]`);
+
+        // Device announcement (from /serialosc/list or /serialosc/add)
+        if (msg.address === "/serialosc/device" || msg.address === "/serialosc/add") {
           const [deviceId, deviceType, devicePort] = msg.args;
           event(`grid detected: ${deviceType} (${deviceId}) on port ${devicePort}`);
           gridDevicePort = devicePort as number;
           gridDeviceInfo = { deviceType: deviceType as string, deviceId: deviceId as string };
 
           // Configure device
-          gridSend("/sys/port", "i", GRID_LISTEN_PORT);
-          gridSend("/sys/host", "s", "127.0.0.1");
-          gridSend("/sys/prefix", "s", GRID_PREFIX);
+          gridSysSend("/sys/port", "i", GRID_LISTEN_PORT);
+          gridSysSend("/sys/host", "s", "127.0.0.1");
+          gridSysSend("/sys/prefix", "s", GRID_PREFIX);
           gridSend("/grid/led/all", "i", 0); // clear grid
 
-          // Test pattern: light up top-right button
-          gridLed(15, 0, 15);
+          // Render all active grid regions
+          for (const region of gridRegions.values()) {
+            renderGridRegion(region);
+          }
 
           // Notify ctrl clients
           sendCtrl({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
         }
 
+        // Device removed
+        if (msg.address === "/serialosc/remove") {
+          const [deviceId, deviceType] = msg.args;
+          event(`grid removed: ${deviceType} (${deviceId})`);
+          gridDevicePort = null;
+          gridDeviceInfo = null;
+        }
+
         // Key press
         if (msg.address === GRID_PREFIX + "/grid/key") {
           const [x, y, state] = msg.args as number[];
-          event(`grid key: (${x},${y}) ${state ? "down" : "up"}`);
-
-          // Top-right button test (for now, just log)
-          if (x === 15 && y === 0 && state === 1) {
-            event("grid test button pressed");
-            // TODO: integrate with patch editor grid-region boxes
-          }
+          handleGridKey(x, y, state === 1);
         }
       }
     })();
@@ -1050,6 +1278,9 @@ function handleApply(msg: any): void {
   initAllBoxState();
   evaluateAllConsts();
 
+  // rebuild grid regions
+  rebuildGridRegions();
+
   // deploy synth patch to clients
   deployPatch();
 
@@ -1068,6 +1299,7 @@ function handleEdit(msg: any): void {
       boxes.set(msg.id, newBox);
       if (msg.id >= patchNextId) patchNextId = msg.id + 1;
       if (shouldServerEval(newBox)) initBoxState(msg.id, newBox);
+      rebuildGridRegions();
       break;
     }
     case "box-move": {
@@ -1099,10 +1331,12 @@ function handleEdit(msg: any): void {
       if (shouldServerEval(box)) initBoxState(msg.id, box);
       inletValues.delete(msg.id);
       evaluateAllConsts();
+      rebuildGridRegions();
       break;
     }
     case "box-delete": {
       for (const id of msg.ids) { removeCablesForBox(id); boxes.delete(id); boxValues.delete(id); inletValues.delete(id); boxState.delete(id); }
+      rebuildGridRegions();
       break;
     }
     case "cable-create": {
