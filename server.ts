@@ -1048,7 +1048,7 @@ function initBoxState(id: number, box: Box): void {
   const args = box.text.split(/\s+/).slice(1);
   switch (name) {
     case "lfo":
-      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1 });
+      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, bipolar: args.includes("bipolar") });
       break;
     case "phasor": {
       const loop = args[1] !== "once";
@@ -1142,8 +1142,8 @@ function tick(): void {
         const lfoPeriod = iv?.[0] > 0 ? iv[0] : state.period;
         state.phase += TICK_DT / lfoPeriod;
         if (state.phase >= 1) state.phase -= 1;
-        const lfoValue = Math.sin(state.phase * Math.PI * 2) * 0.5 + 0.5;
-        setBoxValueAndNotify(id, lfoValue);
+        const raw = Math.sin(state.phase * Math.PI * 2);
+        setBoxValueAndNotify(id, state.bipolar ? raw : raw * 0.5 + 0.5);
         break;
       }
       case "phasor": {
