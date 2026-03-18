@@ -649,12 +649,46 @@ async function initGrid(): Promise<void> {
           sendCtrl({ type: "grid-connected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
         }
 
-        // Device removed
+        // Device removed (via serialosc) - happens after /sys/disconnect
         if (msg.address === "/serialosc/remove") {
-          const [deviceId, deviceType] = msg.args;
-          event(`grid removed: ${deviceType} (${deviceId})`);
-          gridDevicePort = null;
-          gridDeviceInfo = null;
+          const [deviceId, deviceType, devicePort] = msg.args;
+          event(`grid removed via serialosc: ${deviceType} (${deviceId})`);
+
+          // Only notify if we haven't already (gridDeviceInfo would be null if /sys/disconnect was handled)
+          if (gridDeviceInfo) {
+            sendCtrl({ type: "grid-disconnected", deviceType: deviceType as string, deviceId: deviceId as string });
+            gridDeviceInfo = null;
+          }
+
+          // Keep the port for reconnection
+          if (gridDevicePort === null) {
+            gridDevicePort = devicePort as number;
+          }
+        }
+
+        // Device disconnected (sent by grid itself when unplugged) - happens first
+        if (msg.address === "/sys/disconnect") {
+          if (gridDeviceInfo) {
+            event(`grid disconnected: ${gridDeviceInfo.deviceType} (${gridDeviceInfo.deviceId})`);
+
+            // Notify ctrl clients (before clearing gridDeviceInfo)
+            sendCtrl({ type: "grid-disconnected", deviceType: gridDeviceInfo.deviceType, deviceId: gridDeviceInfo.deviceId });
+
+            // Keep gridDevicePort for reconnection, only clear gridDeviceInfo
+            gridDeviceInfo = null;
+          }
+        }
+
+        // Device reconnected (sent by grid when plugged back in)
+        if (msg.address === "/sys/connect") {
+          // Query serialosc if we don't have device info
+          if (gridDeviceInfo === null) {
+            event(`grid reconnecting, querying serialosc...`);
+            const discoveryMsg = oscMessage("/serialosc/list", "si", "127.0.0.1", GRID_LISTEN_PORT);
+            const serialoscConn = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "127.0.0.1" });
+            await serialoscConn.send(discoveryMsg, { transport: "udp", hostname: "127.0.0.1", port: SERIALOSC_PORT });
+            serialoscConn.close();
+          }
         }
 
         // Key press

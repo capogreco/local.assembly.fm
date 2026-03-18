@@ -436,9 +436,29 @@ interface GridArrayState {
 - LED rendering synchronized with box state
 - Array values propagate through patch cable system
 
+### Hot-plug and reconnection
+
+Initial implementation had issues with hot-plug detection:
+
+**Problem 1: Disconnection not reflected in ctrl client**
+- Server received `/sys/disconnect` from grid but didn't notify ctrl clients
+- Fixed by adding `sendCtrl({ type: "grid-disconnected" })` handler
+
+**Problem 2: Reconnection broken**
+- When unplugging grid: `/sys/disconnect` followed by `/serialosc/remove`
+- Both handlers were clearing `gridDevicePort`, so `/sys/connect` on replug couldn't restore connection
+- LED rendering would fail with `gridSend failed: port=null`
+
+**Solution:**
+- Preserve `gridDevicePort` across disconnection/reconnection cycle
+- Only clear `gridDeviceInfo` on disconnect (marks as "not connected")
+- On `/sys/connect`, query serialosc to restore full device info
+- Deduplicate disconnect notifications (both messages can arrive)
+
 ### Verification (working as of 2026-03-18)
 
 - Grid hot-plug detection working (shows "grid connected/disconnected" in status bar)
+- Grid reconnection working (unplug → replug restores connection and LED control)
 - All three box types functioning correctly
 - LED feedback with appropriate brightness (toggle: 0/15, array: 4/15)
 - Range gestures: hold+press fills/clears inclusive ranges

@@ -1322,6 +1322,13 @@ function connectWS() {
           midiDeviceNames.push(deviceName);
           mainEditor.render();
         }
+      } else if (msg.type === "grid-disconnected") {
+        const deviceName = `${msg.deviceType} (${msg.deviceId})`;
+        const index = midiDeviceNames.indexOf(deviceName);
+        if (index !== -1) {
+          midiDeviceNames.splice(index, 1);
+          mainEditor.render();
+        }
       } else if (msg.type === "engine-param") {
         handleEngineParam(msg);
       }
