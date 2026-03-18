@@ -709,17 +709,10 @@ for (const [engineId, engineDef] of voice.graph.engines) {
 
 This ensures all inlet values (including those seeded by const boxes during `buildGraph()`) are sent to the audio engine via `sendParams()`.
 
-### Verification
+### Verification (working as of 2026-03-18)
 
 - Synth clients now produce sound with router_one_test.json
 - Param display shows both `frequency` and `amplitude` parameters
 - Amplitude remains constant at 0.3 while frequency changes with router values
-
-### Known issue
-
-Multiple voices in ensemble client (N=6) are all producing sound. Expected behavior: only the voice targeted by the "one" router should produce sound. Currently hearing:
-- One voice with changing frequency (correct - receiving router values)
-- Five voices droning at constant pitch (incorrect - should be silent or have zero amplitude)
-
-This suggests const values are being applied to all voices regardless of router targeting.
+- Router targeting working correctly: only the targeted voice produces sound
 
