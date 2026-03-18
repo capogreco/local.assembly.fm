@@ -127,28 +127,11 @@ function getSynthClientIds(): number[] {
 // --- Router state (for one/sweep/fraction targeting) ---
 
 const routerState = new Map<number, { index: number }>();
-const routerPending = new Map<number, number>();  // one router: buffer value until trigger flushes it
 
 function handleRouterInlet(routerBoxId: number, inlet: number, value: number): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
   const routerType = boxTypeName(box.text);
-
-  // for `one`: inlet 1 is trigger — send pending value THEN advance
-  if (inlet === 1 && routerType === "one") {
-    if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
-    const state = routerState.get(routerBoxId)!;
-    // send whatever value is currently on inlet 0 to the current client
-    const pendingValue = routerPending.get(routerBoxId);
-    if (pendingValue !== undefined) {
-      sendViaRouter(routerBoxId, 0, pendingValue);
-      routerPending.delete(routerBoxId);
-    }
-    // now advance
-    const clients = getSynthClientIds();
-    if (clients.length > 0) state.index = (state.index + 1) % clients.length;
-    return;
-  }
 
   // for `sweep`: inlet 1 is trigger to advance
   if (inlet === 1 && routerType === "sweep") {
@@ -159,13 +142,7 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: number): v
     return;
   }
 
-  // for `one`: inlet 0 stores value for deferred send (trigger will flush it)
-  if (inlet === 0 && routerType === "one") {
-    routerPending.set(routerBoxId, value);
-    return;
-  }
-
-  // other routers — send immediately
+  // all routers — send immediately
   sendViaRouter(routerBoxId, inlet, value);
 }
 
@@ -189,6 +166,7 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
       if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
       const state = routerState.get(routerBoxId)!;
       sendToClient(clients[state.index % clients.length], msg);
+      state.index = (state.index + 1) % clients.length;
       break;
     }
     case "sweep": {

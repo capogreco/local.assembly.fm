@@ -199,13 +199,17 @@ function buildGraph(patch) {
         break;
       }
       case "sigmoid": {
-        const parts = (box.args || "0 1 0.5 0.5 6").split(/\s+/).map(Number);
-        node.state = { phase: "idle", elapsed: 0, value: parts[0] || 0, start: parts[0] || 0, end: parts[1] !== undefined ? parts[1] : 1, duration: parts[2] || 0.5, duty: parts[3] !== undefined ? parts[3] : 0.5, curve: parts[4] !== undefined ? parts[4] : 6 };
+        const tokens = (box.args || "0 1 0.5 0.5 6").split(/\s+/);
+        const mode = (tokens[tokens.length - 1] === "interrupt") ? "interrupt" : "respect";
+        const parts = tokens.map(Number);
+        node.state = { phase: "idle", elapsed: 0, value: parts[0] || 0, start: parts[0] || 0, end: parts[1] !== undefined ? parts[1] : 1, duration: parts[2] || 0.5, duty: parts[3] !== undefined ? parts[3] : 0.5, curve: parts[4] !== undefined ? parts[4] : 6, mode };
         break;
       }
       case "cosine": {
-        const parts = (box.args || "1 0.5 0.5 1").split(/\s+/).map(Number);
-        node.state = { phase: "idle", elapsed: 0, value: 0, amplitude: parts[0] !== undefined ? parts[0] : 1, duration: parts[1] || 0.5, duty: parts[2] !== undefined ? parts[2] : 0.5, curve: parts[3] !== undefined ? parts[3] : 1 };
+        const tokens = (box.args || "1 0.5 0.5 1").split(/\s+/);
+        const mode = (tokens[tokens.length - 1] === "interrupt") ? "interrupt" : "respect";
+        const parts = tokens.map(Number);
+        node.state = { phase: "idle", elapsed: 0, value: 0, amplitude: parts[0] !== undefined ? parts[0] : 1, duration: parts[1] || 0.5, duty: parts[2] !== undefined ? parts[2] : 0.5, curve: parts[3] !== undefined ? parts[3] : 1, mode };
         break;
       }
       case "random": {
@@ -502,6 +506,7 @@ function handleEvent(graph, boxId) {
       break;
     case "sigmoid":
       if (node.state) {
+        if (node.state.mode === "respect" && node.state.phase !== "idle") return {};
         if (node.inletValues[1] !== undefined) node.state.start = node.inletValues[1];
         if (node.inletValues[2] !== undefined) node.state.end = node.inletValues[2];
         if (node.inletValues[3] !== undefined) node.state.duration = Math.max(0.001, node.inletValues[3]);
@@ -514,6 +519,7 @@ function handleEvent(graph, boxId) {
       return {};
     case "cosine":
       if (node.state) {
+        if (node.state.mode === "respect" && node.state.phase !== "idle") return {};
         if (node.inletValues[1] !== undefined) node.state.amplitude = node.inletValues[1];
         if (node.inletValues[2] !== undefined) node.state.duration = Math.max(0.001, node.inletValues[2]);
         if (node.inletValues[3] !== undefined) node.state.duty = node.inletValues[3];

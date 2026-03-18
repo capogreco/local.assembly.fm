@@ -101,7 +101,7 @@ const BOX_TYPES = {
                       { name: "amplitude", type: "number", description: "Peak amplitude (overrides arg)" },
                       { name: "length", type: "number", description: "Hold duration in seconds (overrides arg)" }],
                     outlets: [{ name: "value", type: "number", description: "Current envelope value" }] },
-  sigmoid:        { zone: "any", description: "Shaped transition from start to end. Phase-distorted sigmoid with variable duty cycle and curve.", args: "start end duration duty curve", example: "sigmoid 0 1 0.5 0.5 6",
+  sigmoid:        { zone: "any", description: "Shaped transition from start to end. Phase-distorted sigmoid with variable duty cycle and curve. Append 'interrupt' to retrigger mid-envelope (default: respect).", args: "start end duration duty curve [mode]", example: "sigmoid 0 1 0.5 0.5 6",
                     inlets: [
                       { name: "trigger", type: "event", description: "Fire the envelope" },
                       { name: "start", type: "number", description: "Start value" },
@@ -112,7 +112,7 @@ const BOX_TYPES = {
                     outlets: [
                       { name: "value", type: "number", description: "Current envelope value" },
                       { name: "end", type: "event", description: "Null event at end of envelope" }] },
-  cosine:         { zone: "any", description: "Shaped hump envelope. Returns to zero. Phase-distorted cosine with variable duty and curve.", args: "amplitude duration duty curve", example: "cosine 1 0.5 0.5 1",
+  cosine:         { zone: "any", description: "Shaped hump envelope. Returns to zero. Phase-distorted cosine with variable duty and curve. Append 'interrupt' to retrigger mid-envelope (default: respect).", args: "amplitude duration duty curve [mode]", example: "cosine 1 0.5 0.5 1",
                     inlets: [
                       { name: "trigger", type: "event", description: "Fire the envelope" },
                       { name: "amplitude", type: "number", description: "Peak amplitude" },
@@ -213,8 +213,8 @@ const BOX_TYPES = {
                     dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on each phone" }] },
-  one:            { zone: "router", description: "Send to one phone at a time.",
-                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "trigger", type: "event", description: "Select next phone" }],
+  one:            { zone: "router", description: "Send to one phone at a time. Auto-advances on each value.",
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on selected phone" }] },
   fraction:       { zone: "router", description: "Send to a random subset of phones.", args: "fraction", example: "fraction 0.5",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
