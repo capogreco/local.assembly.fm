@@ -127,14 +127,31 @@ function getSynthClientIds(): number[] {
 // --- Router state (for one/sweep/fraction targeting) ---
 
 const routerState = new Map<number, { index: number }>();
+const routerPending = new Map<number, number>();  // one router: buffer value until trigger flushes it
 
 function handleRouterInlet(routerBoxId: number, inlet: number, value: number): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
   const routerType = boxTypeName(box.text);
 
-  // for `one` and `sweep`: inlet 1 is the trigger to advance
-  if (inlet === 1 && (routerType === "one" || routerType === "sweep")) {
+  // for `one`: inlet 1 is trigger — send pending value THEN advance
+  if (inlet === 1 && routerType === "one") {
+    if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+    const state = routerState.get(routerBoxId)!;
+    // send whatever value is currently on inlet 0 to the current client
+    const pendingValue = routerPending.get(routerBoxId);
+    if (pendingValue !== undefined) {
+      sendViaRouter(routerBoxId, 0, pendingValue);
+      routerPending.delete(routerBoxId);
+    }
+    // now advance
+    const clients = getSynthClientIds();
+    if (clients.length > 0) state.index = (state.index + 1) % clients.length;
+    return;
+  }
+
+  // for `sweep`: inlet 1 is trigger to advance
+  if (inlet === 1 && routerType === "sweep") {
     if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
     const state = routerState.get(routerBoxId)!;
     const clients = getSynthClientIds();
@@ -142,7 +159,13 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: number): v
     return;
   }
 
-  // value inlet — send via the router's targeting logic
+  // for `one`: inlet 0 stores value for deferred send (trigger will flush it)
+  if (inlet === 0 && routerType === "one") {
+    routerPending.set(routerBoxId, value);
+    return;
+  }
+
+  // other routers — send immediately
   sendViaRouter(routerBoxId, inlet, value);
 }
 
@@ -435,6 +458,7 @@ const arcEncoders = new Map<number, ArcEncoder>();  // boxId → encoder definit
 const arcValues = new Map<number, number>();  // boxId → current value (0-1)
 
 // Arc OSC connection (via serialosc, separate from grid)
+let arcReady = false;
 let arcDevicePort: number | null = null;
 let arcDeviceInfo: { deviceType: string; deviceId: string } | null = null;
 const ARC_PREFIX = "/assembly";
@@ -696,6 +720,8 @@ async function initGrid(): Promise<void> {
               arcSend("/ring/all", "ii", i, 0);
             }
 
+            arcReady = true;
+
             // Render all active arc encoders
             renderAllArcEncoders();
 
@@ -754,6 +780,7 @@ async function initGrid(): Promise<void> {
             event(`arc disconnected: ${arcDeviceInfo.deviceType} (${arcDeviceInfo.deviceId})`);
             sendCtrl({ type: "arc-disconnected", deviceType: arcDeviceInfo.deviceType, deviceId: arcDeviceInfo.deviceId });
             arcDeviceInfo = null;
+            arcReady = false;
           }
           if (gridDeviceInfo) {
             event(`grid disconnected: ${gridDeviceInfo.deviceType} (${gridDeviceInfo.deviceId})`);
@@ -1054,6 +1081,44 @@ function evaluateAllConsts(): void {
 
 // --- Time-based box tick ---
 
+function expandIntegerNotation(s: string): number[] {
+  const result: number[] = [];
+  for (const token of s.split(",")) {
+    const m = token.match(/^(-?\d+)-(-?\d+)$/);
+    if (m) {
+      const a = parseInt(m[1]), b = parseInt(m[2]);
+      const step = a <= b ? 1 : -1;
+      for (let i = a; step > 0 ? i <= b : i >= b; i += step) result.push(i);
+    } else {
+      result.push(Number(token));
+    }
+  }
+  return result;
+}
+
+// deno-lint-ignore no-explicit-any
+function advanceSig(state: any): number {
+  switch (state.behaviour) {
+    case "shuffle":
+      for (let i = state.values.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [state.values[i], state.values[j]] = [state.values[j], state.values[i]];
+      }
+      state.index = 0;
+      break;
+    case "asc":
+      state.index = (state.index + 1) % state.values.length;
+      break;
+    case "desc":
+      state.index = (state.index - 1 + state.values.length) % state.values.length;
+      break;
+    case "random":
+      state.index = Math.floor(Math.random() * state.values.length);
+      break;
+  }
+  return state.values[state.index];
+}
+
 function initBoxState(id: number, box: Box): void {
   const name = boxTypeName(box.text);
   const args = box.text.split(/\s+/).slice(1);
@@ -1096,6 +1161,21 @@ function initBoxState(id: number, box: Box): void {
     case "sample-hold":
       boxState.set(id, { value: 0 });
       break;
+    case "sig": {
+      const values = expandIntegerNotation(args[0] || "1");
+      const behaviour = args[1] || "shuffle";
+      boxState.set(id, { values: [...values], behaviour, index: Math.floor(Math.random() * values.length) });
+      break;
+    }
+    case "step": {
+      boxState.set(id, { active: false, remaining: 0, amplitude: parseFloat(args[0]) || 1, length: parseFloat(args[1]) || 0.5 });
+      break;
+    }
+    case "random": {
+      const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1;
+      boxState.set(id, { min, max, value: min + Math.random() * (max - min) });
+      break;
+    }
   }
 }
 
@@ -1315,6 +1395,25 @@ function handleEventBox(id: number, _value: number): void {
       // on trigger (inlet 1), sample the current value of inlet 0
       const iv = inletValues.get(id);
       state.value = iv?.[0] || 0;
+      setBoxValueAndNotify(id, state.value);
+      break;
+    }
+    case "sig": {
+      const val = advanceSig(state);
+      setBoxValueAndNotify(id, val);
+      break;
+    }
+    case "step": {
+      const iv = inletValues.get(id);
+      const amp = iv?.[1] !== undefined ? iv[1] : state.amplitude;
+      const len = iv?.[2] !== undefined ? iv[2] : state.length;
+      state.active = true;
+      state.remaining = len;
+      setBoxValueAndNotify(id, amp);
+      break;
+    }
+    case "random": {
+      state.value = state.min + Math.random() * (state.max - state.min);
       setBoxValueAndNotify(id, state.value);
       break;
     }
@@ -1684,7 +1783,7 @@ function handleCtrlWs(req: Request): Response {
       } else if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }
-    } catch { /* ignore malformed */ }
+    } catch (err) { console.error("WS error:", err); }
   });
 
   socket.addEventListener("close", () => {
@@ -1721,7 +1820,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
       if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }
-    } catch { /* ignore malformed */ }
+    } catch (err) { console.error("WS error:", err); }
   });
 
   socket.addEventListener("close", () => {

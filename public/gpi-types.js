@@ -101,6 +101,27 @@ const BOX_TYPES = {
                       { name: "amplitude", type: "number", description: "Peak amplitude (overrides arg)" },
                       { name: "length", type: "number", description: "Hold duration in seconds (overrides arg)" }],
                     outlets: [{ name: "value", type: "number", description: "Current envelope value" }] },
+  sigmoid:        { zone: "any", description: "Shaped transition from start to end. Phase-distorted sigmoid with variable duty cycle and curve.", args: "start end duration duty curve", example: "sigmoid 0 1 0.5 0.5 6",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire the envelope" },
+                      { name: "start", type: "number", description: "Start value" },
+                      { name: "end", type: "number", description: "End value" },
+                      { name: "duration", type: "number", description: "Transition time in seconds" },
+                      { name: "duty", type: "number", description: "Where transition occurs (0-1, default 0.5)" },
+                      { name: "curve", type: "number", description: "Steepness (0=linear, 6=smooth S, 20+=step)" }],
+                    outlets: [
+                      { name: "value", type: "number", description: "Current envelope value" },
+                      { name: "end", type: "event", description: "Null event at end of envelope" }] },
+  cosine:         { zone: "any", description: "Shaped hump envelope. Returns to zero. Phase-distorted cosine with variable duty and curve.", args: "amplitude duration duty curve", example: "cosine 1 0.5 0.5 1",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire the envelope" },
+                      { name: "amplitude", type: "number", description: "Peak amplitude" },
+                      { name: "duration", type: "number", description: "Total duration in seconds" },
+                      { name: "duty", type: "number", description: "Where peak falls (0-1, default 0.5)" },
+                      { name: "curve", type: "number", description: "Peakedness (0.5=broad, 1=cosine, 2+=sharp)" }],
+                    outlets: [
+                      { name: "value", type: "number", description: "Current envelope value" },
+                      { name: "end", type: "event", description: "Null event at end of envelope" }] },
 
   // --- scheduling ---
   delay:          { zone: "any", description: "Delay a value or event.", args: "time", example: "delay 0.5",

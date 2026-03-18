@@ -26,7 +26,9 @@ let currentPatch = null;
 // Each voice: { conn, graph, engines, panner, patchLoading, pendingMessages }
 
 let voices = [];
-let N = countDisplay ? parseInt(countDisplay.textContent) || 6 : 1;
+let N = countDisplay
+  ? parseInt(new URLSearchParams(location.search).get("n")) || parseInt(countDisplay.textContent) || 6
+  : 1;
 
 const ENGINES = {
   formant:          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },

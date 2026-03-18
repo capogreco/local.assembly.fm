@@ -90,6 +90,30 @@ function createSpreadState(args, instanceIndex, instanceCount) {
   return { min, max, value: min + t * (max - min) };
 }
 
+// --- Envelope shape functions ---
+
+function sigmoidShape(t, duty, curve) {
+  const d = Math.max(0.001, Math.min(0.999, duty));
+  let phi;
+  if (t <= d) phi = 0.5 * t / d;
+  else phi = 0.5 + 0.5 * (t - d) / (1 - d);
+  if (curve < 0.1) return phi; // near-linear
+  const raw = x => 1 / (1 + Math.exp(-curve * (x - 0.5)));
+  const r0 = raw(0), r1 = raw(1);
+  return (raw(phi) - r0) / (r1 - r0);
+}
+
+function cosineShape(t, duty, curve) {
+  const d = Math.max(0.001, Math.min(0.999, duty));
+  let base;
+  if (t <= d) {
+    base = (1 - Math.cos(Math.PI * t / d)) / 2;
+  } else {
+    base = (1 + Math.cos(Math.PI * (t - d) / (1 - d))) / 2;
+  }
+  return Math.pow(base, curve);
+}
+
 // --- Graph ---
 
 function buildGraph(patch) {
@@ -174,6 +198,16 @@ function buildGraph(patch) {
         node.state = { active: false, remaining: 0, amplitude: parts[0] || 1, length: parts[1] || 0.5 };
         break;
       }
+      case "sigmoid": {
+        const parts = (box.args || "0 1 0.5 0.5 6").split(/\s+/).map(Number);
+        node.state = { phase: "idle", elapsed: 0, value: parts[0] || 0, start: parts[0] || 0, end: parts[1] !== undefined ? parts[1] : 1, duration: parts[2] || 0.5, duty: parts[3] !== undefined ? parts[3] : 0.5, curve: parts[4] !== undefined ? parts[4] : 6 };
+        break;
+      }
+      case "cosine": {
+        const parts = (box.args || "1 0.5 0.5 1").split(/\s+/).map(Number);
+        node.state = { phase: "idle", elapsed: 0, value: 0, amplitude: parts[0] !== undefined ? parts[0] : 1, duration: parts[1] || 0.5, duty: parts[2] !== undefined ? parts[2] : 0.5, curve: parts[3] !== undefined ? parts[3] : 1 };
+        break;
+      }
       case "random": {
         const parts = (box.args || "0 1").split(/\s+/).map(Number);
         const min = parts[0] !== undefined ? parts[0] : 0;
@@ -234,7 +268,7 @@ function buildGraph(patch) {
 
 // check if an inlet is an event trigger that should call handleEvent
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "random")) return true;
+  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random")) return true;
   if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
 }
@@ -310,6 +344,8 @@ function evaluateNode(graph, boxId) {
     case "lag": return node.state ? node.state.value : (iv[0] || 0);
     case "sample-hold": return node.state ? node.state.value : 0;
     case "step": return node.state?.active ? node.state.amplitude : 0;
+    case "sigmoid": return node.state ? node.state.value : 0;
+    case "cosine": return node.state ? node.state.value : 0;
     case "random": return node.state ? node.state.value : 0;
     default:
       return iv[0] || 0; // passthrough
@@ -364,6 +400,23 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
       // number inlets (attack/release time) — store for tick
       if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
       if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
+    } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
+      // number inlets — store for next trigger
+      if (dstNode.state) {
+        if (cable.dstInlet === 1) dstNode.state.start = value;
+        if (cable.dstInlet === 2) dstNode.state.end = value;
+        if (cable.dstInlet === 3) dstNode.state.duration = Math.max(0.001, value);
+        if (cable.dstInlet === 4) dstNode.state.duty = value;
+        if (cable.dstInlet === 5) dstNode.state.curve = value;
+      }
+    } else if (dstNode.type === "cosine" && cable.dstInlet >= 1) {
+      // number inlets — store for next trigger
+      if (dstNode.state) {
+        if (cable.dstInlet === 1) dstNode.state.amplitude = value;
+        if (cable.dstInlet === 2) dstNode.state.duration = Math.max(0.001, value);
+        if (cable.dstInlet === 3) dstNode.state.duty = value;
+        if (cable.dstInlet === 4) dstNode.state.curve = value;
+      }
     } else {
       // evaluate the destination box and propagate further
       const result = evaluateNode(graph, cable.dstBox);
@@ -454,6 +507,29 @@ function handleEvent(graph, boxId) {
         outputValue = amp;
       }
       break;
+    case "sigmoid":
+      if (node.state) {
+        if (node.inletValues[1] !== undefined) node.state.start = node.inletValues[1];
+        if (node.inletValues[2] !== undefined) node.state.end = node.inletValues[2];
+        if (node.inletValues[3] !== undefined) node.state.duration = Math.max(0.001, node.inletValues[3]);
+        if (node.inletValues[4] !== undefined) node.state.duty = node.inletValues[4];
+        if (node.inletValues[5] !== undefined) node.state.curve = node.inletValues[5];
+        node.state.phase = "running";
+        node.state.elapsed = 0;
+        node.state.value = node.state.start;
+      }
+      return {};
+    case "cosine":
+      if (node.state) {
+        if (node.inletValues[1] !== undefined) node.state.amplitude = node.inletValues[1];
+        if (node.inletValues[2] !== undefined) node.state.duration = Math.max(0.001, node.inletValues[2]);
+        if (node.inletValues[3] !== undefined) node.state.duty = node.inletValues[3];
+        if (node.inletValues[4] !== undefined) node.state.curve = node.inletValues[4];
+        node.state.phase = "running";
+        node.state.elapsed = 0;
+        node.state.value = 0;
+      }
+      return {};
     case "random":
       if (node.state) {
         node.state.value = node.state.min + Math.random() * (node.state.max - node.state.min);
@@ -612,6 +688,35 @@ function tickGraph(graph, dt) {
         }
         break;
       }
+      case "sigmoid": {
+        const s = node.state;
+        if (s.phase !== "running") break;
+        s.elapsed += dt;
+        const t = Math.min(1, s.elapsed / s.duration);
+        const shaped = sigmoidShape(t, s.duty, s.curve);
+        s.value = s.start + (s.end - s.start) * shaped;
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
+        if (t >= 1) {
+          s.value = s.end;
+          s.phase = "idle";
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0)); // end event
+        }
+        break;
+      }
+      case "cosine": {
+        const s = node.state;
+        if (s.phase !== "running") break;
+        s.elapsed += dt;
+        const t = Math.min(1, s.elapsed / s.duration);
+        s.value = s.amplitude * cosineShape(t, s.duty, s.curve);
+        mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, s.value));
+        if (t >= 1) {
+          s.value = 0;
+          s.phase = "idle";
+          mergeUpdates(allUpdates, propagateInGraph(graph, id, 1, 0)); // end event
+        }
+        break;
+      }
     }
   }
   return allUpdates;
@@ -653,6 +758,9 @@ function processRouterValue(graph, routerId, channel, value) {
       const updates = handleEvent(graph, entry.targetBox);
       mergeUpdates(allUpdates, updates);
     } else if (node.type === "step" && entry.targetInlet === 0) {
+      const updates = handleEvent(graph, entry.targetBox);
+      mergeUpdates(allUpdates, updates);
+    } else if ((node.type === "sigmoid" || node.type === "cosine") && entry.targetInlet === 0) {
       const updates = handleEvent(graph, entry.targetBox);
       mergeUpdates(allUpdates, updates);
     } else if (node.type === "random" && entry.targetInlet === 0) {
