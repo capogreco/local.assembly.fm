@@ -477,9 +477,9 @@ function rebuildGridRegions(): void {
     // Arc encoders
     if (type === "arc") {
       const args = box.text.split(/\s+/).slice(1).map(Number);
-      if (args.length >= 2) {
+      if (args.length >= 1) {
         const encoder = args[0];
-        const mode = args[1];
+        const mode = args[1] || 0;
         arcEncoders.set(boxId, { boxId, encoder, mode });
         event(`registered arc encoder: box ${boxId} enc ${encoder} mode ${mode}`);
         // Initialize value if not present
