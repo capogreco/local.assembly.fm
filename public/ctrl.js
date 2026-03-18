@@ -944,7 +944,35 @@ class PatchEditor {
       return;
     }
 
-    if (this.mode === "selecting" || this.mode === "cabling") {
+    if (this.mode === "selecting") {
+      this.render();
+      return;
+    }
+
+    if (this.mode === "cabling") {
+      // show tooltip on inlet/outlet while dragging cable
+      const i = this.hitTestInlet(m.x, m.y);
+      const o = this.hitTestOutlet(m.x, m.y);
+      const port = i || o;
+      if (port) {
+        const box = this.boxes.get(port.boxId);
+        if (box) {
+          const def = getBoxDef(box.text);
+          const portList = i ? def?.inlets : def?.outlets;
+          const portDef = portList?.[port.index];
+          if (portDef) {
+            tooltipEl.innerHTML =
+              `<span class="tt-name">${portDef.name}</span> <span class="tt-type">${portDef.type}</span><br>${portDef.description}`;
+            tooltipEl.style.left = (e.clientX + 12) + "px";
+            tooltipEl.style.top = (e.clientY + 12) + "px";
+            tooltipEl.style.display = "block";
+          } else {
+            tooltipEl.style.display = "none";
+          }
+        }
+      } else {
+        tooltipEl.style.display = "none";
+      }
       this.render();
       return;
     }
@@ -1008,6 +1036,7 @@ class PatchEditor {
       this.cableFrom = null;
       this.mode = "idle";
       this.canvas.style.cursor = "default";
+      tooltipEl.style.display = "none";
       this.render();
       return;
     }
