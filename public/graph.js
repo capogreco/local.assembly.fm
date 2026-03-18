@@ -154,7 +154,7 @@ function buildGraph(patch) {
         break;
       }
       case "metro":
-        node.state = { elapsed: 0, interval: parseFloat(box.args) || 1 };
+        node.state = { elapsed: 0, interval: parseFloat(box.args) || 1, paused: false };
         break;
       case "sequence":
         node.state = { index: 0, values: (box.args || "0").split(",").map(Number) };
@@ -568,9 +568,12 @@ function tickGraph(graph, dt) {
         break;
       }
       case "metro": {
+        if (node.state.paused) break;
+        if (node.inletValues[0] > 0) break;  // toggle inlet
+        const metroInterval = node.inletValues[1] > 0 ? node.inletValues[1] : node.state.interval;
         node.state.elapsed += dt;
-        if (node.state.elapsed >= node.state.interval) {
-          node.state.elapsed -= node.state.interval;
+        if (node.state.elapsed >= metroInterval) {
+          node.state.elapsed -= metroInterval;
           const u = propagateInGraph(graph, id, 0, 1);
           mergeUpdates(allUpdates, u);
         }

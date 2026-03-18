@@ -1044,7 +1044,7 @@ function initBoxState(id: number, box: Box): void {
       break;
     }
     case "metro":
-      boxState.set(id, { elapsed: 0, interval: parseFloat(args[0]) || 1 });
+      boxState.set(id, { elapsed: 0, interval: parseFloat(args[0]) || 1, paused: false });
       break;
     case "sequence":
       boxState.set(id, { index: 0, values: (args[0] || "0").split(",").map(Number) });
@@ -1136,6 +1136,7 @@ function tick(): void {
         break;
       }
       case "metro": {
+        if (state.paused) break;
         state.elapsed += TICK_DT;
         if (state.elapsed >= state.interval) {
           state.elapsed -= state.interval;
@@ -1240,6 +1241,10 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   if (name === "phasor") {
     if (inlet === 0) { state.paused = value > 0; return true; }
     if (inlet === 2) { state.period = Math.max(0.001, value); return true; }
+  }
+  if (name === "metro") {
+    if (inlet === 0) { state.paused = value > 0; return true; }
+    if (inlet === 1) { state.interval = Math.max(0.001, value); return true; }
   }
   // slew/lag: inlet 0 sets target, tick does the smoothing
   if (name === "slew" || name === "lag") {
