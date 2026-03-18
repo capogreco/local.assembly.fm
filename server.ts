@@ -469,7 +469,7 @@ function rebuildGridRegions(): void {
           gridToggleStates.set(boxId, false);
         }
         if (type === "grid-array" && !gridArrayStates.has(boxId)) {
-          gridArrayStates.set(boxId, { array: [], heldButtons: new Set(), rangeGestureActive: false });
+          gridArrayStates.set(boxId, { array: [1], heldButtons: new Set(), rangeGestureActive: false });
         }
       }
     }
@@ -533,6 +533,11 @@ function handleGridToggle(region: GridRegion, x: number, y: number, pressed: boo
   renderGridRegion(region);
 }
 
+function ensureNonEmpty(arr: number[]): number[] {
+  if (arr.length === 0) arr.push(1);
+  return arr;
+}
+
 // grid-array: toggle values, hold+press for range fill/clear
 function handleGridArray(region: GridRegion, x: number, y: number, pressed: boolean): void {
   const state = gridArrayStates.get(region.boxId);
@@ -570,6 +575,7 @@ function handleGridArray(region: GridRegion, x: number, y: number, pressed: bool
         }
       }
       state.array.sort((a, b) => a - b);
+      ensureNonEmpty(state.array);
       setBoxValueAndNotify(region.boxId, state.array);
     }
 
@@ -587,8 +593,9 @@ function handleGridArray(region: GridRegion, x: number, y: number, pressed: bool
           state.array.splice(idx, 1);
         } else {
           state.array.push(value);
-          state.array.sort((a, b) => a - b);
         }
+        state.array.sort((a, b) => a - b);
+        ensureNonEmpty(state.array);
         setBoxValueAndNotify(region.boxId, state.array);
       }
       // Reset range gesture flag when all buttons released
