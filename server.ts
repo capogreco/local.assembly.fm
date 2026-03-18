@@ -447,6 +447,8 @@ function findGridRegion(x: number, y: number): GridRegion | null {
 function rebuildGridRegions(): void {
   gridRegions.clear();
   arcEncoders.clear();
+  gridArrayStates.clear();
+  gridToggleStates.clear();
 
   for (const [boxId, box] of boxes) {
     const type = boxTypeName(box.text);
@@ -465,11 +467,12 @@ function rebuildGridRegions(): void {
         });
         event(`registered ${type} region: box ${boxId} at (${args[0]},${args[1]}) size ${args[2]}×${args[3]}`);
         // Initialize state for new regions
-        if (type === "grid-toggle" && !gridToggleStates.has(boxId)) {
+        if (type === "grid-toggle") {
           gridToggleStates.set(boxId, false);
         }
-        if (type === "grid-array" && !gridArrayStates.has(boxId)) {
+        if (type === "grid-array") {
           gridArrayStates.set(boxId, { array: [1], heldButtons: new Set(), rangeGestureActive: false });
+          setBoxValueAndNotify(boxId, [1]);
         }
       }
     }
