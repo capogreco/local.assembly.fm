@@ -640,8 +640,10 @@ async function initGrid(): Promise<void> {
           continue;
         }
 
-        // Debug: log all incoming OSC messages
-        event(`grid OSC: ${msg.address} [${msg.args.join(", ")}]`);
+        // Debug: log incoming OSC (skip config echoes)
+        if (!["/sys/port", "/sys/host", "/sys/prefix"].includes(msg.address)) {
+          event(`grid OSC: ${msg.address} [${msg.args.join(", ")}]`);
+        }
 
         // Device announcement (from /serialosc/list or /serialosc/add)
         if (msg.address === "/serialosc/device" || msg.address === "/serialosc/add") {
@@ -650,8 +652,9 @@ async function initGrid(): Promise<void> {
           const devPortNum = devicePort as number;
           const devIdStr = deviceId as string;
 
-          // Check if it's an arc or grid
+          // Check if it's an arc or grid — skip if already known
           if (devTypeStr.includes("arc")) {
+            if (arcDeviceInfo && arcDeviceInfo.deviceId === devIdStr) continue;
             event(`arc detected: ${devTypeStr} (${devIdStr}) on port ${devPortNum}`);
             arcDevicePort = devPortNum;
             arcDeviceInfo = { deviceType: devTypeStr, deviceId: devIdStr };
@@ -674,6 +677,7 @@ async function initGrid(): Promise<void> {
             // Notify ctrl clients
             sendCtrl({ type: "arc-connected", deviceType: devTypeStr, deviceId: devIdStr });
           } else {
+            if (gridDeviceInfo && gridDeviceInfo.deviceId === devIdStr) continue;
             event(`grid detected: ${devTypeStr} (${devIdStr}) on port ${devPortNum}`);
             gridDevicePort = devPortNum;
             gridDeviceInfo = { deviceType: devTypeStr, deviceId: devIdStr };
