@@ -660,3 +660,66 @@ Routers are the architectural boundary between ctrl (discrete events) and synth 
 - Test patch router_one_test.json loads with router on border
 - `ensureAllBoxesVisible()` no longer interferes with router positions
 
+## Const Box Engine Initialization (2026-03-18)
+
+### Problem
+
+Test patch `router_one_test.json` was not producing sound in synth clients despite router values being transmitted correctly. Symptom: frequency parameter was updating (visible in param display) but amplitude was not listed.
+
+**Patch structure:**
+```
+metro 0.25 → random 200 800 → one (router) → sine-osc (freq inlet)
+                                    ↓
+const 0.3 ────────────────────────────────→ sine-osc (amp inlet)
+```
+
+The `const 0.3` box has no inlets, so nothing ever triggered its evaluation. While the const value was seeded into the sine-osc node's `inletValues` during graph construction (graph.js:221-230), this value was never sent to the audio engine.
+
+### Architecture insight
+
+Similar to Pure Data's "loadbang" object, const boxes with no inlets need initialization at graph load time. The existing const initialization in `buildGraph()` set `inletValues` but didn't update engines.
+
+### Fix implemented (main.js:110-130)
+
+After engines are created, iterate through all engine boxes and apply their inlet values:
+
+```javascript
+// apply const box values to engines
+for (const [engineId, engineDef] of voice.graph.engines) {
+  const engineNode = voice.graph.boxes.get(engineId);
+  if (!engineNode) continue;
+
+  const engine = voice.engines.get(engineId);
+  if (!engine) continue;
+
+  const params = {};
+  for (let i = 0; i < engineNode.inletValues.length; i++) {
+    const value = engineNode.inletValues[i];
+    if (value !== undefined) {
+      const paramName = engineDef.paramNames[i];
+      if (paramName) params[paramName] = value;
+    }
+  }
+
+  if (Object.keys(params).length > 0) {
+    sendParams(engine, params);
+  }
+}
+```
+
+This ensures all inlet values (including those seeded by const boxes during `buildGraph()`) are sent to the audio engine via `sendParams()`.
+
+### Verification
+
+- Synth clients now produce sound with router_one_test.json
+- Param display shows both `frequency` and `amplitude` parameters
+- Amplitude remains constant at 0.3 while frequency changes with router values
+
+### Known issue
+
+Multiple voices in ensemble client (N=6) are all producing sound. Expected behavior: only the voice targeted by the "one" router should produce sound. Currently hearing:
+- One voice with changing frequency (correct - receiving router values)
+- Five voices droning at constant pitch (incorrect - should be silent or have zero amplitude)
+
+This suggests const values are being applied to all voices regardless of router targeting.
+

@@ -107,6 +107,28 @@ async function loadPatchForVoice(voice, patch) {
     if (engine) voice.engines.set(id, engine);
   }
 
+  // apply const box values to engines
+  for (const [engineId, engineDef] of voice.graph.engines) {
+    const engineNode = voice.graph.boxes.get(engineId);
+    if (!engineNode) continue;
+
+    const engine = voice.engines.get(engineId);
+    if (!engine) continue;
+
+    const params = {};
+    for (let i = 0; i < engineNode.inletValues.length; i++) {
+      const value = engineNode.inletValues[i];
+      if (value !== undefined) {
+        const paramName = engineDef.paramNames[i];
+        if (paramName) params[paramName] = value;
+      }
+    }
+
+    if (Object.keys(params).length > 0) {
+      sendParams(engine, params);
+    }
+  }
+
   // apply initial values
   if (patch.initialValues) {
     for (const [key, value] of Object.entries(patch.initialValues)) {
