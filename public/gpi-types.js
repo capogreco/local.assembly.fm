@@ -220,7 +220,7 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on each phone" }] },
   one:            { zone: "router", description: "Send to one phone at a time. Auto-advances on each value.",
-                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "shuffle", type: "event", description: "Randomize visit order" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on selected phone" }] },
   fraction:       { zone: "router", description: "Send to a random subset of phones.", args: "fraction", example: "fraction 0.5",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],

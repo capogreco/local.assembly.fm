@@ -126,12 +126,30 @@ function getSynthClientIds(): number[] {
 
 // --- Router state (for one/sweep/fraction targeting) ---
 
-const routerState = new Map<number, { index: number }>();
+const routerState = new Map<number, { index: number; order?: number[] }>();
+
+function shuffleArray(arr: number[]): number[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 function handleRouterInlet(routerBoxId: number, inlet: number, value: number): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
   const routerType = boxTypeName(box.text);
+
+  // for `one`: inlet 1 is shuffle trigger
+  if (inlet === 1 && routerType === "one") {
+    if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+    const state = routerState.get(routerBoxId)!;
+    const clients = getSynthClientIds();
+    state.order = shuffleArray([...Array(clients.length).keys()]);
+    state.index = 0;
+    return;
+  }
 
   // for `sweep`: inlet 1 is trigger to advance
   if (inlet === 1 && routerType === "sweep") {
@@ -165,8 +183,13 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
     case "one": {
       if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
       const state = routerState.get(routerBoxId)!;
-      sendToClient(clients[state.index % clients.length], msg);
-      state.index = (state.index + 1) % clients.length;
+      // use shuffled order if available, otherwise sequential
+      const clientIndex = state.order
+        ? state.order[state.index % state.order.length]
+        : state.index;
+      sendToClient(clients[clientIndex % clients.length], msg);
+      const len = state.order ? state.order.length : clients.length;
+      state.index = (state.index + 1) % len;
       break;
     }
     case "sweep": {
