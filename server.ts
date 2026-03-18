@@ -83,7 +83,12 @@ function mimeType(path: string): string {
 async function serveFile(path: string): Promise<Response> {
   try {
     const body = await Deno.readFile(`./public${path}`);
-    return new Response(body, { headers: { "content-type": mimeType(path) } });
+    return new Response(body, {
+      headers: {
+        "content-type": mimeType(path),
+        "cache-control": "no-cache, must-revalidate"
+      }
+    });
   } catch {
     return new Response("Not Found", { status: 404 });
   }
@@ -1139,6 +1144,7 @@ function tick(): void {
         state.elapsed += TICK_DT;
         if (state.elapsed >= state.interval) {
           state.elapsed -= state.interval;
+          queueValueUpdate(id, 1);
           propagateAndNotify(id, 0, 1);
         }
         break;
@@ -1458,6 +1464,10 @@ function handleApply(msg: any): void {
     const p = getBoxPorts(box.text);
     box.inlets = p.inlets; box.outlets = p.outlets;
     boxes.set(id, box);
+    // snap routers to border
+    if (getBoxZone(box.text) === "router") {
+      box.y = synthBorderY - 11;
+    }
   }
   for (const [id, cable] of msg.cables) cables.set(id, cable);
   patchNextId = msg.nextId || 1;

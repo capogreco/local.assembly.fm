@@ -586,3 +586,77 @@ Same pattern as grid:
 - Sensitivity tuned for precise control (0.0003)
 - Ctrl client shows arc on refresh/reconnect
 - Tested with patches/arc_test.json (arc 0 0 → print)
+
+## Router Positioning and Browser Caching (2026-03-18)
+
+### Problem
+
+Routers (border-crossing boxes like `one`, `fraction`, `sweep`) were loading with incorrect Y positions, appearing above or below the synthBorderY line. Moving them caused "modified" state, and the position would revert on next load.
+
+### Root causes discovered
+
+**1. Browser caching**
+The `serveFile()` function in server.ts had no cache headers, causing aggressive browser caching of ctrl.js. Hard refreshes and "Empty Cache and Hard Reload" were not loading updated code.
+
+**2. Scaling logic interference**
+The `ensureAllBoxesVisible()` function in ctrl.js used complex scaling logic that repositioned ALL boxes (including routers) after load, overriding the intended border position.
+
+### Fixes implemented
+
+**Cache-Control headers (server.ts:83-95)**
+```typescript
+async function serveFile(path: string): Promise<Response> {
+  try {
+    const body = await Deno.readFile(`./public${path}`);
+    return new Response(body, {
+      headers: {
+        "content-type": mimeType(path),
+        "cache-control": "no-cache, must-revalidate"
+      }
+    });
+  } catch {
+    return new Response("Not Found", { status: 404 });
+  }
+}
+```
+
+**Router position enforcement (ctrl.js:251-259)**
+Added Y position override in `load()` function to ensure routers always load at `synthBorderY - BOX_HEIGHT / 2`:
+
+```javascript
+// Fix router Y positions to always be at border
+for (const [, box] of this.boxes) {
+  if (this.isRouterType(box.text)) {
+    box.y = this.synthBorderY - BOX_HEIGHT / 2;
+  }
+}
+```
+
+**Simplified ensureAllBoxesVisible (ctrl.js:267-333)**
+Replaced complex scaling logic with proportional nudging:
+1. First pass: Calculate maximum out-of-bounds distance as percentage
+2. Second pass: Nudge all boxes by that percentage toward safe positions
+3. **Routers are skipped entirely** - they stay locked at border
+
+Key improvement: No scaling, just proportional nudging toward center (X) and border (Y). The worst offender reaches the margin exactly, everything else moves proportionally.
+
+### Architecture clarification
+
+**Router positioning rule:**
+- Routers have **horizontal-only** positioning
+- Y coordinate is architecturally fixed: `y = synthBorderY - BOX_HEIGHT / 2`
+- With synthBorderY=400, BOX_HEIGHT=22: router y=389 (center at y=400)
+- Router straddles border: 11px in ctrl zone, 11px in synth zone
+
+**Why this matters:**
+Routers are the architectural boundary between ctrl (discrete events) and synth (continuous DSP). Their position must be deterministic and visually clear.
+
+### Verification (working as of 2026-03-18)
+
+- Routers load at correct Y position (389 with default synthBorderY=400)
+- Moving router horizontally doesn't trigger "modified" state
+- Dragging routers constrains movement to X-axis only
+- Browser cache updates correctly with new ctrl.js
+- Test patch router_one_test.json loads with router on border
+- `ensureAllBoxesVisible()` no longer interferes with router positions
+

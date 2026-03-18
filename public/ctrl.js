@@ -248,6 +248,12 @@ class PatchEditor {
     for (const [id, cable] of data.cables) this.cables.set(id, cable);
     this.nextId = data.nextId || 1;
     if (data.synthBorderY !== undefined) this.synthBorderY = data.synthBorderY;
+    // Fix router Y positions to always be at border
+    for (const [, box] of this.boxes) {
+      if (this.isRouterType(box.text)) {
+        box.y = this.synthBorderY - BOX_HEIGHT / 2;
+      }
+    }
     this.selection.clear();
     this.cableSelection.clear();
     // Auto-resize canvas to fit all boxes
@@ -257,56 +263,66 @@ class PatchEditor {
   ensureAllBoxesVisible() {
     if (this.boxes.size === 0) return;
 
-    const margin = 50; // Margin from edges
+    const margin = 50;
     const dpr = window.devicePixelRatio || 1;
     const viewportWidth = this.canvas.width / dpr;
     const viewportHeight = this.canvas.height / dpr;
+    const centerX = viewportWidth / 2;
+    const boxWidth = 200; // Approximate
 
-    // Separate boxes into ctrl-side and synth-side
-    const ctrlBoxes = [];
-    const synthBoxes = [];
+    // Find maximum distance out of bounds (as percentage)
+    let maxOutX = 0;
+    let maxOutYCtrl = 0;
+    let maxOutYSynth = 0;
 
     for (const box of this.boxes.values()) {
-      if (box.y < this.synthBorderY) {
-        ctrlBoxes.push(box);
-      } else {
-        synthBoxes.push(box);
+      if (this.isRouterType(box.text)) continue;
+
+      // Check X bounds
+      if (box.x < margin) {
+        maxOutX = Math.max(maxOutX, (margin - box.x) / viewportWidth);
+      } else if (box.x + boxWidth > viewportWidth - margin) {
+        maxOutX = Math.max(maxOutX, (box.x + boxWidth - (viewportWidth - margin)) / viewportWidth);
       }
-    }
 
-    // Scale and reposition ctrl-side boxes
-    if (ctrlBoxes.length > 0) {
-      const ctrlBounds = this.getBounds(ctrlBoxes);
-      const ctrlZoneHeight = this.synthBorderY - margin;
-      const ctrlZoneWidth = viewportWidth - 2 * margin;
-
-      if (ctrlBounds.maxY > this.synthBorderY - margin || ctrlBounds.maxX > viewportWidth - margin) {
-        const scaleX = ctrlZoneWidth / (ctrlBounds.maxX - ctrlBounds.minX + 100);
-        const scaleY = ctrlZoneHeight / (ctrlBounds.maxY - ctrlBounds.minY + 100);
-        const scale = Math.min(scaleX, scaleY, 1); // Never scale up, only down
-
-        for (const box of ctrlBoxes) {
-          box.x = margin + (box.x - ctrlBounds.minX) * scale;
-          box.y = margin + (box.y - ctrlBounds.minY) * scale;
+      // Check Y bounds
+      if (box.y < this.synthBorderY) {
+        // Ctrl zone
+        if (box.y < margin) {
+          maxOutYCtrl = Math.max(maxOutYCtrl, (margin - box.y) / this.synthBorderY);
+        } else if (box.y + BOX_HEIGHT > this.synthBorderY - margin) {
+          maxOutYCtrl = Math.max(maxOutYCtrl, (box.y + BOX_HEIGHT - (this.synthBorderY - margin)) / this.synthBorderY);
+        }
+      } else {
+        // Synth zone
+        const synthZoneHeight = viewportHeight - this.synthBorderY;
+        if (box.y < this.synthBorderY + margin) {
+          maxOutYSynth = Math.max(maxOutYSynth, (this.synthBorderY + margin - box.y) / synthZoneHeight);
+        } else if (box.y + BOX_HEIGHT > viewportHeight - margin) {
+          maxOutYSynth = Math.max(maxOutYSynth, (box.y + BOX_HEIGHT - (viewportHeight - margin)) / synthZoneHeight);
         }
       }
     }
 
-    // Scale and reposition synth-side boxes
-    if (synthBoxes.length > 0) {
-      const synthBounds = this.getBounds(synthBoxes);
-      const synthZoneTop = this.synthBorderY + margin;
-      const synthZoneHeight = viewportHeight - this.synthBorderY - 2 * margin;
-      const synthZoneWidth = viewportWidth - 2 * margin;
+    // Nudge all boxes by the maximum percentage needed
+    for (const box of this.boxes.values()) {
+      if (this.isRouterType(box.text)) continue;
 
-      if (synthBounds.maxY > viewportHeight - margin || synthBounds.maxX > viewportWidth - margin) {
-        const scaleX = synthZoneWidth / (synthBounds.maxX - synthBounds.minX + 100);
-        const scaleY = synthZoneHeight / (synthBounds.maxY - synthBounds.minY + 100);
-        const scale = Math.min(scaleX, scaleY, 1); // Never scale up, only down
+      // Nudge X toward center
+      if (maxOutX > 0) {
+        box.x += (centerX - box.x) * maxOutX;
+      }
 
-        for (const box of synthBoxes) {
-          box.x = margin + (box.x - synthBounds.minX) * scale;
-          box.y = synthZoneTop + (box.y - synthBounds.minY) * scale;
+      // Nudge Y toward border
+      if (box.y < this.synthBorderY) {
+        if (maxOutYCtrl > 0) {
+          const targetY = this.synthBorderY - BOX_HEIGHT - margin;
+          box.y += (targetY - box.y) * maxOutYCtrl;
+        }
+      } else {
+        if (maxOutYSynth > 0) {
+          const targetY = this.synthBorderY + margin;
+          box.y += (targetY - box.y) * maxOutYSynth;
         }
       }
     }
