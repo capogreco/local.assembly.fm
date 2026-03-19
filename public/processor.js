@@ -39,6 +39,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
     // Portamento alpha: 1 = instant (no smoothing)
     this.portamentoAlpha = 1;
 
+    // Params connected to audio-rate modulation sources (read from AudioParams directly)
+    this.audioConnectedParams = new Set();
+
     // Vowel formant frequency corners (F1, F2, F3 in Hz)
     this.vowelFreqCorners = {
       backClose:  [240,  596,  2400], // u
@@ -95,6 +98,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
         // safety clamps
         this.targets.frequency = Math.max(20, Math.min(20000, this.targets.frequency));
         this.targets.amplitude = Math.max(0, Math.min(1, this.targets.amplitude));
+      }
+      if (msg.type === "audioConnected") {
+        this.audioConnectedParams = new Set(msg.params || []);
       }
     };
   }
@@ -288,19 +294,21 @@ class VoiceProcessor extends AudioWorkletProcessor {
     const blockSize = out.length;
     const alpha = this.portamentoAlpha;
 
-    // Read AudioParam values as targets (they override message port targets)
     const paramNames = ["frequency", "vowelX", "vowelY", "zingAmount", "zingMorph", "symmetry", "amplitude"];
-    for (const name of paramNames) {
+
+    // For audio-connected params: read directly from AudioParam (no smoothing)
+    for (const name of this.audioConnectedParams) {
       const p = parameters[name];
       if (p && p.length > 0) {
-        // Only use AudioParam if it's been explicitly set (non-default)
-        // Message port targets take priority for server-driven control
+        this.current[name] = p[0];
+        this.targets[name] = p[0]; // keep in sync to avoid snap when disconnected
       }
     }
 
     for (let s = 0; s < blockSize; s++) {
-      // Portamento smoothing toward targets
+      // Portamento smoothing toward targets (only for non-audio-connected params)
       for (const key of paramNames) {
+        if (this.audioConnectedParams.has(key)) continue;
         this.current[key] += alpha * (this.targets[key] - this.current[key]);
       }
 

@@ -67,11 +67,20 @@ async function createEngine(type, destination) {
   return { type, worklet };
 }
 
-function sendParams(engine, params) {
+function sendParams(engine, params, audioParamSet) {
   if (!engine?.worklet) return;
   if (!engine.currentParams) engine.currentParams = {};
-  Object.assign(engine.currentParams, params);
-  engine.worklet.port.postMessage({ type: "params", ...params });
+  // Filter out params that are driven by the audio subgraph
+  let filtered = params;
+  if (audioParamSet) {
+    filtered = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (!audioParamSet.has(k)) filtered[k] = v;
+    }
+    if (Object.keys(filtered).length === 0) return;
+  }
+  Object.assign(engine.currentParams, filtered);
+  engine.worklet.port.postMessage({ type: "params", ...filtered });
 }
 
 function updateParamDisplay() {
@@ -94,7 +103,8 @@ async function loadPatchForVoice(voice, patch) {
   voice.patchLoading = true;
   voice.pendingMessages = [];
 
-  // tear down old engines
+  // tear down old engines and audio subgraph
+  if (voice.audioSubgraph) { voice.audioSubgraph.teardown(); voice.audioSubgraph = null; }
   for (const e of voice.engines.values()) {
     e.worklet?.disconnect();
     e.splitter?.disconnect();
@@ -131,6 +141,24 @@ async function loadPatchForVoice(voice, patch) {
     }
   }
 
+  // build audio-rate subgraph for continuous modulation
+  voice.audioSubgraph = buildAudioSubgraph(audioCtx, voice.graph, voice.engines, (boxId, outlet, value) => {
+    // Event callback: audio worklet fired an event (end, wrap) — propagate through JS graph
+    const updates = propagateInGraph(voice.graph, boxId, outlet, value);
+    for (const [id, params] of Object.entries(updates)) {
+      const engine = voice.engines.get(Number(id));
+      if (engine) sendParams(engine, params);
+    }
+  });
+
+  // Mark audio-hoisted boxes so tickGraph and handleEvent skip them
+  if (voice.audioSubgraph) {
+    voice.graph.audioBoxes = voice.audioSubgraph.audioBoxes;
+    voice.graph.audioParamSet = voice.audioSubgraph.audioParamSet;
+    voice.graph._audioSubgraphForwardEvent = voice.audioSubgraph.forwardEvent;
+    voice.graph._audioSubgraphForwardDiscrete = voice.audioSubgraph.forwardDiscreteValue;
+  }
+
   // apply initial values
   if (patch.initialValues) {
     for (const [key, value] of Object.entries(patch.initialValues)) {
@@ -150,6 +178,13 @@ async function loadPatchForVoice(voice, patch) {
   setupScope();
 }
 
+function voiceSendParams(voice, engineId, params) {
+  const engine = voice.engines.get(Number(engineId));
+  if (!engine) return;
+  const aps = voice.audioSubgraph?.audioParamSet?.get(Number(engineId));
+  sendParams(engine, params, aps);
+}
+
 function voiceOnMessage(voice, msg) {
   if (graphDebug && msg.type !== "health") console.log("msg:", msg.type, msg);
   if (msg.type === "patch" && audioCtx) {
@@ -159,10 +194,18 @@ function voiceOnMessage(voice, msg) {
   }
   if (voice.patchLoading) { voice.pendingMessages.push(msg); return; }
   if (msg.type === "rv" && voice.graph) {
+    // Forward discrete values to audio subgraph boxes if applicable
+    if (voice.audioSubgraph) {
+      const entries = voice.graph.entries.get(msg.r + ":" + (msg.ch || 0));
+      if (entries) {
+        for (const entry of entries) {
+          voice.audioSubgraph.forwardDiscreteValue(entry.targetBox, entry.targetInlet, msg.v);
+        }
+      }
+    }
     const updates = processRouterValue(voice.graph, msg.r, msg.ch, msg.v);
     for (const [id, params] of Object.entries(updates)) {
-      const engine = voice.engines.get(Number(id));
-      if (engine) sendParams(engine, params);
+      voiceSendParams(voice, id, params);
     }
     updateParamDisplay();
   }
@@ -175,10 +218,18 @@ function voiceOnMessage(voice, msg) {
     // slew/lag values are ticked in clientTick via tickEnvelopes
   }
   if (msg.type === "re" && voice.graph) {
+    // Forward event triggers to audio subgraph boxes if applicable
+    if (voice.audioSubgraph) {
+      const entries = voice.graph.entries.get(msg.r + ":0");
+      if (entries) {
+        for (const entry of entries) {
+          voice.audioSubgraph.forwardEvent(entry.targetBox);
+        }
+      }
+    }
     const updates = processRouterEvent(voice.graph, msg.r);
     for (const [id, params] of Object.entries(updates)) {
-      const engine = voice.engines.get(Number(id));
-      if (engine) sendParams(engine, params);
+      voiceSendParams(voice, id, params);
     }
     updateParamDisplay();
   }
@@ -188,6 +239,7 @@ function voiceOnMessage(voice, msg) {
 
 function tearDown() {
   for (const voice of voices) {
+    if (voice.audioSubgraph) { voice.audioSubgraph.teardown(); voice.audioSubgraph = null; }
     for (const e of voice.engines.values()) {
       e.worklet?.disconnect();
       e.splitter?.disconnect();
@@ -275,12 +327,12 @@ function clientTick(time) {
 
   for (const voice of voices) {
     if (!voice.graph || voice.patchLoading) continue;
+    // tickGraph now skips audio-hoisted boxes (checked via graph.audioBoxes)
     const updates = tickGraph(voice.graph, dt);
     const envUpdates = tickEnvelopes(voice.graph, dt);
     mergeUpdates(updates, envUpdates);
     for (const [id, params] of Object.entries(updates)) {
-      const engine = voice.engines.get(Number(id));
-      if (engine) sendParams(engine, params);
+      voiceSendParams(voice, id, params);
     }
   }
 }
@@ -310,6 +362,7 @@ async function handleStart() {
     await audioCtx.resume();
     masterGain = audioCtx.createGain();
     masterGain.connect(audioCtx.destination);
+    await loadModWorklets(audioCtx);
     try { const wl = await navigator.wakeLock?.request("screen"); wl?.addEventListener("release", () => {}); } catch {}
   } catch (err) {
     overlay.querySelector("span").textContent = "audio failed";

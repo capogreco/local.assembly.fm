@@ -360,6 +360,268 @@ class PatchEditor {
     this.render();
   }
 
+  // --- Tidy Layout (Sugiyama-style layered DAG layout) ---
+
+  tidyLayout() {
+    if (this.boxes.size === 0) return;
+    this.pushUndo();
+
+    const LAYER_Y_SPACING = 60;
+    const H_GAP = 24;
+    const SUBGRAPH_GAP = 50;
+    const TOP_MARGIN = 30;
+    const BORDER_PAD = 30;
+
+    // Build adjacency
+    const childrenOf = new Map();
+    const parentsOf = new Map();
+    for (const [id] of this.boxes) { childrenOf.set(id, []); parentsOf.set(id, []); }
+    for (const [, cable] of this.cables) {
+      childrenOf.get(cable.srcBox)?.push(cable.dstBox);
+      parentsOf.get(cable.dstBox)?.push(cable.srcBox);
+    }
+
+    // Partition into server / synth / router
+    const serverBoxes = [], synthBoxes = [], routerBoxes = [];
+    for (const [id, box] of this.boxes) {
+      if (this.isRouterType(box.text)) routerBoxes.push(id);
+      else if (box.y + BOX_HEIGHT / 2 < this.synthBorderY) serverBoxes.push(id);
+      else synthBoxes.push(id);
+    }
+
+    // Find connected components within a set of box ids
+    const findComponents = (boxIds) => {
+      const idSet = new Set(boxIds);
+      const visited = new Set();
+      const components = [];
+      const adj = new Map();
+      for (const id of boxIds) adj.set(id, []);
+      for (const [, cable] of this.cables) {
+        if (idSet.has(cable.srcBox) && idSet.has(cable.dstBox)) {
+          adj.get(cable.srcBox).push(cable.dstBox);
+          adj.get(cable.dstBox).push(cable.srcBox);
+        }
+      }
+      for (const id of boxIds) {
+        if (visited.has(id)) continue;
+        const comp = [];
+        const stack = [id];
+        while (stack.length > 0) {
+          const n = stack.pop();
+          if (visited.has(n)) continue;
+          visited.add(n);
+          comp.push(n);
+          for (const nb of adj.get(n)) {
+            if (!visited.has(nb)) stack.push(nb);
+          }
+        }
+        components.push(comp);
+      }
+      return components;
+    };
+
+    // Assign layers via longest-path from roots
+    const assignLayers = (boxIds) => {
+      const idSet = new Set(boxIds);
+      const layer = new Map();
+      const topo = [];
+      const visited = new Set();
+      const visit = (id) => {
+        if (visited.has(id)) return;
+        visited.add(id);
+        for (const c of childrenOf.get(id) || []) {
+          if (idSet.has(c)) visit(c);
+        }
+        topo.push(id);
+      };
+      for (const id of boxIds) visit(id);
+      topo.reverse();
+
+      for (const id of topo) {
+        let maxParentLayer = -1;
+        for (const p of parentsOf.get(id) || []) {
+          if (layer.has(p)) maxParentLayer = Math.max(maxParentLayer, layer.get(p));
+        }
+        layer.set(id, maxParentLayer + 1);
+      }
+
+      const layers = [];
+      for (const id of boxIds) {
+        const l = layer.get(id) || 0;
+        while (layers.length <= l) layers.push([]);
+        layers[l].push(id);
+      }
+      return layers;
+    };
+
+    // Box width helper
+    const bw = (id) => this.boxWidth(this.boxes.get(id), id);
+
+    // Layer width
+    const layerWidth = (layer) => {
+      let w = 0;
+      for (const id of layer) w += bw(id);
+      return w + Math.max(0, layer.length - 1) * H_GAP;
+    };
+
+    // Place a layer centered on centerX
+    const placeLayer = (layer, centerX) => {
+      const w = layerWidth(layer);
+      let x = centerX - w / 2;
+      for (const id of layer) {
+        this.boxes.get(id).x = x;
+        x += bw(id) + H_GAP;
+      }
+    };
+
+    // Layout a single connected component, returning metadata
+    const layoutComponent = (boxIds) => {
+      const layers = assignLayers(boxIds);
+      if (layers.length === 0) return { layers: [], width: 0, height: 0, minX: 0 };
+
+      // Initial ordering: sort each layer by original x
+      for (const l of layers) {
+        l.sort((a, b) => this.boxes.get(a).x - this.boxes.get(b).x);
+      }
+
+      // Rough initial placement centered at 0
+      for (const l of layers) placeLayer(l, 0);
+
+      // Barycenter ordering using actual x midpoints (6 passes)
+      for (let pass = 0; pass < 6; pass++) {
+        // Forward sweep
+        for (let li = 1; li < layers.length; li++) {
+          const bary = new Map();
+          for (const id of layers[li]) {
+            const ps = (parentsOf.get(id) || []).filter(p => layers[li - 1].includes(p));
+            if (ps.length > 0) {
+              bary.set(id, ps.reduce((s, p) => s + this.boxes.get(p).x + bw(p) / 2, 0) / ps.length);
+            } else {
+              bary.set(id, this.boxes.get(id).x + bw(id) / 2);
+            }
+          }
+          layers[li].sort((a, b) => bary.get(a) - bary.get(b));
+          placeLayer(layers[li], 0);
+        }
+
+        // Backward sweep
+        for (let li = layers.length - 2; li >= 0; li--) {
+          const bary = new Map();
+          for (const id of layers[li]) {
+            const cs = (childrenOf.get(id) || []).filter(c => layers[li + 1].includes(c));
+            if (cs.length > 0) {
+              bary.set(id, cs.reduce((s, c) => s + this.boxes.get(c).x + bw(c) / 2, 0) / cs.length);
+            } else {
+              bary.set(id, this.boxes.get(id).x + bw(id) / 2);
+            }
+          }
+          layers[li].sort((a, b) => bary.get(a) - bary.get(b));
+          placeLayer(layers[li], 0);
+        }
+      }
+
+      // Final overlap-free placement: target barycenter, enforce min gap
+      for (let li = 0; li < layers.length; li++) {
+        const layer = layers[li];
+        const ideal = new Map();
+        for (const id of layer) {
+          const ps = (parentsOf.get(id) || []).filter(p => {
+            for (let pli = 0; pli < li; pli++) if (layers[pli].includes(p)) return true;
+            return false;
+          });
+          const cs = (childrenOf.get(id) || []).filter(c => {
+            for (let cli = li + 1; cli < layers.length; cli++) if (layers[cli].includes(c)) return true;
+            return false;
+          });
+          const connected = [...ps, ...cs];
+          if (connected.length > 0) {
+            ideal.set(id, connected.reduce((s, n) => s + this.boxes.get(n).x + bw(n) / 2, 0) / connected.length);
+          } else {
+            ideal.set(id, this.boxes.get(id).x + bw(id) / 2);
+          }
+        }
+        layer.sort((a, b) => ideal.get(a) - ideal.get(b));
+
+        // Greedy left-to-right: place as close to ideal as possible, no overlaps
+        let minX = -Infinity;
+        for (const id of layer) {
+          const w = bw(id);
+          const x = Math.max(ideal.get(id) - w / 2, minX);
+          this.boxes.get(id).x = x;
+          minX = x + w + H_GAP;
+        }
+      }
+
+      // Compute bounding box
+      let minBX = Infinity, maxBX = -Infinity;
+      for (const l of layers) {
+        for (const id of l) {
+          const box = this.boxes.get(id);
+          minBX = Math.min(minBX, box.x);
+          maxBX = Math.max(maxBX, box.x + bw(id));
+        }
+      }
+
+      return { layers, width: maxBX - minBX, height: layers.length * LAYER_Y_SPACING, minX: minBX };
+    };
+
+    // Layout a region: find components, lay each out, pack side by side
+    const layoutRegion = (boxIds, startY) => {
+      if (boxIds.length === 0) return startY;
+
+      const components = findComponents(boxIds);
+      components.sort((a, b) => b.length - a.length); // largest first
+
+      const results = components.map(comp => layoutComponent(comp));
+
+      let cursorX = 60;
+      let maxHeight = 0;
+
+      for (let ci = 0; ci < results.length; ci++) {
+        const r = results[ci];
+        if (r.layers.length === 0) continue;
+        const offsetX = cursorX - (r.minX || 0);
+
+        for (let li = 0; li < r.layers.length; li++) {
+          for (const id of r.layers[li]) {
+            const box = this.boxes.get(id);
+            box.x += offsetX;
+            box.y = startY + li * LAYER_Y_SPACING;
+          }
+        }
+
+        cursorX += r.width + SUBGRAPH_GAP;
+        maxHeight = Math.max(maxHeight, r.height);
+      }
+
+      return startY + maxHeight;
+    };
+
+    const serverEnd = layoutRegion(serverBoxes, TOP_MARGIN);
+    if (serverEnd + BORDER_PAD > this.synthBorderY && serverBoxes.length > 0) {
+      this.synthBorderY = serverEnd + BORDER_PAD;
+    }
+
+    // Place routers on border, x-aligned to connected boxes
+    for (const id of routerBoxes) {
+      const box = this.boxes.get(id);
+      box.y = this.synthBorderY - BOX_HEIGHT / 2;
+      const connected = [
+        ...(parentsOf.get(id) || []),
+        ...(childrenOf.get(id) || [])
+      ].map(n => this.boxes.get(n)).filter(Boolean);
+      if (connected.length > 0) {
+        box.x = connected.reduce((s, b) => s + b.x, 0) / connected.length;
+      }
+    }
+
+    layoutRegion(synthBoxes, this.synthBorderY + BORDER_PAD);
+    this.ensureAllBoxesVisible();
+    this.dirty = true;
+    this.onDirty();
+    this.render();
+  }
+
   // --- Geometry ---
 
   canvasCoords(e) {
@@ -1347,6 +1609,7 @@ window.addEventListener("keydown", (e) => {
   if (mainEditor.mode === "editing") return;
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); mainEditor.undo(); return; }
+  if (e.key === "l" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); mainEditor.tidyLayout(); return; }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "s") { e.preventDefault(); saveAsAbstraction(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatch(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "o") { e.preventDefault(); loadPatch(); return; }

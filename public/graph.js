@@ -375,6 +375,16 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
     // set inlet value
     dstNode.inletValues[cable.dstInlet] = value;
 
+    // audio-rate boxes: forward the value to the worklet, skip JS evaluation
+    if (graph.audioBoxes && graph.audioBoxes.has(cable.dstBox)) {
+      if (isEventTrigger(dstNode.type, cable.dstInlet)) {
+        deferred.push(cable.dstBox); // handleEvent will forward to worklet
+      } else if (graph._audioSubgraphForwardDiscrete) {
+        graph._audioSubgraphForwardDiscrete(cable.dstBox, cable.dstInlet, value);
+      }
+      continue;
+    }
+
     // check if destination is an engine
     if (graph.engines.has(cable.dstBox)) {
       const engine = graph.engines.get(cable.dstBox);
@@ -449,6 +459,13 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
 function handleEvent(graph, boxId) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
+
+  // Audio-rate boxes receive events via their worklet's message port
+  // The main thread forwards events via audioSubgraph.forwardEvent()
+  if (graph.audioBoxes && graph.audioBoxes.has(boxId)) {
+    if (graph._audioSubgraphForwardEvent) graph._audioSubgraphForwardEvent(boxId);
+    return {};
+  }
 
   let outputValue = 0;
 
@@ -568,10 +585,12 @@ function handleEvent(graph, boxId) {
 }
 
 // tick time-based boxes (phasor, metro) — call at ~60Hz from the client
+// Audio-hoisted boxes (in graph.audioBoxes) are skipped — they run on the audio thread.
 function tickGraph(graph, dt) {
   const allUpdates = {};
   for (const [id, node] of graph.boxes) {
     if (!node.state) continue;
+    if (graph.audioBoxes && graph.audioBoxes.has(id)) continue; // handled by audio subgraph
     switch (node.type) {
       case "phasor": {
         if (node.state.paused) break;
