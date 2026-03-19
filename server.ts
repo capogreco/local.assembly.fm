@@ -1657,7 +1657,8 @@ function serializeSynthPatch(): Record<string, unknown> {
   for (const [id, box] of boxes) {
     const def = getBoxDef(box.text);
     if (!def) continue;
-    if (def.zone === "synth" || (def.zone === "any" && isSynthZone(box.x, box.y))) {
+    const synth = def.zone === "synth" || (def.zone === "any" && isSynthZone(box.x, box.y));
+    if (synth) {
       synthIds.add(id);
       const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
       const isEngine = def.outlets.length === 0 && def.inlets.length > 0;

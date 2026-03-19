@@ -39,7 +39,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
     // Portamento alpha: 1 = instant (no smoothing)
     this.portamentoAlpha = 1;
 
-    // Params connected to audio-rate modulation sources (read from AudioParams directly)
+    // Params driven by audio-rate connections (skip portamento for these)
     this.audioConnectedParams = new Set();
 
     // Vowel formant frequency corners (F1, F2, F3 in Hz)
@@ -98,9 +98,8 @@ class VoiceProcessor extends AudioWorkletProcessor {
         // safety clamps
         this.targets.frequency = Math.max(20, Math.min(20000, this.targets.frequency));
         this.targets.amplitude = Math.max(0, Math.min(1, this.targets.amplitude));
-      }
-      if (msg.type === "audioConnected") {
-        this.audioConnectedParams = new Set(msg.params || []);
+      } else if (msg.type === "audioConnected") {
+        this.audioConnectedParams = new Set(msg.params);
       }
     };
   }
@@ -296,20 +295,25 @@ class VoiceProcessor extends AudioWorkletProcessor {
 
     const paramNames = ["frequency", "vowelX", "vowelY", "zingAmount", "zingMorph", "symmetry", "amplitude"];
 
-    // For audio-connected params: read directly from AudioParam (no smoothing)
+    // Read audio-connected params from AudioParam inputs (overrides portamento)
     for (const name of this.audioConnectedParams) {
       const p = parameters[name];
       if (p && p.length > 0) {
         this.current[name] = p[0];
-        this.targets[name] = p[0]; // keep in sync to avoid snap when disconnected
+        this.targets[name] = p[0];
       }
     }
 
     for (let s = 0; s < blockSize; s++) {
-      // Portamento smoothing toward targets (only for non-audio-connected params)
+      // Portamento smoothing toward targets (skip audio-connected params)
       for (const key of paramNames) {
-        if (this.audioConnectedParams.has(key)) continue;
-        this.current[key] += alpha * (this.targets[key] - this.current[key]);
+        if (this.audioConnectedParams.has(key)) {
+          // Read per-sample from AudioParam
+          const p = parameters[key];
+          if (p) this.current[key] = p.length > 1 ? p[s] : p[0];
+        } else {
+          this.current[key] += alpha * (this.targets[key] - this.current[key]);
+        }
       }
 
       const freq      = this.current.frequency;

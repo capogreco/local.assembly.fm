@@ -19,8 +19,8 @@ function sigmoidShape(t, duty, curve) {
 class SigmoidProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.value = 0;
     this.start = 0;
+    this.value = this.start;
     this.end = 1;
     this.duration = 0.5;
     this.duty = 0.5;
@@ -41,7 +41,10 @@ class SigmoidProcessor extends AudioWorkletProcessor {
         this.elapsed = 0;
       }
       if (e.data.type === "params") {
-        if (e.data.start !== undefined) this.start = e.data.start;
+        if (e.data.start !== undefined) {
+          this.start = e.data.start;
+          if (this.phase === "idle") this.value = this.start;
+        }
         if (e.data.end !== undefined) this.end = e.data.end;
         if (e.data.duration !== undefined) this.duration = Math.max(0.001, e.data.duration);
         if (e.data.duty !== undefined) this.duty = e.data.duty;

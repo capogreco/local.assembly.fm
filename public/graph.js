@@ -782,6 +782,16 @@ function processRouterValue(graph, routerId, channel, value) {
 
     node.inletValues[entry.targetInlet] = value;
 
+    // Audio-hoisted boxes: forward value to worklet, skip stale JS evaluation
+    if (graph.audioBoxes && graph.audioBoxes.has(entry.targetBox)) {
+      if (isEventTrigger(node.type, entry.targetInlet)) {
+        mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
+      } else if (graph._audioSubgraphForwardDiscrete) {
+        graph._audioSubgraphForwardDiscrete(entry.targetBox, entry.targetInlet, value);
+      }
+      continue;
+    }
+
     if (node.type === "phasor") {
       // phasor: inlet 0 = pause, inlet 1 = reset (event), inlet 2 = period
       if (entry.targetInlet === 1 && node.state) {

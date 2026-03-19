@@ -313,16 +313,18 @@ class PatchEditor {
         box.x += (centerX - box.x) * maxOutX;
       }
 
-      // Nudge Y toward border
+      // Nudge Y toward border (clamped so boxes never cross the synth border)
       if (box.y < this.synthBorderY) {
         if (maxOutYCtrl > 0) {
           const targetY = this.synthBorderY - BOX_HEIGHT - margin;
-          box.y += (targetY - box.y) * maxOutYCtrl;
+          box.y += (targetY - box.y) * Math.min(maxOutYCtrl, 1);
+          box.y = Math.min(box.y, this.synthBorderY - BOX_HEIGHT);
         }
       } else {
         if (maxOutYSynth > 0) {
           const targetY = this.synthBorderY + margin;
-          box.y += (targetY - box.y) * maxOutYSynth;
+          box.y += (targetY - box.y) * Math.min(maxOutYSynth, 1);
+          box.y = Math.max(box.y, this.synthBorderY);
         }
       }
     }

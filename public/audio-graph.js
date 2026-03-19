@@ -3,7 +3,8 @@
  *
  * Replaces the rAF tick loop for continuous functions (lfo, phasor, ar, adsr,
  * ramp, slew, lag, sigmoid, cosine). Math boxes between them become AudioWorkletNodes.
- * Terminal connections go directly to engine AudioParams for sample-accurate modulation.
+ * Terminal nodes connect directly to engine AudioParams for sample-accurate
+ * modulation without readback overhead.
  */
 
 const CONTINUOUS_TYPES = new Set([
@@ -252,6 +253,7 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
   const audioDrivenParams = findAudioDrivenParams(graph, audioBoxes);
   const audioNodes = new Map(); // boxId → AudioNode
   const constantSources = [];   // for teardown
+  const audioParamSet = new Map(); // engineId → Set(paramName) — audio-driven params
 
   // Create AudioNodes for all audio-rate boxes
   for (const id of audioBoxes) {
@@ -274,6 +276,15 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
     }
   }
 
+  // AudioParam name maps for continuous types that accept audio-rate param modulation
+  const CONTINUOUS_PARAM_MAPS = {
+    lfo:    { 0: "period" },
+    phasor: { 0: "pause", 2: "period" },
+    ar:     { 1: "attack", 2: "release" },
+    slew:   { 0: "rate" },
+    lag:    { 0: "coeff" },
+  };
+
   // Wire audio connections between boxes
   for (const [id, node] of graph.boxes) {
     if (!audioBoxes.has(id)) continue;
@@ -281,23 +292,35 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
     if (!srcAudioNode) continue;
 
     for (const cable of node.outletCables) {
+      // Skip event outlets (outlet 1+) — only wire audio from outlet 0
+      if (cable.outlet && cable.outlet !== 0) continue;
+
       const dstAudioNode = audioNodes.get(cable.dstBox);
       if (dstAudioNode) {
-        // Both ends are audio nodes — connect them
-        // Math worklets use two inputs: input[0] = inlet 0, input[1] = inlet 1
         const dstNode = graph.boxes.get(cable.dstBox);
         if (dstNode && MATH_TYPES.has(dstNode.type)) {
-          // Connect to the correct input index on the math processor
           srcAudioNode.connect(dstAudioNode, 0, cable.dstInlet);
-        } else if (dstNode && (dstNode.type === "slew" || dstNode.type === "lag")) {
-          // Slew/lag accept audio input on input[0]
+        } else if (dstNode && CONTINUOUS_TYPES.has(dstNode.type)) {
+          // Continuous→continuous: connect to AudioParam if mapping exists
+          const paramMap = CONTINUOUS_PARAM_MAPS[dstNode.type];
+          const paramName = paramMap?.[cable.dstInlet];
+          if (paramName) {
+            const param = dstAudioNode.parameters.get(paramName);
+            if (param) {
+              // Zero the scheduled value — audio signal provides the full value
+              param.setValueAtTime(0, audioCtx.currentTime);
+              srcAudioNode.connect(param);
+              continue;
+            }
+          }
+          // Fallback: connect to audio input 0
           srcAudioNode.connect(dstAudioNode, 0, 0);
         } else {
           srcAudioNode.connect(dstAudioNode);
         }
       }
 
-      // Connect to engine AudioParams
+      // Direct AudioParam connection: audio box → engine param
       if (graph.engines.has(cable.dstBox)) {
         const engineDef = graph.engines.get(cable.dstBox);
         const paramName = engineDef.paramNames[cable.dstInlet];
@@ -305,9 +328,11 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
         if (paramName && engine?.worklet) {
           const param = engine.worklet.parameters.get(paramName);
           if (param) {
-            // Zero out the scheduled value — audio signal provides the full value
             param.setValueAtTime(0, audioCtx.currentTime);
             srcAudioNode.connect(param);
+            // Track which params are audio-connected
+            if (!audioParamSet.has(cable.dstBox)) audioParamSet.set(cable.dstBox, new Set());
+            audioParamSet.get(cable.dstBox).add(paramName);
           }
         }
       }
@@ -325,27 +350,6 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
         if (onEvent) onEvent(id, 1, 0);
       }
     };
-  }
-
-  // Build set of audio-driven engine param names for filtering discrete updates
-  const audioParamSet = new Map(); // engineId → Set(paramName)
-  for (const [engineId, inletMap] of audioDrivenParams) {
-    const engineDef = graph.engines.get(engineId);
-    if (!engineDef) continue;
-    const paramNames = new Set();
-    for (const [inlet] of inletMap) {
-      const pn = engineDef.paramNames[inlet];
-      if (pn) paramNames.add(pn);
-    }
-    audioParamSet.set(engineId, paramNames);
-  }
-
-  // Notify engines which params are audio-connected (so they read from AudioParams)
-  for (const [engineId, paramNames] of audioParamSet) {
-    const engine = engines.get(engineId);
-    if (engine?.worklet) {
-      engine.worklet.port.postMessage({ type: "audioConnected", params: [...paramNames] });
-    }
   }
 
   // Forward discrete values to audio nodes when they arrive at audio-rate boxes
@@ -434,6 +438,14 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
       return true;
     }
     return false;
+  }
+
+  // Notify engines which params are audio-connected (so they skip portamento for those)
+  for (const [engineId, paramNames] of audioParamSet) {
+    const engine = engines.get(engineId);
+    if (engine?.worklet) {
+      engine.worklet.port.postMessage({ type: "audioConnected", params: [...paramNames] });
+    }
   }
 
   function teardown() {

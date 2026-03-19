@@ -41,7 +41,7 @@ class KSProcessor extends AudioWorkletProcessor {
     // Portamento alpha: 1 = instant (no smoothing)
     this.portamentoAlpha = 1;
 
-    // Params connected to audio-rate modulation sources
+    // Params driven by audio-rate connections (skip portamento for these)
     this.audioConnectedParams = new Set();
 
     // Message port for parameter updates and excite triggers
@@ -56,7 +56,7 @@ class KSProcessor extends AudioWorkletProcessor {
       } else if (msg.type === "excite") {
         this.excite();
       } else if (msg.type === "audioConnected") {
-        this.audioConnectedParams = new Set(msg.params || []);
+        this.audioConnectedParams = new Set(msg.params);
       }
     };
   }
@@ -88,7 +88,7 @@ class KSProcessor extends AudioWorkletProcessor {
     const blockSize = out.length;
     const alpha = this.portamentoAlpha;
 
-    // For audio-connected params: read directly from AudioParam (no smoothing)
+    // Read audio-connected params from AudioParam inputs (overrides portamento)
     for (const name of this.audioConnectedParams) {
       const p = parameters[name];
       if (p && p.length > 0) {
@@ -98,10 +98,14 @@ class KSProcessor extends AudioWorkletProcessor {
     }
 
     for (let s = 0; s < blockSize; s++) {
-      // Portamento smoothing (only for non-audio-connected params)
+      // Portamento smoothing toward targets (skip audio-connected params)
       for (const key of Object.keys(this.targets)) {
-        if (this.audioConnectedParams.has(key)) continue;
-        this.current[key] += alpha * (this.targets[key] - this.current[key]);
+        if (this.audioConnectedParams.has(key)) {
+          const p = parameters[key];
+          if (p) this.current[key] = p.length > 1 ? p[s] : p[0];
+        } else {
+          this.current[key] += alpha * (this.targets[key] - this.current[key]);
+        }
       }
 
       const freq = this.current.frequency;

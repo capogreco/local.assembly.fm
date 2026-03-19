@@ -70,7 +70,7 @@ async function createEngine(type, destination) {
 function sendParams(engine, params, audioParamSet) {
   if (!engine?.worklet) return;
   if (!engine.currentParams) engine.currentParams = {};
-  // Filter out params that are driven by the audio subgraph
+  // Filter out audio-connected params — those are driven by AudioParam connections
   let filtered = params;
   if (audioParamSet) {
     filtered = {};
@@ -81,6 +81,13 @@ function sendParams(engine, params, audioParamSet) {
   }
   Object.assign(engine.currentParams, filtered);
   engine.worklet.port.postMessage({ type: "params", ...filtered });
+}
+
+function voiceSendParams(voice, engineId, params) {
+  const engine = voice.engines.get(engineId);
+  if (!engine) return;
+  const aps = voice.audioSubgraph?.audioParamSet?.get(engineId);
+  sendParams(engine, params, aps);
 }
 
 function updateParamDisplay() {
@@ -142,19 +149,19 @@ async function loadPatchForVoice(voice, patch) {
   }
 
   // build audio-rate subgraph for continuous modulation
-  voice.audioSubgraph = buildAudioSubgraph(audioCtx, voice.graph, voice.engines, (boxId, outlet, value) => {
-    // Event callback: audio worklet fired an event (end, wrap) — propagate through JS graph
-    const updates = propagateInGraph(voice.graph, boxId, outlet, value);
-    for (const [id, params] of Object.entries(updates)) {
-      const engine = voice.engines.get(Number(id));
-      if (engine) sendParams(engine, params);
-    }
-  });
+  voice.audioSubgraph = buildAudioSubgraph(audioCtx, voice.graph, voice.engines,
+    (boxId, outlet, value) => {
+      // Event callback: audio worklet fired an event (end, wrap) — propagate through JS graph
+      const updates = propagateInGraph(voice.graph, boxId, outlet, value);
+      for (const [id, params] of Object.entries(updates)) {
+        voiceSendParams(voice, Number(id), params);
+      }
+    },
+  );
 
   // Mark audio-hoisted boxes so tickGraph and handleEvent skip them
   if (voice.audioSubgraph) {
     voice.graph.audioBoxes = voice.audioSubgraph.audioBoxes;
-    voice.graph.audioParamSet = voice.audioSubgraph.audioParamSet;
     voice.graph._audioSubgraphForwardEvent = voice.audioSubgraph.forwardEvent;
     voice.graph._audioSubgraphForwardDiscrete = voice.audioSubgraph.forwardDiscreteValue;
   }
@@ -165,8 +172,7 @@ async function loadPatchForVoice(voice, patch) {
       const [routerId, channel] = key.split(":").map(Number);
       const updates = processRouterValue(voice.graph, routerId, channel, value);
       for (const [id, params] of Object.entries(updates)) {
-        const engine = voice.engines.get(Number(id));
-        if (engine) sendParams(engine, params);
+        voiceSendParams(voice, Number(id), params);
       }
     }
   }
@@ -176,13 +182,6 @@ async function loadPatchForVoice(voice, patch) {
   voice.pendingMessages = [];
 
   setupScope();
-}
-
-function voiceSendParams(voice, engineId, params) {
-  const engine = voice.engines.get(Number(engineId));
-  if (!engine) return;
-  const aps = voice.audioSubgraph?.audioParamSet?.get(Number(engineId));
-  sendParams(engine, params, aps);
 }
 
 function voiceOnMessage(voice, msg) {
@@ -205,7 +204,7 @@ function voiceOnMessage(voice, msg) {
     }
     const updates = processRouterValue(voice.graph, msg.r, msg.ch, msg.v);
     for (const [id, params] of Object.entries(updates)) {
-      voiceSendParams(voice, id, params);
+      voiceSendParams(voice, Number(id), params);
     }
     updateParamDisplay();
   }
@@ -229,7 +228,7 @@ function voiceOnMessage(voice, msg) {
     }
     const updates = processRouterEvent(voice.graph, msg.r);
     for (const [id, params] of Object.entries(updates)) {
-      voiceSendParams(voice, id, params);
+      voiceSendParams(voice, Number(id), params);
     }
     updateParamDisplay();
   }
@@ -332,7 +331,7 @@ function clientTick(time) {
     const envUpdates = tickEnvelopes(voice.graph, dt);
     mergeUpdates(updates, envUpdates);
     for (const [id, params] of Object.entries(updates)) {
-      voiceSendParams(voice, id, params);
+      voiceSendParams(voice, Number(id), params);
     }
   }
 }
