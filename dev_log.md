@@ -999,3 +999,25 @@ Opus audit identified several bugs in swarm-processor.js:
 
 **Other fixes:** random initial phase (prevents phase alignment), phase wrapping (prevents float precision loss), proper biquad impulse injection via flag.
 
+### Swarm physical modelling improvements (2026-03-21)
+
+Implemented 9 recommendations from perceptual research (Geffen et al. 2011, van den Doel 2005, Zheng & James):
+
+1. **Log-uniform frequency distribution** — equal probability per octave, not per Hz
+2. **Amplitude-frequency correlation** — 1/f scaling (bigger bubble = louder)
+3. **Constant-Q decay** — T60 = Q/freq. Decay param maps to Q (5-30 cycles). The key perceptual finding: humans detect constant-time decay as unnatural
+4. **Downward chirp with decay** — auto-chirp when chirp=0, bubbles settle to Minnaert frequency
+5. **Filtered noise transients** — one-pole LP on noise, exponential envelope
+6. **Transient-sinusoid overlap** — cross-fade during transient window
+7. **Temporal clustering** — rate modulated by slow mean-reverting random walk
+8. **Global spectral shaping** — gentle LP on output (air absorption)
+9. **Sibling bubble spawning** — 30% chance of 1-3 related-frequency siblings
+
+Pool increased to 192. Added DC blocker on output. Added `ready` flag to prevent spawning before first params message (fixes duplicate engine sound in Firefox).
+
+### Async load race condition fix (2026-03-21)
+
+`loadPatchForVoice` is async (awaits worklet module loading). When the synth client receives the patch twice in quick succession (initial state + apply), the first load's `await` resolves after the second load has already torn down its engines, creating orphaned worklets that keep running disconnected.
+
+Fix: `loadId` counter incremented on each load call. After each `await`, check if the load has been superseded — if so, bail out. Only the latest load completes.
+
