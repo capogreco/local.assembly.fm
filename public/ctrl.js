@@ -1356,7 +1356,7 @@ class PatchEditor {
             this.boxValues.set(id, next);
             send({ type: "toggle-click", id, value: next });
             this.render();
-          } else if (type === "event") {
+          } else if (type === "event" || type === "fan") {
             send({ type: "event-click", id });
           }
         }

@@ -162,6 +162,8 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       const max = parts[1] !== undefined ? parts[1] : 1;
       return { min, max, value: min + Math.random() * (max - min) };
     }
+    case "fan":
+      return { values: (args || "0").split(/\s+/).map(Number) };
     default:
       return null;
   }
@@ -296,6 +298,9 @@ function handleBoxEvent(type, state, iv) {
     case "random":
       state.value = state.min + Math.random() * (state.max - state.min);
       return { value: state.value, propagate: true };
+    case "fan":
+      // Output each stored value on its corresponding outlet
+      return { value: 0, propagate: false, outputs: state.values.map((v, i) => ({ outlet: i, value: v })) };
     default:
       return null;
   }
@@ -440,7 +445,7 @@ function tickBox(type, state, iv, dt) {
 // --- Event trigger detection ---
 
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random")) return true;
+  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan")) return true;
   if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
 }

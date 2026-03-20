@@ -214,6 +214,15 @@ function handleEvent(graph, boxId) {
 
   if (graphDebug) console.log(`  event box:${boxId} type:${node.type} → ${result.value}`);
 
+  // Multi-outlet output (e.g. fan)
+  if (result.outputs) {
+    let allUpdates = {};
+    for (const { outlet, value } of result.outputs) {
+      mergeUpdates(allUpdates, propagateInGraph(graph, boxId, outlet, value));
+    }
+    return allUpdates;
+  }
+
   if (result.propagate) {
     return propagateInGraph(graph, boxId, 0, result.value);
   }

@@ -1,9 +1,9 @@
 /**
  * Stochastic Event Swarm Worklet — resonant event swarm synthesis
  *
- * Parameters controlled via message port with portamento smoothing.
- * Pool of 128 pre-allocated events: damped sinusoids, chirps,
- * noise transients, biquad resonators. Poisson trigger at control rate.
+ * Pool of 128 pre-allocated events: damped sinusoids with chirp,
+ * shaped noise transients, biquad resonators. Stochastic Poisson trigger.
+ * Parameter regimes yield creek, fizz, rain, and everything between.
  * Single mono output channel.
  */
 
@@ -36,6 +36,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.amp       = new Float32Array(N);
     this.decayMul  = new Float32Array(N);
     this.transLeft = new Int32Array(N);
+    this.transLen  = new Int32Array(N);  // original transient length (for envelope)
     this.active    = new Uint8Array(N);
 
     // Biquad resonator state
@@ -48,8 +49,8 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.a1     = new Float32Array(N);
     this.a2     = new Float32Array(N);
 
-    // Poisson accumulator
-    this.poissonAccum = 0;
+    // Poisson: next event time (in seconds from now)
+    this.nextEvent = 0;
 
     // Portamento targets and current values
     this.targets = {
@@ -58,21 +59,14 @@ class SwarmProcessor extends AudioWorkletProcessor {
       resonatorQ: 0, density: 1,
     };
     this.current = { ...this.targets };
-
-    // Portamento alpha: 1 = instant (no smoothing)
     this.portamentoAlpha = 1;
-
-    // Params driven by audio-rate connections (skip portamento for these)
     this.audioConnectedParams = new Set();
 
-    // Message port for parameter updates
     this.port.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === "params") {
         for (const key of Object.keys(this.targets)) {
-          if (msg[key] !== undefined) {
-            this.targets[key] = msg[key];
-          }
+          if (msg[key] !== undefined) this.targets[key] = msg[key];
         }
       } else if (msg.type === "audioConnected") {
         this.audioConnectedParams = new Set(msg.params);
@@ -81,7 +75,6 @@ class SwarmProcessor extends AudioWorkletProcessor {
   }
 
   spawnEvent() {
-    // Find first inactive slot
     let slot = -1;
     for (let i = 0; i < this.N; i++) {
       if (!this.active[i]) { slot = i; break; }
@@ -90,19 +83,32 @@ class SwarmProcessor extends AudioWorkletProcessor {
 
     const c = this.current;
     const f = c.freqMin + Math.random() * (c.freqMax - c.freqMin);
-    const a = (0.5 + Math.random() * 0.5) * c.amplitude;
-    const dm = 0.99 + c.decay * 0.00995;
+
+    // Wide amplitude randomization (0-100% of amplitude param)
+    const a = Math.random() * c.amplitude;
+
+    // Decay: map 0-1 to T60 time, then to per-sample multiplier
+    // decay=0 → 1ms (fizz), decay=1 → 500ms (long ring)
+    const t60 = 0.001 + c.decay * 0.499;
+    const dm = Math.exp(-6.9 / (t60 * this.sr));
 
     this.active[slot] = 1;
-    this.phase[slot] = 0;
+    this.phase[slot] = Math.random() * 2 * Math.PI; // random initial phase
     this.freq[slot] = f;
+    // Chirp: parameter is in Hz/s, convert to Hz/sample
     this.evChirp[slot] = c.chirp / this.sr;
     this.amp[slot] = a;
     this.decayMul[slot] = dm;
 
-    // Noise transient
-    this.transLeft[slot] = Math.random() < c.transientMix
-      ? Math.round(0.002 * this.sr) : 0;
+    // Noise transient (shaped envelope, not flat)
+    if (Math.random() < c.transientMix) {
+      const len = Math.round((0.001 + Math.random() * 0.004) * this.sr); // 1-5ms
+      this.transLeft[slot] = len;
+      this.transLen[slot] = len;
+    } else {
+      this.transLeft[slot] = 0;
+      this.transLen[slot] = 0;
+    }
 
     // Biquad resonator mode
     if (c.resonatorQ > 0) {
@@ -110,13 +116,17 @@ class SwarmProcessor extends AudioWorkletProcessor {
       const w0 = 2 * Math.PI * f / this.sr;
       const alpha = Math.sin(w0) / (2 * c.resonatorQ);
       const a0 = 1 + alpha;
-      this.b0[slot] = (Math.sin(w0) / 2) / a0;
+      this.b0[slot] = alpha / a0;
       this.b1[slot] = 0;
-      this.b2[slot] = -(Math.sin(w0) / 2) / a0;
+      this.b2[slot] = -alpha / a0;
       this.a1[slot] = (-2 * Math.cos(w0)) / a0;
       this.a2[slot] = (1 - alpha) / a0;
-      this.z1[slot] = 1.0; // pre-seed to start ringing
+      // Impulse excitation: feed a 1.0 as the first input sample
+      // We'll track this with z1/z2 = 0 and handle first sample in process
+      this.z1[slot] = 0;
       this.z2[slot] = 0;
+      // Store flag to inject impulse on first non-transient sample
+      this.b1[slot] = 1; // repurpose b1 as "impulse pending" flag (b1 is always 0 for BPF)
     } else {
       this.useRes[slot] = 0;
       this.z1[slot] = 0;
@@ -132,34 +142,32 @@ class SwarmProcessor extends AudioWorkletProcessor {
     const blockSize = out.length;
     const alpha = this.portamentoAlpha;
 
-    // Read audio-connected params from AudioParam inputs (overrides portamento)
+    // Read audio-connected params
     for (const name of this.audioConnectedParams) {
       const p = parameters[name];
-      if (p && p.length > 0) {
-        this.current[name] = p[0];
-        this.targets[name] = p[0];
-      }
+      if (p?.length > 0) { this.current[name] = p[0]; this.targets[name] = p[0]; }
     }
 
-    // Portamento smoothing (once per block for non-audio-connected params)
+    // Portamento smoothing (once per block)
     for (const key of Object.keys(this.targets)) {
       if (!this.audioConnectedParams.has(key)) {
         this.current[key] += alpha * (this.targets[key] - this.current[key]);
       }
     }
 
-    // Poisson trigger (control rate)
+    // Stochastic Poisson trigger
     const blockDuration = blockSize / this.sr;
-    this.poissonAccum += this.current.rate * blockDuration;
-    while (this.poissonAccum >= 1) {
+    this.nextEvent -= blockDuration;
+    while (this.nextEvent <= 0) {
       this.spawnEvent();
-      this.poissonAccum -= 1;
+      // Exponential inter-arrival time (true Poisson process)
+      const rate = Math.max(0.01, this.current.rate);
+      this.nextEvent += -Math.log(1 - Math.random()) / rate;
     }
 
     const twoPiOverSr = 2 * Math.PI / this.sr;
     const density = this.current.density;
 
-    // Per-sample loop
     for (let s = 0; s < blockSize; s++) {
       let sum = 0;
 
@@ -169,26 +177,31 @@ class SwarmProcessor extends AudioWorkletProcessor {
         let sample = 0;
 
         if (this.transLeft[i] > 0) {
-          // Noise burst transient
-          sample = this.amp[i] * (Math.random() * 2 - 1);
+          // Shaped noise transient: linear decay envelope
+          const env = this.transLeft[i] / this.transLen[i];
+          sample = this.amp[i] * (Math.random() * 2 - 1) * env;
           this.transLeft[i]--;
         } else if (this.useRes[i]) {
-          // Biquad resonator (feed 0 input, read ringing output)
-          const y = this.b0[i] * 0 - this.a1[i] * this.z1[i] - this.a2[i] * this.z2[i];
+          // Biquad resonator
+          // Inject impulse on first sample (b1 repurposed as flag)
+          const impulse = this.b1[i] > 0 ? 1.0 : 0;
+          if (impulse) this.b1[i] = 0; // clear flag
+          const y = this.b0[i] * impulse - this.a1[i] * this.z1[i] - this.a2[i] * this.z2[i];
           this.z2[i] = this.z1[i];
           this.z1[i] = y;
           sample = y * this.amp[i];
         } else {
-          // Damped sinusoid
+          // Damped sinusoid with chirp
           sample = this.amp[i] * Math.sin(this.phase[i]);
           this.phase[i] += this.freq[i] * twoPiOverSr;
           this.freq[i] += this.evChirp[i];
+          // Phase wrap to avoid precision loss
+          if (this.phase[i] > 6.2832) this.phase[i] -= 6.2832;
         }
 
-        // Per-sample decay
+        // Per-sample amplitude decay
         this.amp[i] *= this.decayMul[i];
 
-        // Deactivate when quiet
         if (this.amp[i] < 0.0001) {
           this.active[i] = 0;
           continue;

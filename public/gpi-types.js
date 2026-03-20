@@ -241,6 +241,12 @@ const BOX_TYPES = {
                     inlets: [{ name: "a", type: "number", description: "Left operand" }, { name: "b", type: "number", description: "Right operand (or arg)" }],
                     outlets: [{ name: "result", type: "number", description: "1 or 0" }] },
 
+  // --- fan (multi-value output) ---
+  fan:            { zone: "any", description: "Output stored values on trigger. One outlet per value. Click or trigger inlet to fire.", args: "values...", example: "fan 30 500 4000",
+                    dynamic: true,
+                    inlets: [{ name: "trigger", type: "event", description: "Fire all values" }],
+                    outlets: [{ name: "out", type: "number", description: "Value" }] },
+
   // --- routers (snap to border) ---
   all:            { zone: "router", description: "Send to all connected phones. Arg: number of channels.", args: "channels", example: "all 4",
                     dynamic: true,
@@ -353,6 +359,11 @@ function getBoxPorts(text) {
   const def = BOX_TYPES[boxTypeName(text)];
   if (!def) return { inlets: 1, outlets: 1 };
   if (def.dynamic) {
+    const name = boxTypeName(text);
+    if (name === "fan") {
+      const n = Math.max(1, text.split(/\s+/).length - 1);
+      return { inlets: 1, outlets: n };
+    }
     const n = parseInt(text.split(/\s+/)[1]) || 1;
     return { inlets: n, outlets: n };
   }

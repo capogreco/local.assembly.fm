@@ -1175,6 +1175,16 @@ function handleEventBox(id: number, _value: number): void {
   const result = handleBoxEvent(name, state, iv);
   if (!result) return;
 
+  // Multi-outlet output (e.g. fan)
+  if (result.outputs) {
+    for (const { outlet, value } of result.outputs) {
+      boxValues.set(id, value);
+      queueValueUpdate(id, value);
+      propagateAndNotify(id, outlet, value);
+    }
+    return;
+  }
+
   if (result.propagate) {
     setBoxValueAndNotify(id, result.value);
   }

@@ -981,3 +981,21 @@ Added `&&`, `||`, `xor`, `!`, `>`, `<`, `==` to gpi-types.js and graph-core.js. 
 
 `serializeSynthPatch()` now emits a separate `audioCables` array alongside control `cables`. Engine/effect/dac boxes include a `role` field. `paramNames` uses null placeholders for audio inlets to preserve index alignment with cable `dstInlet`.
 
+### `fan` box — multi-value output
+
+New box type `fan` outputs stored values on separate outlets when triggered. `fan 30 500 4000` has 3 outlets; click or trigger inlet to fire all values simultaneously. Useful for preset recall — wire each outlet to a different engine inlet.
+
+### Swarm DSP audit and fixes (2026-03-21)
+
+Opus audit identified several bugs in swarm-processor.js:
+
+**Decay mapping** — was `0.99 + decay * 0.00995` (14ms-2.9s range, too narrow at the short end for fizz). Now uses T60-based mapping: `T60 = 0.001 + decay * 0.499` seconds, giving 1ms (fizz) to 500ms (long ring). Per-sample multiplier computed from `exp(-6.9 / (T60 * sr))`.
+
+**Poisson trigger** — was a regular clock (uniform spacing). Now uses exponential inter-arrival times: `nextEvent += -ln(U) / rate`. Gives natural clustering/gaps.
+
+**Noise transient** — was flat-amplitude rectangle (clicks at transition). Now has linear decay envelope with variable length 1-5ms.
+
+**Amplitude randomization** — widened from 50-100% to 0-100% of amplitude param for more natural variation.
+
+**Other fixes:** random initial phase (prevents phase alignment), phase wrapping (prevents float precision loss), proper biquad impulse injection via flag.
+
