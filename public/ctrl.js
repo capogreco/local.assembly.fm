@@ -191,6 +191,15 @@ class PatchEditor {
     this.synthBorderY = options.synthBorderY ?? canvas.height * 0.55;
     this.showSynthBorder = options.showSynthBorder ?? true;
 
+    // Pan & zoom (view transform only — never mutates patch coordinates)
+    this.panX = 0;
+    this.panY = 0;
+    this.zoom = 1;
+    this.isPanning = false;
+    this.panStart = null;
+    this.panOrigin = null;
+    this.spaceHeld = false;
+
     // Undo
     this.undoStack = [];
     this.maxUndo = 50;
@@ -208,6 +217,7 @@ class PatchEditor {
     this._onMouseMove = this._onMouseMove.bind(this);
     this._onMouseUp = this._onMouseUp.bind(this);
     this._onDblClick = this._onDblClick.bind(this);
+    this._onWheel = this._onWheel.bind(this);
   }
 
   bindEvents() {
@@ -215,6 +225,7 @@ class PatchEditor {
     this.canvas.addEventListener("mousemove", this._onMouseMove);
     this.canvas.addEventListener("mouseup", this._onMouseUp);
     this.canvas.addEventListener("dblclick", this._onDblClick);
+    this.canvas.addEventListener("wheel", this._onWheel, { passive: false });
   }
 
   unbindEvents() {
@@ -222,6 +233,7 @@ class PatchEditor {
     this.canvas.removeEventListener("mousemove", this._onMouseMove);
     this.canvas.removeEventListener("mouseup", this._onMouseUp);
     this.canvas.removeEventListener("dblclick", this._onDblClick);
+    this.canvas.removeEventListener("wheel", this._onWheel);
   }
 
   // --- Serialization ---
@@ -256,78 +268,8 @@ class PatchEditor {
     }
     this.selection.clear();
     this.cableSelection.clear();
-    // Auto-resize canvas to fit all boxes
-    this.ensureAllBoxesVisible();
-  }
-
-  ensureAllBoxesVisible() {
-    if (this.boxes.size === 0) return;
-
-    const margin = 50;
-    const dpr = window.devicePixelRatio || 1;
-    const viewportWidth = this.canvas.width / dpr;
-    const viewportHeight = this.canvas.height / dpr;
-    const centerX = viewportWidth / 2;
-    const boxWidth = 200; // Approximate
-
-    // Find maximum distance out of bounds (as percentage)
-    let maxOutX = 0;
-    let maxOutYCtrl = 0;
-    let maxOutYSynth = 0;
-
-    for (const box of this.boxes.values()) {
-      if (this.isRouterType(box.text)) continue;
-
-      // Check X bounds
-      if (box.x < margin) {
-        maxOutX = Math.max(maxOutX, (margin - box.x) / viewportWidth);
-      } else if (box.x + boxWidth > viewportWidth - margin) {
-        maxOutX = Math.max(maxOutX, (box.x + boxWidth - (viewportWidth - margin)) / viewportWidth);
-      }
-
-      // Check Y bounds
-      if (box.y < this.synthBorderY) {
-        // Ctrl zone
-        if (box.y < margin) {
-          maxOutYCtrl = Math.max(maxOutYCtrl, (margin - box.y) / this.synthBorderY);
-        } else if (box.y + BOX_HEIGHT > this.synthBorderY - margin) {
-          maxOutYCtrl = Math.max(maxOutYCtrl, (box.y + BOX_HEIGHT - (this.synthBorderY - margin)) / this.synthBorderY);
-        }
-      } else {
-        // Synth zone
-        const synthZoneHeight = viewportHeight - this.synthBorderY;
-        if (box.y < this.synthBorderY + margin) {
-          maxOutYSynth = Math.max(maxOutYSynth, (this.synthBorderY + margin - box.y) / synthZoneHeight);
-        } else if (box.y + BOX_HEIGHT > viewportHeight - margin) {
-          maxOutYSynth = Math.max(maxOutYSynth, (box.y + BOX_HEIGHT - (viewportHeight - margin)) / synthZoneHeight);
-        }
-      }
-    }
-
-    // Nudge all boxes by the maximum percentage needed
-    for (const box of this.boxes.values()) {
-      if (this.isRouterType(box.text)) continue;
-
-      // Nudge X toward center
-      if (maxOutX > 0) {
-        box.x += (centerX - box.x) * maxOutX;
-      }
-
-      // Nudge Y toward border (clamped so boxes never cross the synth border)
-      if (box.y < this.synthBorderY) {
-        if (maxOutYCtrl > 0) {
-          const targetY = this.synthBorderY - BOX_HEIGHT - margin;
-          box.y += (targetY - box.y) * Math.min(maxOutYCtrl, 1);
-          box.y = Math.min(box.y, this.synthBorderY - BOX_HEIGHT);
-        }
-      } else {
-        if (maxOutYSynth > 0) {
-          const targetY = this.synthBorderY + margin;
-          box.y += (targetY - box.y) * Math.min(maxOutYSynth, 1);
-          box.y = Math.max(box.y, this.synthBorderY);
-        }
-      }
-    }
+    // Fit view to show all boxes
+    this.zoomToFit();
   }
 
   getBounds(boxes) {
@@ -356,7 +298,12 @@ class PatchEditor {
 
   undo() {
     if (this.undoStack.length === 0) return;
+    // Preserve view position across undo
+    const { panX, panY, zoom } = this;
     this.load(this.undoStack.pop());
+    this.panX = panX;
+    this.panY = panY;
+    this.zoom = zoom;
     this.dirty = true;
     this.onDirty();
     this.render();
@@ -618,7 +565,7 @@ class PatchEditor {
     }
 
     layoutRegion(synthBoxes, this.synthBorderY + BORDER_PAD);
-    this.ensureAllBoxesVisible();
+    this.zoomToFit();
     this.dirty = true;
     this.onDirty();
     this.render();
@@ -628,7 +575,17 @@ class PatchEditor {
 
   canvasCoords(e) {
     const r = this.canvas.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return {
+      x: (e.clientX - r.left) / this.zoom + this.panX,
+      y: (e.clientY - r.top) / this.zoom + this.panY,
+    };
+  }
+
+  screenFromPatch(px, py) {
+    return {
+      x: (px - this.panX) * this.zoom,
+      y: (py - this.panY) * this.zoom,
+    };
   }
 
   isSynthZone(y) { return y >= this.synthBorderY; }
@@ -871,10 +828,17 @@ class PatchEditor {
     this.ctx.fillStyle = COLORS.bg;
     this.ctx.fillRect(0, 0, w, h);
 
-    // Dot grid
+    // Apply pan & zoom
+    this.ctx.scale(this.zoom, this.zoom);
+    this.ctx.translate(-this.panX, -this.panY);
+
+    // Dot grid (cover visible area in patch space)
+    const visW = w / this.zoom, visH = h / this.zoom;
+    const gridStartX = Math.floor(this.panX / 20) * 20;
+    const gridStartY = Math.floor(this.panY / 20) * 20;
     this.ctx.fillStyle = "#333";
-    for (let x = 20; x < w; x += 20) {
-      for (let y = 20; y < h; y += 20) {
+    for (let x = gridStartX; x < this.panX + visW; x += 20) {
+      for (let y = gridStartY; y < this.panY + visH; y += 20) {
         this.ctx.fillRect(x, y, 1, 1);
       }
     }
@@ -884,8 +848,8 @@ class PatchEditor {
       this.ctx.strokeStyle = COLORS.synthBorder;
       this.ctx.lineWidth = 1;
       this.ctx.beginPath();
-      this.ctx.moveTo(0, this.synthBorderY);
-      this.ctx.lineTo(w, this.synthBorderY);
+      this.ctx.moveTo(this.panX, this.synthBorderY);
+      this.ctx.lineTo(this.panX + visW, this.synthBorderY);
       this.ctx.stroke();
       this.ctx.fillStyle = COLORS.synthHandle;
       this.ctx.fillRect(SYNTH_HANDLE / 2, this.synthBorderY - SYNTH_HANDLE / 2, SYNTH_HANDLE, SYNTH_HANDLE);
@@ -1017,7 +981,9 @@ class PatchEditor {
       }
     }
 
-    // Let owner draw overlays
+    // Draw overlays in screen space (reset pan/zoom)
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.scale(dpr, dpr);
     this.renderOverlay(this.ctx, w, h);
 
     this.ctx.restore();
@@ -1032,12 +998,14 @@ class PatchEditor {
     this.editingBoxId = boxId;
     this.mode = "editing";
     const w = Math.max(this.boxWidth(box, boxId), 80);
+    const s = this.screenFromPatch(box.x, box.y);
     Object.assign(this.input.style, {
-      left: (box.x + BOX_PAD_X) + "px",
-      top: box.y + "px",
-      width: w + "px",
-      height: BOX_HEIGHT + "px",
-      lineHeight: BOX_HEIGHT + "px",
+      left: (s.x + BOX_PAD_X * this.zoom) + "px",
+      top: s.y + "px",
+      width: (w * this.zoom) + "px",
+      height: (BOX_HEIGHT * this.zoom) + "px",
+      lineHeight: (BOX_HEIGHT * this.zoom) + "px",
+      fontSize: (12 * this.zoom) + "px",
       display: "block"
     });
     this.input.value = box.text;
@@ -1085,6 +1053,16 @@ class PatchEditor {
   _onMouseDown(e) {
     const m = this.canvasCoords(e);
     tooltipEl.style.display = "none";
+
+    // Middle-click or spacebar+click → pan
+    if (e.button === 1 || this.spaceHeld) {
+      e.preventDefault();
+      this.isPanning = true;
+      this.panStart = { x: e.clientX, y: e.clientY };
+      this.panOrigin = { x: this.panX, y: this.panY };
+      this.canvas.style.cursor = "grabbing";
+      return;
+    }
 
     if (this.hitTestSynthHandle(m.x, m.y)) {
       this.mode = "resizing-synth";
@@ -1170,12 +1148,19 @@ class PatchEditor {
   }
 
   _onMouseMove(e) {
+    // Pan drag (before canvasCoords, since pan is in screen space)
+    if (this.isPanning && this.panStart) {
+      this.panX = this.panOrigin.x - (e.clientX - this.panStart.x) / this.zoom;
+      this.panY = this.panOrigin.y - (e.clientY - this.panStart.y) / this.zoom;
+      this.render();
+      return;
+    }
+
     const m = this.canvasCoords(e);
     this.mousePos = m;
 
     if (this.mode === "resizing-synth") {
-      const h = this.canvas.height / (window.devicePixelRatio || 1);
-      this.synthBorderY = Math.max(100, Math.min(m.y, h - 100));
+      this.synthBorderY = Math.max(100, m.y);
       for (const [, box] of this.boxes) {
         if (this.isRouterType(box.text)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
       }
@@ -1274,6 +1259,14 @@ class PatchEditor {
   }
 
   _onMouseUp(e) {
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.panStart = null;
+      this.panOrigin = null;
+      this.canvas.style.cursor = this.spaceHeld ? "grab" : "default";
+      return;
+    }
+
     const m = this.canvasCoords(e);
 
     if (this.mode === "resizing-synth") {
@@ -1438,6 +1431,64 @@ class PatchEditor {
     return false;
   }
 
+  // --- Wheel: scroll to pan, ctrl/meta+scroll or pinch to zoom ---
+
+  _onWheel(e) {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) {
+      // Pinch-zoom or ctrl+scroll → zoom around cursor
+      const r = this.canvas.getBoundingClientRect();
+      const cx = (e.clientX - r.left) / this.zoom + this.panX;
+      const cy = (e.clientY - r.top) / this.zoom + this.panY;
+      const factor = Math.pow(0.99, e.deltaY);
+      const newZoom = Math.max(0.15, Math.min(3, this.zoom * factor));
+      // Adjust pan so the point under the cursor stays fixed
+      this.panX = cx - (e.clientX - r.left) / newZoom;
+      this.panY = cy - (e.clientY - r.top) / newZoom;
+      this.zoom = newZoom;
+    } else {
+      // Scroll to pan
+      this.panX += e.deltaX / this.zoom;
+      this.panY += e.deltaY / this.zoom;
+    }
+    this.render();
+  }
+
+  // --- Zoom to fit: show all boxes centered in viewport ---
+
+  zoomToFit() {
+    if (this.boxes.size === 0) return;
+    const margin = 60;
+    const dpr = window.devicePixelRatio || 1;
+    const vw = this.canvas.width / dpr;
+    const vh = this.canvas.height / dpr;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [id, box] of this.boxes) {
+      const bw = this.boxWidth(box, id);
+      if (box.x < minX) minX = box.x;
+      if (box.y < minY) minY = box.y;
+      if (box.x + bw > maxX) maxX = box.x + bw;
+      if (box.y + BOX_HEIGHT > maxY) maxY = box.y + BOX_HEIGHT;
+    }
+
+    const pw = maxX - minX + margin * 2;
+    const ph = maxY - minY + margin * 2;
+    this.zoom = Math.min(1, vw / pw, vh / ph);
+    this.panX = minX - margin - (vw / this.zoom - pw) / 2;
+    this.panY = minY - margin - (vh / this.zoom - ph) / 2;
+    this.render();
+  }
+
+  // --- Reset view to 100% zoom, origin ---
+
+  resetView() {
+    this.panX = 0;
+    this.panY = 0;
+    this.zoom = 1;
+    this.render();
+  }
+
   resize(width, height) {
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = width * dpr;
@@ -1486,8 +1537,9 @@ const mainEditor = new PatchEditor(canvas, {
       ctx.fillText(midiDeviceNames[i], w - 12, 28 + i * 14);
     }
 
-    // Client count
-    ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, mainEditor.synthBorderY + 8);
+    // Client count (position relative to synth border in screen space)
+    const borderScreen = mainEditor.screenFromPatch(0, mainEditor.synthBorderY);
+    ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, borderScreen.y + 8);
     ctx.textAlign = "left";
   }
 });
@@ -1502,7 +1554,7 @@ input.addEventListener("keydown", (e) => {
 input.addEventListener("input", () => {
   if (mainEditor.editingBoxId === null) return;
   const w = Math.max(mainEditor.measureText(input.value || " ") + BOX_PAD_X * 2, 80);
-  input.style.width = w + "px";
+  input.style.width = (w * mainEditor.zoom) + "px";
   mainEditor.render();
 });
 input.addEventListener("blur", () => mainEditor.finishEditing(true));
@@ -1611,7 +1663,12 @@ window.addEventListener("keydown", (e) => {
   if (mainEditor.mode === "editing") return;
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); mainEditor.undo(); return; }
-  if (e.key === "l" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); mainEditor.tidyLayout(); return; }
+  if (e.key === "z" && !e.metaKey && !e.ctrlKey) {
+    e.preventDefault();
+    if (mainEditor.zoom < 1) mainEditor.resetView();
+    else mainEditor.zoomToFit();
+    return;
+  }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "s") { e.preventDefault(); saveAsAbstraction(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatch(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "o") { e.preventDefault(); loadPatch(); return; }
@@ -1621,7 +1678,20 @@ window.addEventListener("keydown", (e) => {
     openHelp(boxTypeName(mainEditor.boxes.get(boxId).text));
     return;
   }
+  if (e.key === " " && mainEditor.mode !== "editing") {
+    e.preventDefault();
+    mainEditor.spaceHeld = true;
+    if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = "grab";
+    return;
+  }
   mainEditor.onKeyDown(e);
+});
+
+window.addEventListener("keyup", (e) => {
+  if (e.key === " ") {
+    mainEditor.spaceHeld = false;
+    if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = "default";
+  }
 });
 
 // --- WebSocket ---

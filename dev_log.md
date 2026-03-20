@@ -849,3 +849,43 @@ With grid and arc sharing a USB hub and the same OSC listener port (13000):
 - **Re-subscribe to serialosc notifications after every add/remove** — ensures hot-plug detection continues working indefinitely.
 - **Suppress `/sys/port`, `/sys/host`, `/sys/prefix` echo logs** — these are just the device echoing back config commands.
 
+## Canvas Pan & Zoom — replacing ensureAllBoxesVisible (2026-03-20)
+
+### Problem
+
+Patches authored on a large monitor (LG 28MQ780) didn't fit on the 13" M2 MBP used for performances. The previous fix (`ensureAllBoxesVisible`) nudged box coordinates toward the synth border to force-fit the viewport, but this caused critical bugs:
+
+- Boxes pushed across the synth border were excluded from serialization, silently dropping ~20 objects from the patch
+- Boxes stacked on top of each other, making the patch unreadable
+- The nudge was unbounded and violated zone invariants
+
+### Root cause
+
+The fundamental mistake was treating a **viewport problem** as a **layout problem**. The patch coordinates were correct — they just didn't fit on a smaller screen. Mutating coordinates to force-fit destroyed layout and broke zone semantics.
+
+### Solution: view-only pan & zoom
+
+Added pan and zoom as a pure view transform — patch coordinates are never modified.
+
+**Pan gestures:**
+- Two-finger scroll / trackpad
+- Scroll wheel
+- Middle-click drag
+- Spacebar + drag
+
+**Zoom:**
+- Ctrl/Cmd + scroll (anchored on cursor position)
+- `z` key toggles between zoom-to-fit and 100% reset
+
+**Removed:**
+- `ensureAllBoxesVisible()` — deleted entirely
+- `l` key binding (was tidyLayout) — `tidyLayout()` still exists but is unbound
+
+**Key design decisions:**
+- Pan/zoom is not serialized — it's a per-session view concern, not patch data
+- Undo preserves view position (doesn't snap back on undo)
+- Overlay UI (status, connection dot, client count) draws in screen space
+- Synth border, boxes, cables all draw in patch space via canvas transform
+- `zoomToFit()` called on patch load to auto-fit content to current viewport
+- Zoom capped at 100% (never zooms in past native size) and minimum 15%
+
