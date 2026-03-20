@@ -46,16 +46,21 @@ function drawStatus(): void {
   Deno.stdout.writeSync(new TextEncoder().encode(`\r\x1b[K${line}`));
 }
 
-// --- Import shared box types ---
+// --- Import shared modules ---
 
 // deno-lint-ignore no-explicit-any
-const boxTypes: any = {};
-const boxTypesSrc = await Deno.readTextFile("./public/gpi-types.js");
-// Strip the ES module export line so we can evaluate as CJS
-const boxTypesCjs = boxTypesSrc.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
-const boxTypesModule = new Function("exports", boxTypesCjs);
-boxTypesModule(boxTypes);
+function importCjs(src: string): any {
+  const obj: Record<string, unknown> = {};
+  const cjs = src.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
+  new Function("exports", cjs)(obj);
+  return obj;
+}
+
+const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
 const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef } = boxTypes;
+
+const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
+const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, advanceSig, expandIntegerNotation } = graphCore;
 
 // --- TLS cert check ---
 
@@ -136,7 +141,7 @@ function shuffleArray(arr: number[]): number[] {
   return arr;
 }
 
-function handleRouterInlet(routerBoxId: number, inlet: number, value: number): void {
+function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
   const routerType = boxTypeName(box.text);
@@ -209,7 +214,7 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
   }
 }
 
-function sendViaRouter(routerBoxId: number, channel: number, value: number): void {
+function sendViaRouter(routerBoxId: number, channel: number, value: BoxValue): void {
   const msg = { type: "rv", r: routerBoxId, ch: channel, v: value } as Record<string, unknown>;
   routerDispatch(routerBoxId, msg, { advanceSweep: true, storeLatest: true });
 }
@@ -486,10 +491,10 @@ function rebuildGridRegions(): void {
         const mode = args[1] || 0;
         arcEncoders.set(boxId, { boxId, encoder, mode });
         event(`registered arc encoder: box ${boxId} enc ${encoder} mode ${mode}`);
-        // Initialize value if not present
+        // Initialize value if not present (use init arg or default 0.5)
         if (!arcValues.has(boxId)) {
-          arcValues.set(boxId, 0.5);
-          setBoxValueAndNotify(boxId, 0.5);
+          const init = args[2] !== undefined && !isNaN(args[2]) ? args[2] : 0.5;
+          arcValues.set(boxId, init);
         }
       }
     }
@@ -619,8 +624,8 @@ function handleGridArray(region: GridRegion, x: number, y: number, pressed: bool
 function renderGridRegion(region: GridRegion): void {
   if (region.type === "grid-trig") {
     // Light up entire region when pressed
-    const value = boxValues.get(region.boxId) || 0;
-    const level = value > 0 ? 15 : 0;
+    const raw = boxValues.get(region.boxId) || 0;
+    const level = (typeof raw === "number" && raw > 0) ? 15 : 0;
     event(`grid-trig LED: region (${region.x},${region.y}) level=${level}`);
     for (let dy = 0; dy < region.h; dy++) {
       for (let dx = 0; dx < region.w; dx++) {
@@ -876,7 +881,8 @@ interface Cable {
 
 const boxes = new Map<number, Box>();
 const cables = new Map<number, Cable>();
-const boxValues = new Map<number, number>();
+type BoxValue = number | number[];
+const boxValues = new Map<number, BoxValue>();
 const inletValues = new Map<number, number[]>();
 // deno-lint-ignore no-explicit-any
 const boxState = new Map<number, any>(); // per-box state for time-based boxes
@@ -900,36 +906,21 @@ function cablesFromOutlet(boxId: number, outlet: number): Cable[] {
 function evaluateBox(box: Box, iv: number[]): number {
   const name = boxTypeName(box.text);
   const args = box.text.split(/\s+/).slice(1);
-  const a = iv[0] || 0;
-  const b = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 0;
-  switch (name) {
-    case "+": return a + b; case "-": return a - b; case "*": return a * b;
-    case "/": return b !== 0 ? a / b : 0; case "%": return b !== 0 ? a % b : 0; case "**": return Math.pow(a, b);
-    case "scale": { const mn = parseFloat(args[0]) || 0, mx = parseFloat(args[1]) || 1; return a * (mx - mn) + mn; }
-    case "clip": { const mn = parseFloat(args[0]) || 0, mx = parseFloat(args[1]) || 1; return Math.max(mn, Math.min(mx, a)); }
-    case "pow": return Math.pow(a, b);
-    case "mtof": return 440 * Math.pow(2, (a - 69) / 12);
-    case "const": return parseFloat(args[0]) || 0;
-    case "gate": return (iv[1] || 0) > 0 ? a : 0;
-    case "quantize": { const d = parseFloat(args[0]) || 12; return Math.round(a * d) / d; }
-    case "sine": return Math.sin(a * Math.PI * 2) * 0.5 + 0.5;
-    case "tri": { const yaw = parseFloat(args[0]) || 0.5; return a < yaw ? (yaw > 0 ? a / yaw : 0) : (yaw < 1 ? (1 - a) / (1 - yaw) : 0); }
-    case "sample-hold": return a; // passthrough — actual hold logic is stateful
-    default: return a;
-  }
+  const result = evaluatePure(name, args, iv);
+  return result !== null ? result : (iv[0] || 0);
 }
 
 // --- Batched value updates to ctrl at ~30fps ---
 
-let pendingValueUpdates = new Map<number, number>();
+let pendingValueUpdates = new Map<number, BoxValue>();
 
-function queueValueUpdate(id: number, value: number): void {
+function queueValueUpdate(id: number, value: BoxValue): void {
   pendingValueUpdates.set(id, value);
 }
 
 setInterval(() => {
   if (pendingValueUpdates.size === 0) return;
-  const updates: Array<{ id: number; value: number }> = [];
+  const updates: Array<{ id: number; value: BoxValue }> = [];
   for (const [id, value] of pendingValueUpdates) updates.push({ id, value });
   pendingValueUpdates = new Map();
   sendCtrl({ type: "values", updates });
@@ -937,7 +928,7 @@ setInterval(() => {
 
 const ONSET_THRESHOLD = 0.01;
 
-function setBoxValueAndNotify(boxId: number, value: number): void {
+function setBoxValueAndNotify(boxId: number, value: BoxValue): void {
   const prev = boxValues.get(boxId) ?? 0;
   boxValues.set(boxId, value);
   queueValueUpdate(boxId, value);
@@ -950,8 +941,10 @@ function setBoxValueAndNotify(boxId: number, value: number): void {
   // breath/bite: outlet 0 = value, outlet 1 = onset event, outlet 2 = offset event
   if (name === "breath" || name === "bite") {
     propagateAndNotify(boxId, 0, value);
-    if (prev < ONSET_THRESHOLD && value >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 1);
-    if (prev >= ONSET_THRESHOLD && value < ONSET_THRESHOLD) propagateAndNotify(boxId, 2, 0);
+    const p = typeof prev === "number" ? prev : 0;
+    const v = typeof value === "number" ? value : 0;
+    if (p < ONSET_THRESHOLD && v >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 1);
+    if (p >= ONSET_THRESHOLD && v < ONSET_THRESHOLD) propagateAndNotify(boxId, 2, 0);
     return;
   }
 
@@ -959,7 +952,7 @@ function setBoxValueAndNotify(boxId: number, value: number): void {
   for (let i = 0; i < outlets; i++) propagateAndNotify(boxId, i, value);
 }
 
-function propagateAndNotify(boxId: number, outletIndex: number, value: number): void {
+function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue): void {
   // Two-phase propagation: deliver all values first, then fire deferred events.
   // This guarantees values arrive at inlets before triggers fire,
   // regardless of cable creation order.
@@ -984,15 +977,17 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: number): 
         sendCtrl({ type: "engine-param", boxId: cable.dstBox, engineType: boxTypeName(dst.text), param: paramName, value });
       }
     } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
+      // ctrl-side boxes only receive numeric values (arrays flow to routers only)
+      const numValue = typeof value === "number" ? value : 0;
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
-        deferred.push(() => handleEventBox(cable.dstBox, value));
-      } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, value)) {
+        deferred.push(() => handleEventBox(cable.dstBox, numValue));
+      } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValue)) {
         // handled by stateful box (phasor, etc.)
       } else {
         let iv = inletValues.get(cable.dstBox);
         if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-        iv[cable.dstInlet] = value;
+        iv[cable.dstInlet] = numValue;
         const result = evaluateBox(dst, iv);
         boxValues.set(cable.dstBox, result);
         queueValueUpdate(cable.dstBox, result);
@@ -1013,118 +1008,58 @@ function isCtrlSide(box: Box): boolean {
 
 function evaluateAllConsts(): void {
   for (const [id, box] of boxes) {
-    if (boxTypeName(box.text) === "const" && isCtrlSide(box)) {
+    if (!isCtrlSide(box)) continue;
+    const name = boxTypeName(box.text);
+    if (name === "const") {
       setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
+    } else if (name === "toggle") {
+      const state = boxState.get(id);
+      if (state) setBoxValueAndNotify(id, state.value);
     }
+  }
+}
+
+const DEVICE_DEFAULTS: Record<string, number> = {
+  breath: 0, bite: 0, nod: 0.5, tilt: 0.5, arc: 0.5,
+};
+
+function getDeviceInitValue(name: string, text: string): number {
+  const args = text.split(/\s+/).slice(1);
+  // arc: init is 3rd arg (after index, mode)
+  if (name === "arc" && args.length >= 3) {
+    const v = parseFloat(args[2]);
+    if (!isNaN(v)) return v;
+  }
+  // others: init is 1st arg
+  if (name !== "arc" && args.length >= 1) {
+    const v = parseFloat(args[0]);
+    if (!isNaN(v)) return v;
+  }
+  return DEVICE_DEFAULTS[name] ?? 0;
+}
+
+function evaluateAllDevices(): void {
+  for (const [id, box] of boxes) {
+    if (!isCtrlSide(box)) continue;
+    const name = boxTypeName(box.text);
+    if (!(name in DEVICE_DEFAULTS)) continue;
+    const init = getDeviceInitValue(name, box.text);
+    // pre-set boxValues so setBoxValueAndNotify doesn't fire onset events
+    boxValues.set(id, init);
+    setBoxValueAndNotify(id, init);
+    if (name === "arc") arcValues.set(id, init);
   }
 }
 
 // --- Time-based box tick ---
 
-function expandIntegerNotation(s: string): number[] {
-  const result: number[] = [];
-  for (const token of s.split(",")) {
-    const m = token.match(/^(-?\d+)-(-?\d+)$/);
-    if (m) {
-      const a = parseInt(m[1]), b = parseInt(m[2]);
-      const step = a <= b ? 1 : -1;
-      for (let i = a; step > 0 ? i <= b : i >= b; i += step) result.push(i);
-    } else {
-      result.push(Number(token));
-    }
-  }
-  return result;
-}
-
-// deno-lint-ignore no-explicit-any
-function advanceSig(state: any): number {
-  switch (state.behaviour) {
-    case "shuffle":
-      for (let i = state.values.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [state.values[i], state.values[j]] = [state.values[j], state.values[i]];
-      }
-      state.index = 0;
-      break;
-    case "asc":
-      state.index = (state.index + 1) % state.values.length;
-      break;
-    case "desc":
-      state.index = (state.index - 1 + state.values.length) % state.values.length;
-      break;
-    case "random":
-      state.index = Math.floor(Math.random() * state.values.length);
-      break;
-  }
-  return state.values[state.index];
-}
+// expandIntegerNotation, advanceSig — imported from graph-core.js
 
 function initBoxState(id: number, box: Box): void {
   const name = boxTypeName(box.text);
-  const args = box.text.split(/\s+/).slice(1);
-  switch (name) {
-    case "lfo":
-      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, bipolar: args.includes("bipolar") });
-      break;
-    case "phasor": {
-      const loop = args[1] !== "once";
-      boxState.set(id, { phase: 0, period: parseFloat(args[0]) || 1, paused: false, loop });
-      break;
-    }
-    case "metro":
-      boxState.set(id, { elapsed: 0, interval: parseFloat(args[0]) || 1, paused: false });
-      break;
-    case "toggle":
-      boxState.set(id, { value: 0 });
-      break;
-    case "sequence":
-      boxState.set(id, { index: 0, values: (args[0] || "0").split(",").map(Number) });
-      break;
-    case "counter":
-      boxState.set(id, { count: parseFloat(args[0]) || 0, min: parseFloat(args[0]) || 0, max: parseFloat(args[1]) || 7 });
-      break;
-    case "drunk":
-      boxState.set(id, { value: Math.random(), step: parseFloat(args[0]) || 0.01 });
-      break;
-    case "ar":
-      boxState.set(id, { value: 0, phase: "idle", elapsed: 0, attack: parseFloat(args[0]) || 0.1, release: parseFloat(args[1]) || 0.5 });
-      break;
-    case "adsr":
-      boxState.set(id, { value: 0, phase: "idle", elapsed: 0, a: parseFloat(args[0]) || 0.05, d: parseFloat(args[1]) || 0.1, s: parseFloat(args[2]) || 0.7, r: parseFloat(args[3]) || 0.3, gateOpen: false });
-      break;
-    case "ramp":
-      boxState.set(id, { value: parseFloat(args[0]) || 0, from: parseFloat(args[0]) || 0, to: parseFloat(args[1]) || 1, duration: parseFloat(args[2]) || 0.5, phase: "idle", elapsed: 0 });
-      break;
-    case "delay":
-      boxState.set(id, { queue: [], time: parseFloat(args[0]) || 0.5 });
-      break;
-    case "slew":
-      boxState.set(id, { value: 0, target: 0, rate: parseFloat(args[0]) || 0.05 });
-      break;
-    case "lag":
-      boxState.set(id, { value: 0, target: 0, coeff: parseFloat(args[0]) || 0.2 });
-      break;
-    case "sample-hold":
-      boxState.set(id, { value: 0 });
-      break;
-    case "sig": {
-      const sigBehaviours = ["shuffle", "asc", "desc", "random"];
-      const firstIsBehaviour = sigBehaviours.includes(args[0]);
-      const values = firstIsBehaviour ? [0] : expandIntegerNotation(args[0] || "1");
-      const behaviour = firstIsBehaviour ? args[0] : (args[1] || "shuffle");
-      boxState.set(id, { values: [...values], behaviour, index: Math.floor(Math.random() * values.length) });
-      break;
-    }
-    case "step": {
-      boxState.set(id, { active: false, remaining: 0, amplitude: parseFloat(args[0]) || 1, length: parseFloat(args[1]) || 0.5 });
-      break;
-    }
-    case "random": {
-      const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1;
-      boxState.set(id, { min, max, value: min + Math.random() * (max - min) });
-      break;
-    }
-  }
+  const args = box.text.split(/\s+/).slice(1).join(" ");
+  const state = createBoxState(name, args);
+  if (state) boxState.set(id, state);
 }
 
 function shouldServerEval(box: Box): boolean {
@@ -1152,121 +1087,26 @@ function tick(): void {
     const state = boxState.get(id);
     if (!state) continue;
 
-    switch (name) {
-      case "lfo": {
-        const iv = inletValues.get(id);
-        const lfoPeriod = iv?.[0] > 0 ? iv[0] : state.period;
-        state.phase += TICK_DT / lfoPeriod;
-        if (state.phase >= 1) state.phase -= 1;
-        const raw = Math.sin(state.phase * Math.PI * 2);
-        setBoxValueAndNotify(id, state.bipolar ? raw : raw * 0.5 + 0.5);
-        break;
-      }
-      case "phasor": {
-        if (state.paused) break;
-        state.phase += TICK_DT / state.period;
-        if (state.phase >= 1) {
-          if (state.loop) {
-            state.phase -= 1;
-          } else {
-            state.phase = 1;
-            state.paused = true;
-          }
-          propagateAndNotify(id, 1, 0);
-        }
-        setBoxValueAndNotify(id, state.phase);
-        break;
-      }
-      case "metro": {
-        if (state.paused) break;
-        state.elapsed += TICK_DT;
-        if (state.elapsed >= state.interval) {
-          state.elapsed -= state.interval;
-          propagateAndNotify(id, 0, 1);
-        }
-        queueValueUpdate(id, state.elapsed / state.interval);
-        break;
-      }
-      case "delay": {
-        for (let i = state.queue.length - 1; i >= 0; i--) {
-          state.queue[i].remaining -= TICK_DT;
-          if (state.queue[i].remaining <= 0) {
-            propagateAndNotify(id, 0, state.queue[i].value);
-            state.queue.splice(i, 1);
-          }
-        }
-        break;
-      }
-      case "ar": {
-        if (state.phase === "idle") break;
-        state.elapsed += TICK_DT;
-        if (state.phase === "attack") {
-          state.value = Math.min(1, state.elapsed / state.attack);
-          if (state.elapsed >= state.attack) { state.phase = "release"; state.elapsed = 0; }
-        } else if (state.phase === "release") {
-          state.value = Math.max(0, 1 - state.elapsed / state.release);
-          if (state.elapsed >= state.release) { state.value = 0; state.phase = "idle"; propagateAndNotify(id, 1, 0); }
-        }
-        boxValues.set(id, state.value);
-        queueValueUpdate(id, state.value);
-        propagateAndNotify(id, 0, state.value);
-        break;
-      }
-      case "adsr": {
-        const gateNow = (inletValues.get(id)?.[0] || 0) > 0;
-        if (gateNow && !state.gateOpen) { state.gateOpen = true; state.phase = "attack"; state.elapsed = 0; }
-        else if (!gateNow && state.gateOpen) { state.gateOpen = false; if (state.phase !== "idle") { state.phase = "release"; state.elapsed = 0; } }
-        if (state.phase === "idle") break;
-        state.elapsed += TICK_DT;
-        if (state.phase === "attack") {
-          state.value = Math.min(1, state.elapsed / state.a);
-          if (state.elapsed >= state.a) { state.phase = "decay"; state.elapsed = 0; }
-        } else if (state.phase === "decay") {
-          state.value = 1 - (1 - state.s) * Math.min(1, state.elapsed / state.d);
-          if (state.elapsed >= state.d) { state.phase = "sustain"; state.value = state.s; }
-        } else if (state.phase === "sustain") {
-          state.value = state.s;
-        } else if (state.phase === "release") {
-          const sv = state.value;
-          state.value = sv * Math.max(0, 1 - state.elapsed / state.r);
-          if (state.elapsed >= state.r) { state.value = 0; state.phase = "idle"; propagateAndNotify(id, 1, 0); }
-        }
-        boxValues.set(id, state.value);
-        queueValueUpdate(id, state.value);
-        propagateAndNotify(id, 0, state.value);
-        break;
-      }
-      case "ramp": {
-        if (state.phase !== "running") break;
-        state.elapsed += TICK_DT;
-        const t = Math.min(1, state.elapsed / state.duration);
-        state.value = state.from + (state.to - state.from) * t;
-        boxValues.set(id, state.value);
-        queueValueUpdate(id, state.value);
-        propagateAndNotify(id, 0, state.value);
-        if (t >= 1) { state.phase = "idle"; propagateAndNotify(id, 1, 0); }
-        break;
-      }
-      case "slew": {
-        const iv = inletValues.get(id);
-        if (iv) state.target = iv[0] || 0;
-        if (Math.abs(state.value - state.target) > 0.0001) {
-          const maxDelta = TICK_DT / state.rate;
-          const diff = state.target - state.value;
-          state.value += Math.sign(diff) * Math.min(Math.abs(diff), maxDelta);
-          setBoxValueAndNotify(id, state.value);
-        }
-        break;
-      }
-      case "lag": {
-        const iv = inletValues.get(id);
-        if (iv) state.target = iv[0] || 0;
-        if (Math.abs(state.value - state.target) > 0.0001) {
-          const alpha = 1 - Math.exp(-TICK_DT / state.coeff);
-          state.value += (state.target - state.value) * alpha;
-          setBoxValueAndNotify(id, state.value);
-        }
-        break;
+    // slew/lag need target updated from inletValues before tick
+    if (name === "slew" || name === "lag") {
+      const iv = inletValues.get(id);
+      if (iv) state.target = iv[0] || 0;
+    }
+
+    const iv = inletValues.get(id) || [];
+    const result = tickBox(name, state, iv, TICK_DT);
+    if (!result) continue;
+
+    // metro: show progress bar but propagate on event
+    if (name === "metro") {
+      queueValueUpdate(id, result.value);
+      if (result.events.length > 0) propagateAndNotify(id, 0, 1);
+    } else {
+      boxValues.set(id, result.value);
+      queueValueUpdate(id, result.value);
+      propagateAndNotify(id, 0, result.value);
+      for (const outlet of result.events) {
+        propagateAndNotify(id, outlet, 0);
       }
     }
   }
@@ -1324,7 +1164,6 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   return false;
 }
 
-// handle event-driven boxes (triggered by incoming null events)
 function handleEventBox(id: number, _value: number): void {
   const box = boxes.get(id);
   if (!box) return;
@@ -1332,75 +1171,12 @@ function handleEventBox(id: number, _value: number): void {
   const state = boxState.get(id);
   if (!state) return;
 
-  switch (name) {
-    case "phasor": {
-      state.phase = 0;
-      setBoxValueAndNotify(id, 0);
-      break;
-    }
-    case "sequence": {
-      state.index = (state.index + 1) % state.values.length;
-      const val = state.values[state.index];
-      setBoxValueAndNotify(id, val);
-      break;
-    }
-    case "counter": {
-      state.count++;
-      if (state.count > state.max) state.count = state.min;
-      setBoxValueAndNotify(id, state.count);
-      break;
-    }
-    case "drunk": {
-      state.value += (Math.random() * 2 - 1) * state.step;
-      state.value = Math.max(0, Math.min(1, state.value));
-      setBoxValueAndNotify(id, state.value);
-      break;
-    }
-    case "ar": {
-      state.phase = "attack"; state.elapsed = 0;
-      break;
-    }
-    case "ramp": {
-      state.phase = "running"; state.elapsed = 0;
-      break;
-    }
-    case "delay": {
-      state.queue.push({ value: _value, remaining: state.time });
-      break;
-    }
-    case "sample-hold": {
-      // on trigger (inlet 1), sample the current value of inlet 0
-      const iv = inletValues.get(id);
-      state.value = iv?.[0] || 0;
-      setBoxValueAndNotify(id, state.value);
-      break;
-    }
-    case "sig": {
-      // update behaviour and values from inlets if connected
-      const iv = inletValues.get(id);
-      if (iv?.[1] !== undefined && typeof iv[1] === "string") state.behaviour = iv[1];
-      if (iv?.[2] !== undefined && Array.isArray(iv[2])) {
-        state.values = [...iv[2]];
-        if (state.index >= state.values.length) state.index = 0;
-      }
-      const val = advanceSig(state);
-      setBoxValueAndNotify(id, val);
-      break;
-    }
-    case "step": {
-      const iv = inletValues.get(id);
-      const amp = iv?.[1] !== undefined ? iv[1] : state.amplitude;
-      const len = iv?.[2] !== undefined ? iv[2] : state.length;
-      state.active = true;
-      state.remaining = len;
-      setBoxValueAndNotify(id, amp);
-      break;
-    }
-    case "random": {
-      state.value = state.min + Math.random() * (state.max - state.min);
-      setBoxValueAndNotify(id, state.value);
-      break;
-    }
+  const iv = inletValues.get(id) || [];
+  const result = handleBoxEvent(name, state, iv);
+  if (!result) return;
+
+  if (result.propagate) {
+    setBoxValueAndNotify(id, result.value);
   }
 }
 
@@ -1561,10 +1337,9 @@ function handleApply(msg: any): void {
 
   // rebuild ctrl evaluation
   initAllBoxState();
-  evaluateAllConsts();
-
-  // rebuild grid regions
   rebuildGridRegions();
+  evaluateAllConsts();
+  evaluateAllDevices();
 
   // deploy synth patch to clients
   deployPatch();
@@ -1686,7 +1461,7 @@ function serializeSynthPatch(): Record<string, unknown> {
   }
 
   // collect current boxValues for all router entries as initialValues
-  const initialValues: Record<string, number> = {};
+  const initialValues: Record<string, BoxValue> = {};
   for (const entry of entries) {
     const key = entry.routerId + ":" + (entry.routerOutlet || 0);
     // find the current value flowing into this router channel
@@ -1707,14 +1482,15 @@ function deployPatch(): void {
   broadcastSynth(deployedPatch);
   event("patch deployed to " + totalSynthClients() + " clients");
   sendCtrl({ type: "deployed" });
-  // re-evaluate consts so rv messages flow immediately after deploy
+  // re-evaluate consts and devices so rv messages flow immediately after deploy
   evaluateAllConsts();
+  evaluateAllDevices();
 }
 
 // --- Full state sync for ctrl ---
 
 function getFullState(): Record<string, unknown> {
-  const bv: Record<number, number> = {};
+  const bv: Record<number, BoxValue> = {};
   for (const [id, v] of boxValues) bv[id] = v;
   return {
     type: "state",

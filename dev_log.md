@@ -889,3 +889,48 @@ Added pan and zoom as a pure view transform — patch coordinates are never modi
 - `zoomToFit()` called on patch load to auto-fit content to current viewport
 - Zoom capped at 100% (never zooms in past native size) and minimum 15%
 
+## Shared evaluation module — graph-core.js (2026-03-20)
+
+### Problem
+
+`server.ts` (ctrl-side evaluation) and `graph.js` (synth-side evaluation) contained ~500 lines of duplicated logic: `expandIntegerNotation`, `advanceSig`, box state initialization, pure math evaluation, tick logic, and event handling. Every new box type had to be implemented in both files and kept in sync.
+
+### Solution
+
+Extracted shared evaluation logic into `public/graph-core.js` (~450 lines), imported by both server (via CJS) and browser (via `<script>` tag). The shared module provides:
+
+- `createBoxState(type, args)` — unified state initialization for all stateful box types
+- `evaluatePure(type, args, iv)` — stateless math evaluation (+, -, *, /, scale, clip, mtof, etc.)
+- `evaluateStateful(type, state)` — read current output from stateful boxes
+- `handleBoxEvent(type, state, iv)` — event-triggered state mutations, returns `{ value, propagate }`
+- `tickBox(type, state, iv, dt)` — time-step advancement, returns `{ value, events[] }`
+- `sigmoidShape()`, `cosineShape()` — pure envelope shape functions
+- `isEventTrigger(type, inlet)` — check if an inlet triggers event handling
+
+**Result:** graph.js dropped from 1009 → 389 lines. server.ts dropped from 2150 → ~1900 lines. 432 fewer lines total, zero duplicated evaluation logic.
+
+### Propagation model remains separate
+
+The shared module is pure logic — no I/O or propagation. Each consumer wraps results with its own wiring:
+- Server: `setBoxValueAndNotify()` → `propagateAndNotify()` → routers → WebSocket
+- Client: `propagateInGraph()` → engine param updates → AudioWorklet
+
+## Device initialization on apply (2026-03-20)
+
+### Problem
+
+After applying a patch (Cmd+Enter), `boxValues.clear()` destroyed all device values. Control devices (arc, breath, bite, etc.) had no value until the user physically moved them, leaving the synth side in an undefined state.
+
+### Solution
+
+Added `evaluateAllDevices()` which runs after `evaluateAllConsts()` during apply. Ctrl device boxes now propagate init values through the graph on apply:
+
+- Per-device defaults: breath/bite → 0, arc → 0.5, nod/tilt → 0.5
+- Optional init arg overrides: `arc 0 0 0.7`, `breath 0.3`
+- Toggle boxes also propagate on apply, with optional init: `toggle 1`
+- Pre-sets `boxValues` before `setBoxValueAndNotify` to suppress spurious onset events
+
+### BoxValue type fix
+
+Widened the type system to make arrays first-class: `type BoxValue = number | number[]`. Grid-array was already passing `number[]` through functions typed as `number` — TypeScript flagged this with 3 errors that had been silently ignored. Added type guards at the boundary where ctrl-side boxes narrow to `number`.
+

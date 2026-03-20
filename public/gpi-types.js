@@ -7,21 +7,21 @@
 
 const BOX_TYPES = {
   // --- sources (ctrl-side) ---
-  arc:            { zone: "ctrl", description: "Monome Arc encoder. Mode 0: continuous rotation (0-1).", args: "i m", example: "arc 0 0",
+  arc:            { zone: "ctrl", description: "Monome Arc encoder. Mode 0: continuous rotation (0-1). Optional init value.", args: "i m [init]", example: "arc 0 0 0.5",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Encoder position (0-1)" }] },
-  breath:         { zone: "ctrl", description: "BBC2 breath pressure. CC#2.",
+  breath:         { zone: "ctrl", description: "BBC2 breath pressure. CC#2. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
                       { name: "onset", type: "event", description: "Null event at start of breath" },
                       { name: "offset", type: "event", description: "Null event at end of breath" }] },
-  bite:           { zone: "ctrl", description: "BBC2 bite pressure. CC#1.",
+  bite:           { zone: "ctrl", description: "BBC2 bite pressure. CC#1. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
                       { name: "onset", type: "event", description: "Null event at start of bite" },
                       { name: "offset", type: "event", description: "Null event at end of bite" }] },
-  nod:            { zone: "ctrl", description: "BBC2 head nod. CC#12.",
+  nod:            { zone: "ctrl", description: "BBC2 head nod. CC#12. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
-  tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13.",
+  tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
   key:            { zone: "ctrl", description: "MIDI keyboard input.",
                     inlets: [], outlets: [
