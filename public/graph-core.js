@@ -189,6 +189,13 @@ function evaluatePure(type, args, iv) {
     case "sine": return Math.sin(a * Math.PI * 2) * 0.5 + 0.5;
     case "tri": { const yaw = parseFloat(args[0]) || 0.5; return a < yaw ? (yaw > 0 ? a / yaw : 0) : (yaw < 1 ? (1 - a) / (1 - yaw) : 0); }
     case "jitter": { const amount = parseFloat(args[0]) || 0.01; return a + (Math.random() * 2 - 1) * amount; }
+    case "&&": return (a > 0 && b > 0) ? 1 : 0;
+    case "||": return (a > 0 || b > 0) ? 1 : 0;
+    case "xor": return ((a > 0) !== (b > 0)) ? 1 : 0;
+    case "!": return a > 0 ? 0 : 1;
+    case ">": return a > b ? 1 : 0;
+    case "<": return a < b ? 1 : 0;
+    case "==": return Math.abs(a - b) < 0.0001 ? 1 : 0;
     default: return null; // not a pure box
   }
 }

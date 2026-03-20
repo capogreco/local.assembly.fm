@@ -934,3 +934,50 @@ Added `evaluateAllDevices()` which runs after `evaluateAllConsts()` during apply
 
 Widened the type system to make arrays first-class: `type BoxValue = number | number[]`. Grid-array was already passing `number[]` through functions typed as `number` — TypeScript flagged this with 3 errors that had been silently ignored. Added type guards at the boundary where ctrl-side boxes narrow to `number`.
 
+## Explicit audio signal routing — DAC, effects, audio cables (2026-03-20)
+
+### Architecture change
+
+Engines were previously implicit audio sinks — they auto-connected to `voice.destination` internally. Now the audio signal chain is explicit in the patch graph:
+
+```
+formant → reverb → dac
+```
+
+**New concepts:**
+- `dac` box — audio output (maps to `voice.destination`). Zone: synth, role: "dac".
+- `role` field on engine/effect/dac types in gpi-types.js — replaces the old `outlets.length === 0` heuristic for engine detection.
+- Audio cables — visually distinct (bold blue `#8af`, 2.5px width) from control cables (grey, 1px). Connection validation prevents audio↔control mismatches.
+- Audio port type `"audio"` — in gpi-types.js inlet/outlet definitions. Audio ports render in blue.
+
+**Signal flow:** `main.js` traces `audioCables` from the serialized patch, walking backward from the DAC through effects to engines, and builds the corresponding Web Audio node graph. Multiple engines into one DAC sum automatically (Web Audio native behaviour).
+
+**Breaking change:** old patches without a `dac` box produce no audio. Add a `dac` and wire engine audio outlets to it.
+
+### New engines
+
+**Reverb** (`reverb-processor.js`, ~130 lines) — 4-line FDN:
+- Mutually prime delay lengths [1087, 1283, 1511, 1753] samples
+- Hadamard 4x4 feedback matrix (energy preserving)
+- 2 cascaded allpass diffusers at input (53, 79 samples, g=0.6)
+- LFO modulation on delay read positions (de-comb filtering)
+- One-pole LP in feedback path (absorb parameter)
+- DC blocker on output
+- Freeze mode: decay ≥ 0.999 → feedback = 1.0
+- Params: size, decay, absorb, mix, modSpeed, modDepth
+
+**Swarm** (`swarm-processor.js`, ~200 lines) — stochastic event pool:
+- 128 pre-allocated events (parallel typed arrays)
+- Poisson trigger (once per audio block)
+- Per-event: damped sinusoid + optional chirp + optional noise transient + optional biquad resonator
+- Params: rate, freqMin, freqMax, chirp, decay, amplitude, transientMix, resonatorQ, density
+- Parameter regimes yield creek (low rate, no chirp/transient), fizz (high rate, chirp), rain (moderate rate, high transientMix)
+
+### Logic operators
+
+Added `&&`, `||`, `xor`, `!`, `>`, `<`, `==` to gpi-types.js and graph-core.js. Truthy: >0, falsy: ≤0, output: 1 or 0.
+
+### Server serialization
+
+`serializeSynthPatch()` now emits a separate `audioCables` array alongside control `cables`. Engine/effect/dac boxes include a `role` field. `paramNames` uses null placeholders for audio inlets to preserve index alignment with cable `dstInlet`.
+

@@ -1436,17 +1436,32 @@ function serializeSynthPatch(): Record<string, unknown> {
     if (synth) {
       synthIds.add(id);
       const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
-      const isEngine = def.outlets.length === 0 && def.inlets.length > 0;
+      const role = def.role; // "engine", "effect", "dac", or undefined
       // deno-lint-ignore no-explicit-any
       const pb: any = { id, type: name, args };
-      if (isEngine) { pb.engine = true; pb.paramNames = def.inlets.map((i: { name: string }) => i.name); }
+      if (role) pb.role = role;
+      if (role === "engine" || role === "effect") {
+        pb.engine = true;
+        // Use null for audio inlets to preserve index alignment with cable dstInlet
+        pb.paramNames = def.inlets.map((i: { name: string; type: string }) => i.type === "audio" ? null : i.name);
+      }
       patchBoxes.push(pb);
     }
   }
 
+  // Separate audio cables from control cables
+  // deno-lint-ignore no-explicit-any
+  const audioCables: any[] = [];
   for (const [, c] of cables) {
-    if (synthIds.has(c.srcBox) && synthIds.has(c.dstBox))
+    if (!synthIds.has(c.srcBox) || !synthIds.has(c.dstBox)) continue;
+    const srcBox = boxes.get(c.srcBox);
+    const srcDef = srcBox ? getBoxDef(srcBox.text) : null;
+    const srcOutlet = srcDef?.outlets?.[c.srcOutlet];
+    if (srcOutlet?.type === "audio") {
+      audioCables.push({ srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    } else {
       patchCables.push({ srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    }
   }
 
   for (const [id, box] of boxes) {
@@ -1473,7 +1488,7 @@ function serializeSynthPatch(): Record<string, unknown> {
     }
   }
 
-  return { type: "patch", boxes: patchBoxes, cables: patchCables, entries, initialValues };
+  return { type: "patch", boxes: patchBoxes, cables: patchCables, audioCables, entries, initialValues };
 }
 
 function deployPatch(): void {

@@ -23,6 +23,7 @@ const COLORS = {
   routerFill: "#2a2a2a", routerStroke: "#555",
   abstractionFill: "#2a2a3a", abstractionStroke: "#668",
   commentText: "#888",
+  cableAudio: "#8af", portAudio: "#8af",
 };
 const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, SYNTH_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -48,6 +49,8 @@ const ENGINES = {
   "karplus-strong": { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
   "sine-osc":       { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
   noise:            { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
+  swarm:            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
+  reverb:           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
 };
 
 async function initCtrlAudio() {
@@ -668,6 +671,22 @@ class PatchEditor {
     return b ? this.inletPos(b, c.dstInlet, c.dstBox) : null;
   }
 
+  isAudioCable(cable) {
+    const srcBox = this.boxes.get(cable.srcBox);
+    if (!srcBox) return false;
+    const def = getDef(srcBox.text);
+    if (!def) return false;
+    const outlet = def.outlets?.[cable.srcOutlet];
+    return outlet?.type === "audio";
+  }
+
+  isAudioInlet(boxId, inlet) {
+    const box = this.boxes.get(boxId);
+    if (!box) return false;
+    const def = getDef(box.text);
+    return def?.inlets?.[inlet]?.type === "audio";
+  }
+
   inletHasCable(boxId, inlet) {
     for (const c of this.cables.values()) {
       if (c.dstBox === boxId && c.dstInlet === inlet) return true;
@@ -862,16 +881,19 @@ class PatchEditor {
     }
 
     // Cables
-    this.ctx.lineWidth = 1;
     for (const [id, cable] of this.cables) {
       const from = this.cableFromPos(cable), to = this.cableToPos(cable);
       if (!from || !to) continue;
-      this.ctx.strokeStyle = this.cableSelection.has(id) ? COLORS.boxSelectedStroke : COLORS.cable;
+      const audio = this.isAudioCable(cable);
+      this.ctx.lineWidth = audio ? 2.5 : 1;
+      this.ctx.strokeStyle = this.cableSelection.has(id) ? COLORS.boxSelectedStroke
+        : (audio ? COLORS.cableAudio : COLORS.cable);
       this.ctx.beginPath();
       this.ctx.moveTo(from.x, from.y);
       this.ctx.lineTo(to.x, to.y);
       this.ctx.stroke();
     }
+    this.ctx.lineWidth = 1;
 
     // In-progress cable
     if (this.mode === "cabling" && this.cableFrom) {
@@ -970,13 +992,14 @@ class PatchEditor {
       }
 
       // Ports
-      this.ctx.fillStyle = COLORS.port;
       for (let i = 0; i < box.inlets; i++) {
         const p = this.inletPos(box, i, id);
+        this.ctx.fillStyle = def?.inlets?.[i]?.type === "audio" ? COLORS.portAudio : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
       }
       for (let i = 0; i < box.outlets; i++) {
         const p = this.outletPos(box, i, id);
+        this.ctx.fillStyle = def?.outlets?.[i]?.type === "audio" ? COLORS.portAudio : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
       }
     }
@@ -1279,6 +1302,19 @@ class PatchEditor {
     if (this.mode === "cabling" && this.cableFrom) {
       const inlet = this.hitTestInlet(m.x, m.y);
       if (inlet && inlet.boxId !== this.cableFrom.boxId && !this.inletHasCable(inlet.boxId, inlet.index)) {
+        // Validate audio/control type match
+        const srcBoxObj = this.boxes.get(this.cableFrom.boxId);
+        const srcDef = getDef(srcBoxObj?.text);
+        const srcIsAudio = srcDef?.outlets?.[this.cableFrom.index]?.type === "audio";
+        const dstIsAudio = this.isAudioInlet(inlet.boxId, inlet.index);
+        if (srcIsAudio !== dstIsAudio) {
+          // type mismatch — reject cable
+          this.cableFrom = null;
+          this.mode = "idle";
+          this.canvas.style.cursor = "default";
+          this.render();
+          return;
+        }
         this.pushUndo();
         const srcSynth = this.isSynthSide(this.cableFrom.boxId);
         const dstSynth = this.isSynthSide(inlet.boxId);

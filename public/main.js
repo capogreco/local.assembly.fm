@@ -35,9 +35,11 @@ const ENGINES = {
   "karplus-strong": { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
   "sine-osc":       { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
   noise:            { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
+  swarm:            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
+  reverb:           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
 };
 
-async function createEngine(type, destination) {
+async function createEngine(type) {
   const def = ENGINES[type];
   if (!def) return null;
   if (!workletModulesLoaded.has(def.module)) {
@@ -51,7 +53,7 @@ async function createEngine(type, destination) {
     worklet.connect(splitter);
     const out = audioCtx.createGain();
     splitter.connect(out, 0);
-    out.connect(destination);
+    // DO NOT connect to destination — audio topology wires this
     const engine = { type, worklet, splitter, out };
     if (type === "formant") {
       for (const [ch, key] of [[1, "analyserF1"], [2, "analyserF2"], [3, "analyserF3"]]) {
@@ -63,8 +65,51 @@ async function createEngine(type, destination) {
     }
     return engine;
   }
-  worklet.connect(destination);
+  // DO NOT connect to destination — audio topology wires this
   return { type, worklet };
+}
+
+function getEngineOutput(engine) {
+  return engine.out || engine.worklet;
+}
+
+function buildAudioTopology(voice, patch) {
+  const audioCables = patch.audioCables || [];
+  if (audioCables.length === 0) return;
+
+  // Build map: dstBox -> [{ srcBox, srcOutlet, dstInlet }]
+  const incoming = new Map();
+  for (const c of audioCables) {
+    if (!incoming.has(c.dstBox)) incoming.set(c.dstBox, []);
+    incoming.get(c.dstBox).push(c);
+  }
+
+  // Find the DAC box
+  const dacBox = patch.boxes.find(b => b.role === "dac");
+  if (!dacBox) return;
+
+  // Recursively connect upstream audio sources to a destination AudioNode
+  const connected = new Set();
+  function connectUpstream(boxId, destNode) {
+    const cables = incoming.get(boxId);
+    if (!cables) return;
+    for (const cable of cables) {
+      const engine = voice.engines.get(cable.srcBox);
+      if (!engine) continue;
+      const srcNode = getEngineOutput(engine);
+      srcNode.connect(destNode);
+      // If source is an effect, recursively wire its inputs
+      if (!connected.has(cable.srcBox)) {
+        connected.add(cable.srcBox);
+        const srcPatchBox = patch.boxes.find(b => b.id === cable.srcBox);
+        if (srcPatchBox?.role === "effect") {
+          connectUpstream(cable.srcBox, engine.worklet);
+        }
+      }
+    }
+  }
+
+  connectUpstream(dacBox.id, voice.destination);
 }
 
 function sendParams(engine, params, audioParamSet) {
@@ -121,10 +166,14 @@ async function loadPatchForVoice(voice, patch) {
 
   voice.graph = buildGraph({ ...patch, instanceIndex: voice.index, instanceCount: N });
 
+  // Create all engines and effects (unconnected)
   for (const [id, def] of voice.graph.engines) {
-    const engine = await createEngine(def.type, voice.destination);
+    const engine = await createEngine(def.type);
     if (engine) voice.engines.set(id, engine);
   }
+
+  // Wire audio topology from patch audioCables (engines → effects → dac → destination)
+  buildAudioTopology(voice, patch);
 
   // apply const box values to engines
   for (const [engineId, engineDef] of voice.graph.engines) {
