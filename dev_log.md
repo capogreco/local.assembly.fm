@@ -1017,7 +1017,9 @@ Pool increased to 192. Added DC blocker on output. Added `ready` flag to prevent
 
 ### Async load race condition fix (2026-03-21)
 
-`loadPatchForVoice` is async (awaits worklet module loading). When the synth client receives the patch twice in quick succession (initial state + apply), the first load's `await` resolves after the second load has already torn down its engines, creating orphaned worklets that keep running disconnected.
+`loadPatchForVoice` is async (awaits worklet module loading). When the synth client receives the patch twice in quick succession (initial state + apply), the first load's engines get built, then immediately torn down by the second load — wasteful and producing duplicate audio.
 
-Fix: `loadId` counter incremented on each load call. After each `await`, check if the load has been superseded — if so, bail out. Only the latest load completes.
+**Root cause:** The SSE→WebSocket upgrade in `connection.js`. SSE opens, server sends `deployedPatch` via SSE. Meanwhile `tryWebSocket()` is called, WebSocket opens, server sends `deployedPatch` again via WS. Both messages reach `voiceOnMessage` → two `loadPatchForVoice` calls.
+
+**Fix:** Added `upgrading` flag in `connection.js`. When SSE opens and WebSocket upgrade begins, SSE messages are suppressed. Only WebSocket messages are delivered. If WebSocket fails, the flag clears and SSE resumes as active transport. Single patch load, no teardown of wasted work.
 

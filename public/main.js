@@ -155,8 +155,6 @@ function updateParamDisplay() {
 // --- Voice lifecycle ---
 
 async function loadPatchForVoice(voice, patch) {
-  // Cancel any in-flight load
-  const loadId = (voice._loadId = (voice._loadId || 0) + 1);
   voice.patchLoading = true;
   voice.pendingMessages = [];
 
@@ -174,7 +172,6 @@ async function loadPatchForVoice(voice, patch) {
   // Create all engines and effects (unconnected)
   for (const [id, def] of voice.graph.engines) {
     const engine = await createEngine(def.type);
-    if (voice._loadId !== loadId) return; // superseded by newer load
     if (engine) voice.engines.set(id, engine);
   }
 

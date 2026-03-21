@@ -39,16 +39,20 @@ function connect(onMessage, statusEl, countEl, wsOnly, delay) {
     }
   }
 
+  let upgrading = false; // true while attempting WS upgrade — suppress SSE messages
+
   function connectSSE() {
     const eventsUrl = `${location.protocol}//${location.host}/events`;
     sse = new EventSource(eventsUrl);
 
     sse.addEventListener("open", () => {
       setStatus("sse");
+      upgrading = true;
       tryWebSocket();
     });
 
     sse.addEventListener("message", (e) => {
+      if (upgrading) return; // don't deliver messages during WS upgrade attempt
       try { handleRaw(JSON.parse(e.data)); } catch (err) { console.error("SSE message error:", err); }
     });
 
@@ -102,6 +106,7 @@ function connect(onMessage, statusEl, countEl, wsOnly, delay) {
       setStatus("disconnected");
       const delay = settled ? 2000 : 2000 + Math.random() * 3000;
       settled = false;
+      upgrading = false;
       if (wsOnly) setTimeout(tryWebSocket, delay);
       else if (!sse) connectSSE();
     });

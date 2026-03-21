@@ -81,7 +81,6 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === "params") {
-        if (!this.ready) this.port.postMessage({ type: "debug", msg: "first params received", params: msg });
         this.ready = true;
         for (const key of Object.keys(this.targets)) {
           if (msg[key] !== undefined) this.targets[key] = msg[key];
