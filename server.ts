@@ -60,7 +60,7 @@ const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
 const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, isAudioBox, isDac } = boxTypes;
 
 const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
-const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, advanceSig, expandIntegerNotation } = graphCore;
+const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation } = graphCore;
 
 // --- TLS cert check ---
 
@@ -129,9 +129,22 @@ function getSynthClientIds(): number[] {
   return [...synthWsClients.keys(), ...sseClients.keys()];
 }
 
-// --- Router state (for one/sweep/fraction targeting) ---
+// --- Router state (for one/sweep/group targeting) ---
 
 const routerState = new Map<number, { index: number; order?: number[] }>();
+const groupState = new Map<number, number[][]>(); // boxId -> array of groups, each group is array of client IDs
+
+function buildGroups(routerBoxId: number): void {
+  const box = boxes.get(routerBoxId);
+  if (!box) return;
+  const n = parseInt(box.text.split(/\s+/)[1]) || 1;
+  const clients = shuffleArray([...getSynthClientIds()]);
+  const groups: number[][] = Array.from({ length: n }, () => []);
+  for (let i = 0; i < clients.length; i++) {
+    groups[i % n].push(clients[i]);
+  }
+  groupState.set(routerBoxId, groups);
+}
 
 function shuffleArray(arr: number[]): number[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -153,6 +166,24 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue):
     const clients = getSynthClientIds();
     state.order = shuffleArray([...Array(clients.length).keys()]);
     state.index = 0;
+    return;
+  }
+
+  // for `group`: last inlet is shuffle trigger
+  if (routerType === "group") {
+    const n = parseInt(box.text.split(/\s+/)[1]) || 1;
+    if (inlet === n) {
+      // Shuffle trigger — re-randomize groups
+      buildGroups(routerBoxId);
+      return;
+    }
+    // Value inlet — send to that group's phones on channel 0 (single outlet)
+    if (!groupState.has(routerBoxId)) buildGroups(routerBoxId);
+    const groups = groupState.get(routerBoxId)!;
+    if (inlet < groups.length) {
+      const msg = { type: "rv", r: routerBoxId, ch: 0, v: value } as Record<string, unknown>;
+      for (const clientId of groups[inlet]) sendToClient(clientId, msg);
+    }
     return;
   }
 
@@ -202,11 +233,6 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
       const state = routerState.get(routerBoxId)!;
       sendToClient(clients[state.index % clients.length], msg);
       if (opts.advanceSweep) state.index = (state.index + 1) % clients.length;
-      break;
-    }
-    case "fraction": {
-      const frac = parseFloat(box.text.split(/\s+/)[1]) || 0.5;
-      for (const id of clients) if (Math.random() < frac) sendToClient(id, msg);
       break;
     }
     default:
@@ -271,6 +297,8 @@ function broadcastClientCount(): void {
   console.log(`  client count: ${count} (ws:${synthWsClients.size} sse:${sseClients.size})`);
   broadcastSynth({ type: "count", clients: count });
   sendCtrl({ type: "count", clients: count });
+  // Rebuild group router memberships when client count changes
+  for (const boxId of groupState.keys()) buildGroups(boxId);
 }
 
 // --- IP auth tracking ---
@@ -1076,7 +1104,7 @@ function evaluateAllDevices(): void {
 
 // --- Time-based box tick ---
 
-// expandIntegerNotation, advanceSig — imported from graph-core.js
+// expandIntegerNotation — imported from graph-core.js
 
 function initBoxState(id: number, box: Box): void {
   const name = boxTypeName(box.text);
@@ -1154,7 +1182,7 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     if (inlet === 0) { state.paused = !(value > 0); return true; }
     if (inlet === 1) { state.interval = Math.max(0.001, value); return true; }
   }
-  if (name === "sig" && (inlet === 1 || inlet === 2)) {
+  if (name === "seq" && (inlet === 1 || inlet === 2)) {
     // store behaviour/values for next trigger — don't propagate
     let iv = inletValues.get(id);
     if (!iv) { iv = []; inletValues.set(id, iv); }
@@ -1606,6 +1634,9 @@ function handleCtrlWs(req: Request): Response {
         }
       } else if (msg.type === "event-click") {
         propagateAndNotify(msg.id, 0, 1);
+        // Flash the event box briefly
+        queueValueUpdate(msg.id, 1);
+        setTimeout(() => queueValueUpdate(msg.id, 0), 100);
       } else if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }

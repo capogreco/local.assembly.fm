@@ -1149,3 +1149,36 @@ When an audio cable connects to a number inlet (AudioParam modulation), the intr
 - `const~` — constant audio signal (ConstantSourceNode, no inlets)
 - `**~` — audio-rate exponent
 
+### Audio-rate envelope migration (2026-03-25)
+
+All envelope processors (sigmoid~, cosine~, ramp~) migrated from MessagePort to AudioParam for numeric params. Triggers stay on MessagePort. `sendParams` now forwards "trigger" and "gate" messages via MessagePort automatically.
+
+Fixed trigger-before-process race: envelope processors now use `_pendingTrigger` flag. Trigger handler sets flag, `process()` reads fresh AudioParam values before starting the envelope.
+
+New audio-rate envelopes: `adsr~`, `sigmoid~`, `cosine~`, `ramp~`, `step~` (new worklet).
+
+### Merged seq object (2026-03-26)
+
+`sig` (stochastic integer generator) and `sequence` merged into `seq`. Supports all behaviours: `seq 0,0.5,1 asc` (default), `seq 1-12 shuffle`, `seq 100,200 random`, `seq 5,3,1 desc`. Float values supported via comma separation, integer ranges via dash notation.
+
+### Group router (2026-03-26)
+
+`group N` partitions phones into N equal-ish groups. N value inlets + 1 shuffle inlet, 1 outlet. Server sends directly to group members (no wasted bandwidth). Groups auto-rebuild on client connect/disconnect. Removed `fraction` router (achievable synth-side with `random → gate`).
+
+### Fixes (2026-03-26)
+
+- `sendParams` now uses `setValueAtTime` (instant) instead of `setTargetAtTime` (smoothed). Smoothing is explicit via `sig~` portamento. Fixes stale param values at trigger time.
+- Event boxes flash briefly on click (value bar 1→0 over 100ms).
+- `sig~` portamento settable via inlet 1.
+- Synth-side const propagation now uses `propagateInGraph` (full graph traversal including wireless sends). Fixes const→send→receive paths not reaching engines.
+- `getInletDef`/`getOutletDef` helpers resolve port definitions for dynamic types (group router shows correct port colours).
+- Border drag collects boxes to keep them in their zone.
+- LFO processor: removed minValue constraint, clamps in process() instead (no console warnings).
+
+### UI improvements (2026-03-26)
+
+- Arrow key nudging: arrows move selected boxes 1px, shift+arrows 20px.
+- Copy/paste: Cmd+C copies selected boxes + internal cables, Cmd+V pastes with offset and new IDs.
+- Random now accepts optional curve arg: `random 0 1 2` biases toward min.
+- Scale value bar normalizes display to the scale's own range.
+

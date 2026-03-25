@@ -25,11 +25,18 @@ function expandIntegerNotation(s) {
 
 const SIG_BEHAVIOURS = ["shuffle", "asc", "desc", "random"];
 
+function parseValues(s) {
+  // If it contains a dot or only commas (no dashes for ranges), parse as float CSV
+  if (s.includes(".") || !s.match(/\d-\d/)) return s.split(",").map(Number);
+  // Otherwise use integer notation (supports ranges like 1-5)
+  return expandIntegerNotation(s);
+}
+
 function createSigState(args) {
   const parts = args.split(/\s+/);
   const firstIsBehaviour = SIG_BEHAVIOURS.includes(parts[0]);
-  const values = firstIsBehaviour ? [0] : expandIntegerNotation(parts[0] || "1");
-  const behaviour = firstIsBehaviour ? parts[0] : (parts[1] || "shuffle");
+  const values = firstIsBehaviour ? [0] : parseValues(parts[0] || "0");
+  const behaviour = firstIsBehaviour ? parts[0] : (parts[1] || "asc");
   return {
     values: [...values],
     behaviour,
@@ -87,8 +94,8 @@ function cosineShape(t, duty, curve) {
 
 function createBoxState(type, args, instanceIndex, instanceCount) {
   switch (type) {
-    case "sig":
-      return createSigState(args || "1 shuffle");
+    case "seq":
+      return createSigState(args || "0 asc");
     case "range": {
       const parts = (args || "0 1").split(/\s+/).map(Number);
       const min = parts[0] || 0, max = parts[1] || 1;
@@ -114,8 +121,6 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { elapsed: 0, interval: parseFloat(args) || 1, paused: false };
     case "toggle":
       return { value: parseFloat(args) > 0 ? 1 : 0 };
-    case "sequence":
-      return { index: 0, values: (args || "0").split(",").map(Number) };
     case "counter": {
       const parts = (args || "0 7").split(/\s+/).map(Number);
       return { count: parts[0] || 0, min: parts[0] || 0, max: parts[1] || 7 };
@@ -160,7 +165,8 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       const parts = (args || "0 1").split(/\s+/).map(Number);
       const min = parts[0] !== undefined ? parts[0] : 0;
       const max = parts[1] !== undefined ? parts[1] : 1;
-      return { min, max, value: min + Math.random() * (max - min) };
+      const curve = parts[2] || 1;
+      return { min, max, curve, value: min + Math.pow(Math.random(), curve) * (max - min) };
     }
     case "fan":
       return { values: (args || "0").split(/\s+/).map(Number) };
@@ -210,7 +216,7 @@ function evaluateStateful(type, state) {
       const raw = Math.sin(state.phase * Math.PI * 2);
       return state.bipolar ? raw : raw * 0.5 + 0.5;
     }
-    case "sig": return state.values[state.index];
+    case "seq": return state.values[state.index];
     case "phasor": return state.phase;
     case "slew": case "lag": return state.value;
     case "step": return state.active ? state.amplitude : 0;
@@ -227,7 +233,7 @@ function evaluateStateful(type, state) {
 
 function handleBoxEvent(type, state, iv) {
   switch (type) {
-    case "sig":
+    case "seq":
       if (iv[1] !== undefined && typeof iv[1] === "string") state.behaviour = iv[1];
       if (iv[2] !== undefined && Array.isArray(iv[2])) {
         state.values = [...iv[2]];
@@ -244,9 +250,6 @@ function handleBoxEvent(type, state, iv) {
     case "phasor":
       state.phase = 0;
       return { value: 0, propagate: true };
-    case "sequence":
-      state.index = (state.index + 1) % state.values.length;
-      return { value: state.values[state.index], propagate: true };
     case "counter":
       state.count++;
       if (state.count > state.max) state.count = state.min;
@@ -296,7 +299,7 @@ function handleBoxEvent(type, state, iv) {
       state.value = 0;
       return { value: state.value, propagate: false };
     case "random":
-      state.value = state.min + Math.random() * (state.max - state.min);
+      state.value = state.min + Math.pow(Math.random(), state.curve || 1) * (state.max - state.min);
       return { value: state.value, propagate: true };
     case "fan":
       // Output each stored value on its corresponding outlet
@@ -445,7 +448,7 @@ function tickBox(type, state, iv, dt) {
 // --- Event trigger detection ---
 
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "sig" || type === "sequence" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan")) return true;
+  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan")) return true;
   if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
 }

@@ -139,9 +139,12 @@ const BOX_TYPES = {
   delay:          { zone: "any", description: "Delay a value or event.", args: "time", example: "delay 0.5",
                     inlets: [{ name: "in", type: "passthrough", description: "Value or event to delay" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Delayed output" }] },
-  sequence:       { zone: "any", description: "Step through values on each null event.", args: "values", example: "sequence 0,0.5,1,0.5",
-                    inlets: [{ name: "trigger", type: "event", description: "Advance to next step" }],
-                    outlets: [{ name: "value", type: "number", description: "Current step value" }] },
+  seq:            { zone: "any", description: "Sequence iterator. Traverses values by behaviour: asc (default), desc, shuffle, random.", args: "values [behaviour]", example: "seq 1,2,3,5 shuffle",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Advance to next value" },
+                      { name: "behaviour", type: "symbol", description: "Traversal: asc, desc, shuffle, random" },
+                      { name: "values", type: "array", description: "Value array" }],
+                    outlets: [{ name: "value", type: "number", description: "Current value" }] },
   drunk:          { zone: "any", description: "Random walk. Step on each null event.", args: "step", example: "drunk 0.01",
                     inlets: [{ name: "trigger", type: "event", description: "Take one step" }],
                     outlets: [{ name: "value", type: "number", description: "Current position (0-1)" }] },
@@ -150,15 +153,9 @@ const BOX_TYPES = {
                     outlets: [{ name: "value", type: "number", description: "Current count" }] },
 
   // --- generators ---
-  random:         { zone: "any", description: "Random value on each trigger.", args: "min max", example: "random 0 1",
+  random:         { zone: "any", description: "Random value on each trigger. Optional curve: 1=uniform (default), 2+=bias low, 0.5=bias high.", args: "min max [curve]", example: "random 0 1 2",
                     inlets: [{ name: "trigger", type: "event", description: "Generate new random value" }],
                     outlets: [{ name: "value", type: "number", description: "Random value in range" }] },
-  sig:            { zone: "any", description: "Stochastic integer generator. Traverses integer array by behaviour.", args: "values behaviour", example: "sig 1,2,3,5 shuffle",
-                    inlets: [
-                      { name: "trigger", type: "event", description: "Advance to next value" },
-                      { name: "behaviour", type: "symbol", description: "Traversal: shuffle, asc, desc, random" },
-                      { name: "values", type: "array", description: "Integer array" }],
-                    outlets: [{ name: "value", type: "number", description: "Current selected integer" }] },
   range:          { zone: "any", description: "Per-instance random value within bounds.", args: "min max", example: "range 200 800",
                     inlets: [
                       { name: "min", type: "number", description: "Lower bound" },
@@ -257,9 +254,10 @@ const BOX_TYPES = {
   one:            { zone: "router", description: "Send to one phone at a time. Auto-advances on each value.",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "shuffle", type: "event", description: "Randomize visit order" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on selected phone" }] },
-  fraction:       { zone: "router", description: "Send to a random subset of phones.", args: "fraction", example: "fraction 0.5",
-                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
-                    outlets: [{ name: "out", type: "passthrough", description: "Value on selected phones" }] },
+  group:          { zone: "router", description: "Partitioned send. Phones divided into N groups. Last inlet shuffles membership.", args: "groups", example: "group 3",
+                    dynamic: true,
+                    inlets: [{ name: "in", type: "passthrough", description: "Value for this group" }, { name: "shuffle", type: "event", description: "Re-randomize groups" }],
+                    outlets: [{ name: "out", type: "passthrough", description: "Value received by phone" }] },
   sweep:          { zone: "router", description: "Send sequentially across phones on each null event.", args: "steps", example: "sweep 16",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "trigger", type: "event", description: "Advance to next phone" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on current phone" }] },
@@ -332,6 +330,44 @@ const BOX_TYPES = {
                       { name: "attack", type: "number", description: "Attack time in seconds" },
                       { name: "release", type: "number", description: "Release time in seconds" }],
                     outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
+  "adsr~":        { zone: "synth", description: "Audio-rate ADSR envelope. Gate-driven.", args: "a d s r", example: "adsr~ 0.05 0.1 0.7 0.3",
+                    inlets: [
+                      { name: "gate", type: "number", description: "Gate signal (>0 = open)" },
+                      { name: "a", type: "number", description: "Attack time" },
+                      { name: "d", type: "number", description: "Decay time" },
+                      { name: "s", type: "number", description: "Sustain level (0-1)" },
+                      { name: "r", type: "number", description: "Release time" }],
+                    outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
+  "sigmoid~":     { zone: "synth", description: "Audio-rate shaped sigmoid transition.", args: "start end duration duty curve [mode]", example: "sigmoid~ 0 1 0.5 0.5 6",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire envelope" },
+                      { name: "start", type: "number", description: "Start value" },
+                      { name: "end", type: "number", description: "End value" },
+                      { name: "duration", type: "number", description: "Duration in seconds" },
+                      { name: "duty", type: "number", description: "Where transition occurs (0-1)" },
+                      { name: "curve", type: "number", description: "Steepness" }],
+                    outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
+  "cosine~":      { zone: "synth", description: "Audio-rate shaped cosine hump.", args: "amplitude duration duty curve [mode]", example: "cosine~ 1 0.5 0.5 1",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire envelope" },
+                      { name: "amplitude", type: "number", description: "Peak amplitude" },
+                      { name: "duration", type: "number", description: "Duration in seconds" },
+                      { name: "duty", type: "number", description: "Where peak falls (0-1)" },
+                      { name: "curve", type: "number", description: "Peakedness" }],
+                    outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
+  "ramp~":        { zone: "synth", description: "Audio-rate linear ramp.", args: "from to duration", example: "ramp~ 0 1 0.5",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Start ramp" },
+                      { name: "from", type: "number", description: "Start value" },
+                      { name: "to", type: "number", description: "End value" },
+                      { name: "duration", type: "number", description: "Duration in seconds" }],
+                    outlets: [{ name: "out", type: "audio", description: "Ramp signal" }] },
+  "step~":        { zone: "synth", description: "Audio-rate one-shot gate.", args: "amplitude length", example: "step~ 1 0.5",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire" },
+                      { name: "amplitude", type: "number", description: "Peak amplitude" },
+                      { name: "length", type: "number", description: "Hold duration in seconds" }],
+                    outlets: [{ name: "out", type: "audio", description: "Gate signal" }] },
   "+~":           { zone: "synth", description: "Audio-rate add.", args: "[operand]", example: "+~ 100",
                     inlets: [
                       { name: "a", type: "audio", description: "Left operand" },
@@ -471,6 +507,10 @@ function getBoxPorts(text) {
       const n = Math.max(1, text.split(/\s+/).length - 1);
       return { inlets: 1, outlets: n };
     }
+    if (name === "group") {
+      const n = parseInt(text.split(/\s+/)[1]) || 1;
+      return { inlets: n + 1, outlets: 1 }; // N group inlets + 1 shuffle, 1 outlet
+    }
     const n = parseInt(text.split(/\s+/)[1]) || 1;
     return { inlets: n, outlets: n };
   }
@@ -484,6 +524,29 @@ function getBoxZone(text) {
 
 function getBoxDef(text) {
   return BOX_TYPES[boxTypeName(text)] || null;
+}
+
+// Resolve port definition for a specific inlet/outlet index (handles dynamic types)
+function getInletDef(text, index) {
+  const def = BOX_TYPES[boxTypeName(text)];
+  if (!def) return null;
+  const name = boxTypeName(text);
+  if (name === "group") {
+    const n = parseInt(text.split(/\s+/)[1]) || 1;
+    if (index < n) return def.inlets[0]; // group channel inlet
+    if (index === n) return def.inlets[1]; // shuffle inlet
+    return null;
+  }
+  // For other dynamic types (all, fan), repeat the first definition
+  if (def.dynamic && def.inlets.length === 1) return def.inlets[0];
+  return def.inlets?.[index] || null;
+}
+
+function getOutletDef(text, index) {
+  const def = BOX_TYPES[boxTypeName(text)];
+  if (!def) return null;
+  if (def.dynamic && def.outlets.length === 1) return def.outlets[0];
+  return def.outlets?.[index] || null;
 }
 
 // Derive audio characteristics from port types
@@ -507,6 +570,6 @@ function isAudioBox(text) {
 }
 
 // ES module / CJS exports (server.ts uses CJS-style, browser uses ESM)
-if (typeof exports === "object") Object.assign(exports, { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, hasAudioIn, hasAudioOut, isDac, isAudioBox });
-export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+if (typeof exports === "object") Object.assign(exports, { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox });
+export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

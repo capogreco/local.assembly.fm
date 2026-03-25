@@ -6,7 +6,7 @@
 class LFOProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
-      { name: "period", defaultValue: 1, minValue: 0.001, automationRate: "k-rate" },
+      { name: "period", defaultValue: 1, automationRate: "k-rate" },
     ];
   }
 
@@ -22,7 +22,7 @@ class LFOProcessor extends AudioWorkletProcessor {
   process(_inputs, outputs, parameters) {
     const out = outputs[0][0];
     if (!out) return true;
-    const period = parameters.period[0];
+    const period = Math.max(0.001, parameters.period[0]);
     const inc = 1 / (period * sampleRate);
     for (let i = 0; i < out.length; i++) {
       const raw = Math.sin(this.phase * 2 * Math.PI);

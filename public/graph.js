@@ -86,14 +86,11 @@ function buildGraph(patch) {
     graph.wireless.get(name)[role].push(id);
   }
 
-  // seed values from const source boxes
+  // propagate const values through the full graph (including wireless)
   for (const [id, node] of graph.boxes) {
     if (node.type === "const") {
       const val = parseFloat(node.args) || 0;
-      for (const cable of node.outletCables) {
-        const dst = graph.boxes.get(cable.dstBox);
-        if (dst) dst.inletValues[cable.dstInlet] = val;
-      }
+      propagateInGraph(graph, id, 0, val);
     }
   }
 
@@ -186,7 +183,7 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
     } else if (dstNode.type === "ar") {
       if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
       if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
-    } else if (dstNode.type === "sig" && cable.dstInlet >= 1) {
+    } else if (dstNode.type === "seq" && cable.dstInlet >= 1) {
       // behaviour/values inlets
     } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
       if (dstNode.state) {

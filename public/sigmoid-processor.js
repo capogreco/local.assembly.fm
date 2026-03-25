@@ -1,8 +1,7 @@
 /**
  * Sigmoid — audio-rate shaped transition from start to end.
  * Phase-distorted sigmoid with variable duty and curve.
- * Triggered via message port: { type: "trigger", start, end, duration, duty, curve }
- * Posts { type: "end" } on completion.
+ * Numeric params via AudioParam, trigger via MessagePort.
  */
 
 function sigmoidShape(t, duty, curve) {
@@ -17,56 +16,58 @@ function sigmoidShape(t, duty, curve) {
 }
 
 class SigmoidProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: "start",    defaultValue: 0,   automationRate: "k-rate" },
+      { name: "end",      defaultValue: 1,   automationRate: "k-rate" },
+      { name: "duration", defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "duty",     defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "curve",    defaultValue: 6,   automationRate: "k-rate" },
+    ];
+  }
+
   constructor() {
     super();
-    this.start = 0;
-    this.value = this.start;
-    this.end = 1;
-    this.duration = 0.5;
-    this.duty = 0.5;
-    this.curve = 6;
+    this.value = 0;
     this.phase = "idle";
     this.elapsed = 0;
     this.mode = "respect";
+    this._pendingTrigger = false;
     this.port.onmessage = (e) => {
       if (e.data.type === "trigger") {
         if (this.mode === "respect" && this.phase === "running") return;
-        if (e.data.start !== undefined) this.start = e.data.start;
-        if (e.data.end !== undefined) this.end = e.data.end;
-        if (e.data.duration !== undefined) this.duration = Math.max(0.001, e.data.duration);
-        if (e.data.duty !== undefined) this.duty = e.data.duty;
-        if (e.data.curve !== undefined) this.curve = e.data.curve;
-        this.value = this.start;
-        this.phase = "running";
-        this.elapsed = 0;
+        this._pendingTrigger = true;
       }
-      if (e.data.type === "params") {
-        if (e.data.start !== undefined) {
-          this.start = e.data.start;
-          if (this.phase === "idle") this.value = this.start;
-        }
-        if (e.data.end !== undefined) this.end = e.data.end;
-        if (e.data.duration !== undefined) this.duration = Math.max(0.001, e.data.duration);
-        if (e.data.duty !== undefined) this.duty = e.data.duty;
-        if (e.data.curve !== undefined) this.curve = e.data.curve;
-        if (e.data.mode !== undefined) this.mode = e.data.mode;
-      }
+      if (e.data.mode !== undefined) this.mode = e.data.mode;
     };
   }
 
-  process(_inputs, outputs) {
-    const out = outputs[0][0];
+  process(_inputs, outputs, parameters) {
+    const out = outputs[0]?.[0];
     if (!out) return true;
+
+    const start = parameters.start[0];
+    // Handle trigger with fresh param values
+    if (this._pendingTrigger) {
+      this._pendingTrigger = false;
+      this._startVal = start;
+      this.value = start;
+      this.phase = "running";
+      this.elapsed = 0;
+    }
+    const end = parameters.end[0];
+    const duration = Math.max(0.001, parameters.duration[0]);
+    const duty = parameters.duty[0];
+    const curve = parameters.curve[0];
     const dt = 1 / sampleRate;
     let ended = false;
 
     for (let i = 0; i < out.length; i++) {
       if (this.phase === "running") {
         this.elapsed += dt;
-        const t = Math.min(1, this.elapsed / this.duration);
-        const shaped = sigmoidShape(t, this.duty, this.curve);
-        this.value = this.start + (this.end - this.start) * shaped;
-        if (t >= 1) { this.value = this.end; this.phase = "idle"; ended = true; }
+        const t = Math.min(1, this.elapsed / duration);
+        this.value = this._startVal + (end - this._startVal) * sigmoidShape(t, duty, curve);
+        if (t >= 1) { this.value = end; this.phase = "idle"; ended = true; }
       }
       out[i] = this.value;
     }

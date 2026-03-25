@@ -1,8 +1,7 @@
 /**
  * Cosine — audio-rate shaped hump envelope (returns to zero).
  * Phase-distorted cosine with variable duty and curve.
- * Triggered via message port: { type: "trigger", amplitude, duration, duty, curve }
- * Posts { type: "end" } on completion.
+ * Numeric params via AudioParam, trigger via MessagePort.
  */
 
 function cosineShape(t, duty, curve) {
@@ -17,47 +16,52 @@ function cosineShape(t, duty, curve) {
 }
 
 class CosineProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: "amplitude", defaultValue: 1,   automationRate: "k-rate" },
+      { name: "duration",  defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "duty",      defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "curve",     defaultValue: 1,   automationRate: "k-rate" },
+    ];
+  }
+
   constructor() {
     super();
     this.value = 0;
-    this.amplitude = 1;
-    this.duration = 0.5;
-    this.duty = 0.5;
-    this.curve = 1;
     this.phase = "idle";
     this.elapsed = 0;
     this.mode = "respect";
+    this._pendingTrigger = false;
     this.port.onmessage = (e) => {
       if (e.data.type === "trigger") {
         if (this.mode === "respect" && this.phase === "running") return;
-        if (e.data.amplitude !== undefined) this.amplitude = e.data.amplitude;
-        if (e.data.duration !== undefined) this.duration = Math.max(0.001, e.data.duration);
-        if (e.data.duty !== undefined) this.duty = e.data.duty;
-        if (e.data.curve !== undefined) this.curve = e.data.curve;
-        this.phase = "running";
-        this.elapsed = 0;
+        this._pendingTrigger = true;
       }
-      if (e.data.type === "params") {
-        if (e.data.amplitude !== undefined) this.amplitude = e.data.amplitude;
-        if (e.data.duration !== undefined) this.duration = Math.max(0.001, e.data.duration);
-        if (e.data.duty !== undefined) this.duty = e.data.duty;
-        if (e.data.curve !== undefined) this.curve = e.data.curve;
-        if (e.data.mode !== undefined) this.mode = e.data.mode;
-      }
+      if (e.data.mode !== undefined) this.mode = e.data.mode;
     };
   }
 
-  process(_inputs, outputs) {
-    const out = outputs[0][0];
+  process(_inputs, outputs, parameters) {
+    const out = outputs[0]?.[0];
     if (!out) return true;
+
+    const amp = parameters.amplitude[0];
+    if (this._pendingTrigger) {
+      this._pendingTrigger = false;
+      this.phase = "running";
+      this.elapsed = 0;
+    }
+    const duration = Math.max(0.001, parameters.duration[0]);
+    const duty = parameters.duty[0];
+    const curve = parameters.curve[0];
     const dt = 1 / sampleRate;
     let ended = false;
 
     for (let i = 0; i < out.length; i++) {
       if (this.phase === "running") {
         this.elapsed += dt;
-        const t = Math.min(1, this.elapsed / this.duration);
-        this.value = this.amplitude * cosineShape(t, this.duty, this.curve);
+        const t = Math.min(1, this.elapsed / duration);
+        this.value = amp * cosineShape(t, duty, curve);
         if (t >= 1) { this.value = 0; this.phase = "idle"; ended = true; }
       }
       out[i] = this.value;

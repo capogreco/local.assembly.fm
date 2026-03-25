@@ -6,7 +6,7 @@
  * Also hosts ctrl-side engines (above-border) with audio output to laptop speakers.
  */
 
-import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef } from "./gpi-types.js";
+import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef } from "./gpi-types.js";
 
 // DOM elements
 const canvas = document.getElementById("c");
@@ -675,17 +675,13 @@ class PatchEditor {
   isAudioCable(cable) {
     const srcBox = this.boxes.get(cable.srcBox);
     if (!srcBox) return false;
-    const def = getDef(srcBox.text);
-    if (!def) return false;
-    const outlet = def.outlets?.[cable.srcOutlet];
-    return outlet?.type === "audio";
+    return getOutletDef(srcBox.text, cable.srcOutlet)?.type === "audio";
   }
 
   isAudioInlet(boxId, inlet) {
     const box = this.boxes.get(boxId);
     if (!box) return false;
-    const def = getDef(box.text);
-    return def?.inlets?.[inlet]?.type === "audio";
+    return getInletDef(box.text, inlet)?.type === "audio";
   }
 
   inletHasCable(boxId, inlet) {
@@ -973,9 +969,17 @@ class PatchEditor {
       // Value bar
       if (this.boxValues.has(id)) {
         const val = this.boxValues.get(id);
-        if (val >= 0 && val <= 1) {
+        let barVal = val;
+        // Normalize scale box display to its own range
+        const _tn = boxTypeName(box.text);
+        if (_tn === "scale" && typeof val === "number") {
+          const _args = box.text.split(/\s+/).slice(1);
+          const sMin = parseFloat(_args[0]) || 0, sMax = parseFloat(_args[1]) || 1;
+          barVal = sMax !== sMin ? (val - sMin) / (sMax - sMin) : 0;
+        }
+        if (typeof barVal === "number" && barVal >= 0 && barVal <= 1) {
           this.ctx.fillStyle = "#4a4a4a";
-          this.ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * val, BOX_HEIGHT - 2);
+          this.ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * barVal, BOX_HEIGHT - 2);
         }
       }
 
@@ -996,14 +1000,14 @@ class PatchEditor {
       // Ports
       for (let i = 0; i < box.inlets; i++) {
         const p = this.inletPos(box, i, id);
-        const iType = def?.inlets?.[i]?.type;
-        this.ctx.fillStyle = iType === "audio" ? COLORS.portAudio : iType === "event" ? COLORS.portEvent : COLORS.port;
+        const iDef = getInletDef(box.text, i);
+        this.ctx.fillStyle = iDef?.type === "audio" ? COLORS.portAudio : iDef?.type === "event" ? COLORS.portEvent : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
       }
       for (let i = 0; i < box.outlets; i++) {
         const p = this.outletPos(box, i, id);
-        const oType = def?.outlets?.[i]?.type;
-        this.ctx.fillStyle = oType === "audio" ? COLORS.portAudio : oType === "event" ? COLORS.portEvent : COLORS.port;
+        const oDef = getOutletDef(box.text, i);
+        this.ctx.fillStyle = oDef?.type === "audio" ? COLORS.portAudio : oDef?.type === "event" ? COLORS.portEvent : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
       }
     }
@@ -1196,9 +1200,19 @@ class PatchEditor {
     this.mousePos = m;
 
     if (this.mode === "resizing-synth") {
-      this.synthBorderY = Math.max(100, m.y);
+      const newY = Math.max(30, m.y);
+      const oldY = this.synthBorderY;
+      this.synthBorderY = newY;
       for (const [, box] of this.boxes) {
-        if (this.isRouterType(box.text)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
+        if (this.isRouterType(box.text)) {
+          box.y = newY - BOX_HEIGHT / 2;
+        } else if (newY > oldY) {
+          // Border moving down — push synth boxes down to stay in synth zone
+          if (box.y >= oldY && box.y < newY) box.y = newY + 4;
+        } else if (newY < oldY) {
+          // Border moving up — push ctrl boxes up to stay in ctrl zone
+          if (box.y + BOX_HEIGHT > newY && box.y + BOX_HEIGHT <= oldY) box.y = newY - BOX_HEIGHT - 4;
+        }
       }
       this.render();
       return;
@@ -1322,7 +1336,7 @@ class PatchEditor {
         // - number → number: OK (control)
         const srcBoxObj = this.boxes.get(this.cableFrom.boxId);
         const srcDef = getDef(srcBoxObj?.text);
-        const srcIsAudio = srcDef?.outlets?.[this.cableFrom.index]?.type === "audio";
+        const srcIsAudio = getOutletDef(srcBoxObj?.text, this.cableFrom.index)?.type === "audio";
         const dstIsAudio = this.isAudioInlet(inlet.boxId, inlet.index);
         if (!srcIsAudio && dstIsAudio) {
           // number → audio: rejected, use sig~ to bridge
@@ -1451,6 +1465,21 @@ class PatchEditor {
         this.render();
         return true;
       }
+    }
+
+    // Arrow key nudging
+    if (this.selection.size > 0 && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      const step = e.shiftKey ? 20 : 1;
+      const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+      const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+      for (const id of this.selection) {
+        const box = this.boxes.get(id);
+        if (box) { box.x += dx; box.y += dy; }
+      }
+      this.dirty = true;
+      this.render();
+      return true;
     }
 
     if (e.key === "Enter" && this.selection.size === 1) {
@@ -1725,6 +1754,48 @@ window.addEventListener("keydown", (e) => {
   if (mainEditor.mode === "editing") return;
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); mainEditor.undo(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+    e.preventDefault();
+    if (mainEditor.selection.size === 0) return;
+    // Copy selected boxes + internal cables
+    const copyBoxes = [];
+    const copyCables = [];
+    for (const id of mainEditor.selection) {
+      const box = mainEditor.boxes.get(id);
+      if (box) copyBoxes.push([id, { ...box }]);
+    }
+    for (const [cid, c] of mainEditor.cables) {
+      if (mainEditor.selection.has(c.srcBox) && mainEditor.selection.has(c.dstBox)) {
+        copyCables.push([cid, { ...c }]);
+      }
+    }
+    mainEditor._clipboard = { boxes: copyBoxes, cables: copyCables };
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === "v") {
+    e.preventDefault();
+    if (!mainEditor._clipboard) return;
+    mainEditor.pushUndo();
+    const idMap = new Map();
+    const newSel = new Set();
+    const offset = 30;
+    for (const [oldId, box] of mainEditor._clipboard.boxes) {
+      const newId = mainEditor.nextId++;
+      idMap.set(oldId, newId);
+      mainEditor.boxes.set(newId, { x: box.x + offset, y: box.y + offset, text: box.text, inlets: box.inlets, outlets: box.outlets });
+      newSel.add(newId);
+    }
+    for (const [, c] of mainEditor._clipboard.cables) {
+      if (idMap.has(c.srcBox) && idMap.has(c.dstBox)) {
+        mainEditor.cables.set(mainEditor.nextId++, { srcBox: idMap.get(c.srcBox), srcOutlet: c.srcOutlet, dstBox: idMap.get(c.dstBox), dstInlet: c.dstInlet });
+      }
+    }
+    mainEditor.selection.clear();
+    for (const id of newSel) mainEditor.selection.add(id);
+    mainEditor.dirty = true;
+    mainEditor.render();
+    return;
+  }
   if (e.key === "z" && !e.metaKey && !e.ctrlKey) {
     e.preventDefault();
     if (mainEditor.zoom < 1) mainEditor.resetView();

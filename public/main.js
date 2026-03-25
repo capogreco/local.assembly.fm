@@ -90,10 +90,15 @@ const NATIVE_NODES = new Set([
 ]);
 
 const SIGNAL_WORKLETS = {
-  "lfo~":    { module: "lfo-processor.js",    worklet: "lfo-processor" },
-  "phasor~": { module: "phasor-processor.js", worklet: "phasor-processor" },
-  "ar~":     { module: "ar-processor.js",     worklet: "ar-processor" },
-  "slew~":   { module: "slew-processor.js",   worklet: "slew-processor" },
+  "lfo~":     { module: "lfo-processor.js",     worklet: "lfo-processor" },
+  "phasor~":  { module: "phasor-processor.js",  worklet: "phasor-processor" },
+  "ar~":      { module: "ar-processor.js",      worklet: "ar-processor" },
+  "adsr~":    { module: "adsr-processor.js",    worklet: "adsr-processor" },
+  "sigmoid~": { module: "sigmoid-processor.js", worklet: "sigmoid-processor" },
+  "cosine~":  { module: "cosine-processor.js",  worklet: "cosine-processor" },
+  "ramp~":    { module: "ramp-processor.js",    worklet: "ramp-processor" },
+  "step~":    { module: "step-processor.js",    worklet: "step-processor" },
+  "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
   "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
 };
 
@@ -167,7 +172,7 @@ async function createSignalWorklet(type, args) {
   const paramMap = {};
   for (const [name, param] of node.parameters) paramMap[name] = param;
 
-  // Set initial values from args
+  // Set initial values from args (via message port for envelope config)
   if (type === "lfo~") {
     if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
   } else if (type === "phasor~") {
@@ -175,6 +180,33 @@ async function createSignalWorklet(type, args) {
   } else if (type === "ar~") {
     if (tokens[0]) node.parameters.get("attack")?.setValueAtTime(parseFloat(tokens[0]), 0);
     if (tokens[1]) node.parameters.get("release")?.setValueAtTime(parseFloat(tokens[1]), 0);
+  } else if (type === "adsr~") {
+    if (tokens[0]) node.parameters.get("a")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("d")?.setValueAtTime(parseFloat(tokens[1]), 0);
+    if (tokens[2]) node.parameters.get("s")?.setValueAtTime(parseFloat(tokens[2]), 0);
+    if (tokens[3]) node.parameters.get("r")?.setValueAtTime(parseFloat(tokens[3]), 0);
+  } else if (type === "sigmoid~") {
+    if (tokens[0]) node.parameters.get("start")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("end")?.setValueAtTime(parseFloat(tokens[1]), 0);
+    if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0);
+    if (tokens[3]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[3]), 0);
+    if (tokens[4]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[4]), 0);
+    const modeToken = tokens.find(t => t === "interrupt" || t === "respect");
+    if (modeToken) node.port.postMessage({ mode: modeToken });
+  } else if (type === "cosine~") {
+    if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[1]), 0);
+    if (tokens[2]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[2]), 0);
+    if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0);
+    const modeToken = tokens.find(t => t === "interrupt" || t === "respect");
+    if (modeToken) node.port.postMessage({ mode: modeToken });
+  } else if (type === "ramp~") {
+    if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0);
+    if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0);
+  } else if (type === "step~") {
+    if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0);
   } else if (type === "slew~") {
     if (tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
   }
@@ -318,17 +350,23 @@ function sendParams(engine, params) {
   Object.assign(engine.currentParams, params);
   // Update portamento time if provided (sig~ inlet 1)
   if (params.portamento !== undefined) engine.portaTime = params.portamento;
-  const timeConst = engine.portaTime > 0 ? engine.portaTime : 0.005;
+  const port = engine.worklet?.port;
+  const now = audioCtx.currentTime;
   for (const [k, v] of Object.entries(params)) {
-    if (k === "portamento") continue; // not an AudioParam
+    if (k === "portamento") continue;
+    // Event trigger — forward via MessagePort
+    if (k === "trigger" && port) { port.postMessage({ type: "trigger" }); continue; }
+    // Gate — forward via MessagePort (adsr)
+    if (k === "gate" && port) { port.postMessage({ type: "gate", value: v }); continue; }
     if (typeof v !== "number") continue;
-    // Native node: use paramMap
-    if (engine.paramMap?.[k]) {
-      engine.paramMap[k].setTargetAtTime(v, audioCtx.currentTime, timeConst);
-    }
-    // Worklet: use parameters AudioParamMap
-    else if (engine.worklet?.parameters?.has(k)) {
-      engine.worklet.parameters.get(k).setTargetAtTime(v, audioCtx.currentTime, 0.005);
+    // sig~ uses portamento; everything else is instant
+    const param = engine.paramMap?.[k] || (engine.worklet?.parameters?.has(k) ? engine.worklet.parameters.get(k) : null);
+    if (param) {
+      if (engine.portaTime > 0) {
+        param.setTargetAtTime(v, now, engine.portaTime);
+      } else {
+        param.setValueAtTime(v, now);
+      }
     }
   }
 }
