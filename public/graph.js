@@ -30,6 +30,7 @@ function buildGraph(patch) {
     entries: new Map(),
     engines: new Map(),
     envelopes: new Map(),
+    wireless: new Map(),    // name -> { sends: [boxId], receives: [boxId], throws: [boxId], catches: [boxId] }
   };
 
   for (const box of patch.boxes) {
@@ -71,6 +72,18 @@ function buildGraph(patch) {
         paramNames: box.paramNames || [],
       });
     }
+  }
+
+  // build wireless send/receive map
+  const wirelessTypes = { send: "sends", s: "sends", receive: "receives", r: "receives",
+                          throw: "throws", catch: "catches" };
+  for (const [id, node] of graph.boxes) {
+    const role = wirelessTypes[node.type];
+    if (!role) continue;
+    const name = node.args.trim();
+    if (!name) continue;
+    if (!graph.wireless.has(name)) graph.wireless.set(name, { sends: [], receives: [], throws: [], catches: [] });
+    graph.wireless.get(name)[role].push(id);
   }
 
   // seed values from const source boxes
@@ -122,6 +135,32 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
     if (!dstNode) continue;
 
     dstNode.inletValues[cable.dstInlet] = value;
+
+    // Wireless send/throw: propagate to matching receives/catches
+    if (dstNode.type === "send" || dstNode.type === "s") {
+      const name = dstNode.args.trim();
+      const w = graph.wireless.get(name);
+      if (w) {
+        for (const recvId of w.receives) {
+          mergeUpdates(updates, propagateInGraph(graph, recvId, 0, value));
+        }
+      }
+      continue;
+    }
+    if (dstNode.type === "throw") {
+      const name = dstNode.args.trim();
+      const w = graph.wireless.get(name);
+      if (w) {
+        for (const catchId of w.catches) {
+          const catchNode = graph.boxes.get(catchId);
+          if (catchNode) {
+            catchNode.inletValues[0] = (catchNode.inletValues[0] || 0) + value;
+            mergeUpdates(updates, propagateInGraph(graph, catchId, 0, catchNode.inletValues[0]));
+          }
+        }
+      }
+      continue;
+    }
 
     if (graph.engines.has(cable.dstBox)) {
       const engine = graph.engines.get(cable.dstBox);

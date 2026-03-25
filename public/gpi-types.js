@@ -270,15 +270,43 @@ const BOX_TYPES = {
                       { name: "trigger", type: "event", description: "Sample now" }],
                     outlets: [{ name: "out", type: "number", description: "Held value" }] },
 
-  // --- audio output ---
-  dac:            { zone: "synth", description: "Audio output. Connects to phone speaker.",
+  // --- wireless connections (control-rate) ---
+  send:           { zone: "any", description: "Wireless send. One-to-many.", args: "name", example: "send freq",
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }], outlets: [] },
+  s:              { zone: "any", description: "Wireless send (shorthand).", args: "name", example: "s freq",
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to send" }], outlets: [] },
+  receive:        { zone: "any", description: "Wireless receive. Receives from matching send.", args: "name", example: "receive freq",
+                    inlets: [], outlets: [{ name: "out", type: "passthrough", description: "Received value" }] },
+  r:              { zone: "any", description: "Wireless receive (shorthand).", args: "name", example: "r freq",
+                    inlets: [], outlets: [{ name: "out", type: "passthrough", description: "Received value" }] },
+  throw:          { zone: "any", description: "Wireless throw. Many-to-one summing bus.", args: "name", example: "throw mix",
+                    inlets: [{ name: "in", type: "number", description: "Value to add" }], outlets: [] },
+  catch:          { zone: "any", description: "Wireless catch. Sums all matching throws.", args: "name", example: "catch mix",
+                    inlets: [], outlets: [{ name: "out", type: "number", description: "Summed value" }] },
+
+  // --- wireless connections (audio-rate) ---
+  "send~":        { zone: "synth", description: "Wireless audio send. One-to-many.", args: "name", example: "send~ verb",
+                    inlets: [{ name: "in", type: "audio", description: "Audio to send" }], outlets: [] },
+  "s~":           { zone: "synth", description: "Wireless audio send (shorthand).", args: "name", example: "s~ verb",
+                    inlets: [{ name: "in", type: "audio", description: "Audio to send" }], outlets: [] },
+  "receive~":     { zone: "synth", description: "Wireless audio receive. Receives from matching send~.", args: "name", example: "receive~ verb",
+                    inlets: [], outlets: [{ name: "out", type: "audio", description: "Received audio" }] },
+  "r~":           { zone: "synth", description: "Wireless audio receive (shorthand).", args: "name", example: "r~ verb",
+                    inlets: [], outlets: [{ name: "out", type: "audio", description: "Received audio" }] },
+  "throw~":       { zone: "synth", description: "Wireless audio throw. Many-to-one summing bus.", args: "name", example: "throw~ mix",
+                    inlets: [{ name: "in", type: "audio", description: "Audio to add" }], outlets: [] },
+  "catch~":       { zone: "synth", description: "Wireless audio catch. Sums all matching throw~.", args: "name", example: "catch~ mix",
+                    inlets: [], outlets: [{ name: "out", type: "audio", description: "Summed audio" }] },
+
+  // --- audio-rate objects (~) — any box with audio ports ---
+  "dac~":         { zone: "synth", description: "Audio output. Connects to phone speaker.",
                     inlets: [{ name: "in", type: "audio", description: "Audio signal" }],
                     outlets: [] },
-
-  // --- audio-rate signal objects (~) ---
-  "sig~":         { zone: "synth", description: "Convert number to audio signal. ConstantSourceNode bridge.",
-                    inlets: [{ name: "value", type: "number", description: "Value to output as audio" }],
-                    outlets: [{ name: "out", type: "audio", description: "Constant audio signal" }] },
+  "sig~":         { zone: "synth", description: "Convert number to audio signal. Optional portamento time in seconds.", args: "[portamento]", example: "sig~ 0.1",
+                    inlets: [
+                      { name: "value", type: "number", description: "Value to output as audio" },
+                      { name: "portamento", type: "number", description: "Glide time in seconds" }],
+                    outlets: [{ name: "out", type: "audio", description: "Audio signal" }] },
   "osc~":         { zone: "synth", description: "Audio-rate oscillator. Types: sine, square, sawtooth, triangle.", args: "[freq] [type]", example: "osc~ 2 sine",
                     inlets: [
                       { name: "frequency", type: "number", description: "Frequency in Hz" },
@@ -334,18 +362,17 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "audio", description: "Input" }],
                     outlets: [{ name: "out", type: "audio", description: "Smoothed output" }] },
 
-  // --- native Web Audio API nodes ---
-  oscillatorNode: { zone: "synth", description: "Native Web Audio oscillator. Types: sine, square, sawtooth, triangle.", args: "[type]", example: "oscillatorNode sawtooth",
+  "oscillatorNode~": { zone: "synth", description: "Native Web Audio oscillator. Types: sine, square, sawtooth, triangle.", args: "[type]", example: "oscillatorNode~ sawtooth",
                     inlets: [
                       { name: "frequency", type: "number", description: "Frequency in Hz" },
                       { name: "detune", type: "number", description: "Detune in cents" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  gainNode:       { zone: "synth", description: "Native Web Audio gain. Multiplies audio signal.", args: "[gain]", example: "gainNode 0.5",
+  "gainNode~":    { zone: "synth", description: "Native Web Audio gain. Multiplies audio signal.", args: "[gain]", example: "gainNode~ 0.5",
                     inlets: [
                       { name: "in", type: "audio", description: "Audio input" },
                       { name: "gain", type: "number", description: "Gain multiplier (default 1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  biquadFilterNode: { zone: "synth", description: "Native Web Audio biquad filter. Types: lowpass, highpass, bandpass, notch, allpass, peaking, lowshelf, highshelf.", args: "[type]", example: "biquadFilterNode highpass",
+  "biquadFilterNode~": { zone: "synth", description: "Native Web Audio biquad filter. Types: lowpass, highpass, bandpass, notch, allpass, peaking, lowshelf, highshelf.", args: "[type]", example: "biquadFilterNode~ highpass",
                     inlets: [
                       { name: "in", type: "audio", description: "Audio input" },
                       { name: "frequency", type: "number", description: "Cutoff/center frequency in Hz" },
@@ -354,8 +381,7 @@ const BOX_TYPES = {
                       { name: "detune", type: "number", description: "Detune in cents" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
 
-  // --- audio effects ---
-  reverb:         { zone: "synth", description: "FDN reverb. Metallic resonance to deep halls. Freeze at decay=1.",
+  "reverb~":      { zone: "synth", description: "FDN reverb. Metallic resonance to deep halls. Freeze at decay=1.",
                     inlets: [
                       { name: "in", type: "audio", description: "Audio input" },
                       { name: "size", type: "number", description: "Room size (0-1)" },
@@ -366,40 +392,32 @@ const BOX_TYPES = {
                       { name: "modDepth", type: "number", description: "Mod LFO depth (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Processed audio" }] },
 
-  // --- engines (synth-side) ---
-  "sine-osc":     { zone: "synth", description: "Pure sine tone oscillator.",
+  "sine-osc~":    { zone: "synth", description: "Pure sine tone oscillator.",
                     inlets: [
                       { name: "freq", type: "number", description: "Frequency in Hz" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  noise:          { zone: "synth", description: "Filtered noise generator.",
+  "noise-engine~": { zone: "synth", description: "Filtered noise generator.",
                     inlets: [
                       { name: "cutoff", type: "number", description: "Lowpass cutoff in Hz (20-20000)" },
                       { name: "resonance", type: "number", description: "Filter resonance (0-1)" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  shepard:        { zone: "synth", description: "Shepard tone generator.",
+  "shepard~":     { zone: "synth", description: "Shepard tone generator.",
                     inlets: [
                       { name: "baseFreq", type: "number", description: "Base frequency in Hz" },
                       { name: "partialCount", type: "number", description: "Number of partials" },
                       { name: "bandwidth", type: "number", description: "Spectral bandwidth" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "impulse-cloud": { zone: "synth", description: "Stochastic impulse cloud.",
+  "impulse-cloud~": { zone: "synth", description: "Stochastic impulse cloud.",
                     inlets: [
                       { name: "density", type: "number", description: "Events per second" },
                       { name: "width", type: "number", description: "Impulse width in samples" },
                       { name: "freq", type: "number", description: "Center frequency in Hz" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  bass:           { zone: "synth", description: "Bass oscillator. Square/saw with filter and PWM.",
-                    inlets: [
-                      { name: "freq", type: "number", description: "Frequency in Hz" },
-                      { name: "filterCutoff", type: "number", description: "Lowpass cutoff in Hz" },
-                      { name: "pwm", type: "number", description: "Pulse width (0-1)" },
-                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
-                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  formant:        { zone: "synth", description: "Formant synthesis. Vowel-space interpolation with FM and ring modulation.",
+  "formant~":     { zone: "synth", description: "Formant synthesis. Vowel-space interpolation with FM and ring modulation.",
                     inlets: [
                       { name: "frequency", type: "number", description: "Fundamental frequency in Hz" },
                       { name: "vowelX", type: "number", description: "Vowel X axis (0-1, front-back)" },
@@ -408,7 +426,7 @@ const BOX_TYPES = {
                       { name: "symmetry", type: "number", description: "Waveform asymmetry (0-1)" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "karplus-strong": { zone: "synth", description: "Karplus-Strong plucked string synthesis.",
+  "karplus-strong~": { zone: "synth", description: "Karplus-Strong plucked string synthesis.",
                     inlets: [
                       { name: "freq", type: "number", description: "Frequency in Hz" },
                       { name: "damping", type: "number", description: "Decay rate (0-1)" },
@@ -416,7 +434,7 @@ const BOX_TYPES = {
                       { name: "excitation", type: "number", description: "Noise burst level (0-1)" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  swarm:          { zone: "synth", description: "Resonant event swarm. Water, rain, fizz, metallic textures via parameter regimes.",
+  "swarm~":       { zone: "synth", description: "Resonant event swarm. Water, rain, fizz, metallic textures via parameter regimes.",
                     inlets: [
                       { name: "rate", type: "number", description: "Events per second" },
                       { name: "freqMin", type: "number", description: "Min frequency in Hz" },
@@ -472,7 +490,7 @@ function hasAudioOut(text) {
 }
 
 function isDac(text) {
-  return boxTypeName(text) === "dac";
+  return boxTypeName(text) === "dac~";
 }
 
 // Does this box need an AudioNode? (has any audio ports)

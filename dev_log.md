@@ -1116,6 +1116,18 @@ Introduced Pd-style `~` suffix objects for explicit audio-rate signal processing
 
 The automatic audio-rate hoisting system (`identifyAudioBoxes`, `buildAudioSubgraph`, `CONTINUOUS_TYPES`, `loadModWorklets`, `audioConnectedParams` notification) is deleted entirely. All audio-rate processing is now explicit via `~` objects placed by the user. Removed from `main.js`, `graph.js`, `index.html`, `ensemble.html`.
 
+### `~` naming convention
+
+All objects with audio ports get the `~` suffix. Renamed: `dac~`, `formant~`, `swarm~`, `sine-osc~`, `noise-engine~`, `karplus-strong~`, `shepard~`, `impulse-cloud~`, `reverb~`, `oscillatorNode~`, `gainNode~`, `biquadFilterNode~`. Removed `bass~` (redundant with native nodes). Breaking change for all existing patches.
+
+### `sig~` portamento
+
+`sig~` now accepts an optional portamento time arg: `sig~ 0.1` = 100ms glide. Also settable dynamically via inlet 1. The `portaTime` is used by `sendParams` as the `setTargetAtTime` time constant.
+
+### Wireless connections
+
+Control-rate: `send`/`s` + `receive`/`r` (one-to-many), `throw`/`catch` (many-to-one summing). Audio-rate: `send~`/`s~` + `receive~`/`r~`, `throw~`/`catch~`. Do not cross the ctrl/synth membrane — server evaluates ctrl-zone wireless, client evaluates synth-zone wireless. Audio wireless uses pass-through GainNodes connected during topology build.
+
 ### Math processor race condition fix
 
 `createMathNode` was sending `{ op, arg }` via `postMessage` after construction, but the worklet constructor defaulted to `op: "+"`. If `process()` ran before the message arrived, `*~` would add instead of multiply. Fixed by passing `processorOptions: { op, arg }` in the constructor options.

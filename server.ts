@@ -976,6 +976,24 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
       if (paramName) {
         sendCtrl({ type: "engine-param", boxId: cable.dstBox, engineType: boxTypeName(dst.text), param: paramName, value });
       }
+    } else if (isWirelessSend(dst.text)) {
+      // Wireless send: propagate to all matching receives
+      const name = dst.text.split(/\s+/).slice(1).join(" ");
+      for (const [recvId, recvBox] of boxes) {
+        if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isCtrlSide(recvBox)) {
+          setBoxValueAndNotify(recvId, value);
+        }
+      }
+    } else if (isWirelessThrow(dst.text)) {
+      // Wireless throw: sum into matching catches
+      const name = dst.text.split(/\s+/).slice(1).join(" ");
+      const numValue = typeof value === "number" ? value : 0;
+      for (const [catchId, catchBox] of boxes) {
+        if (isWirelessCatch(catchBox.text) && catchBox.text.split(/\s+/).slice(1).join(" ") === name && isCtrlSide(catchBox)) {
+          const prev = typeof boxValues.get(catchId) === "number" ? boxValues.get(catchId) as number : 0;
+          setBoxValueAndNotify(catchId, prev + numValue);
+        }
+      }
     } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
       // ctrl-side boxes only receive numeric values (arrays flow to routers only)
       const numValue = typeof value === "number" ? value : 0;
@@ -1000,6 +1018,11 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
   // Phase 2: fire all deferred events after values have been delivered
   for (const fn of deferred) fn();
 }
+
+function isWirelessSend(text: string): boolean { const t = boxTypeName(text); return t === "send" || t === "s"; }
+function isWirelessReceive(text: string): boolean { const t = boxTypeName(text); return t === "receive" || t === "r"; }
+function isWirelessThrow(text: string): boolean { return boxTypeName(text) === "throw"; }
+function isWirelessCatch(text: string): boolean { return boxTypeName(text) === "catch"; }
 
 function isCtrlSide(box: Box): boolean {
   const zone = getBoxZone(box.text);

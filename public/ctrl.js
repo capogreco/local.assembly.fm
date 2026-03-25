@@ -45,12 +45,12 @@ const ctrlEngines = new Map(); // boxId -> { type, worklet, ... }
 const ctrlWorkletModulesLoaded = new Set();
 
 const ENGINES = {
-  formant:          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
-  "karplus-strong": { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
-  "sine-osc":       { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
-  noise:            { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
-  swarm:            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
-  reverb:           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
+  "formant~":          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
+  "karplus-strong~":   { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
+  "sine-osc~":         { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
+  "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
+  "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
+  "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
 };
 
 async function initCtrlAudio() {

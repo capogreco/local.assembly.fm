@@ -31,12 +31,12 @@ let N = countDisplay
   : 1;
 
 const ENGINES = {
-  formant:          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
-  "karplus-strong": { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
-  "sine-osc":       { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
-  noise:            { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
-  swarm:            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
-  reverb:           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
+  "formant~":          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
+  "karplus-strong~":   { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
+  "sine-osc~":         { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
+  "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
+  "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
+  "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
 };
 
 async function createEngine(type, args) {
@@ -62,7 +62,7 @@ async function createEngine(type, args) {
     splitter.connect(out, 0);
     // DO NOT connect to destination — audio topology wires this
     const engine = { type, worklet, splitter, out };
-    if (type === "formant") {
+    if (type === "formant~") {
       for (const [ch, key] of [[1, "analyserF1"], [2, "analyserF2"], [3, "analyserF3"]]) {
         const a = audioCtx.createAnalyser();
         a.fftSize = 512; a.smoothingTimeConstant = 0;
@@ -84,8 +84,9 @@ function getEngineOutput(engine) {
 }
 
 const NATIVE_NODES = new Set([
-  "oscillatorNode", "gainNode", "biquadFilterNode",
+  "oscillatorNode~", "gainNode~", "biquadFilterNode~",
   "sig~", "osc~", "noise~",
+  "send~", "s~", "receive~", "r~", "throw~", "catch~",
 ]);
 
 const SIGNAL_WORKLETS = {
@@ -102,30 +103,37 @@ async function createNativeNode(type, args) {
   let node, paramMap = {};
   const tokens = (args || "").split(/\s+/).filter(Boolean);
 
-  if (type === "oscillatorNode") {
+  if (type === "oscillatorNode~") {
     node = audioCtx.createOscillator();
     node.type = tokens[0] || "sine";
     node.start();
     paramMap = { frequency: node.frequency, detune: node.detune };
-  } else if (type === "gainNode") {
+  } else if (type === "gainNode~") {
     node = audioCtx.createGain();
     node.gain.value = parseFloat(tokens[0]) || 1;
     paramMap = { gain: node.gain };
-  } else if (type === "biquadFilterNode") {
+  } else if (type === "biquadFilterNode~") {
     node = audioCtx.createBiquadFilter();
     node.type = tokens[0] || "lowpass";
     paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
   } else if (type === "sig~") {
     node = audioCtx.createConstantSource();
-    node.offset.value = parseFloat(tokens[0]) || 0;
+    node.offset.value = 0;
     node.start();
+    const portaTime = parseFloat(tokens[0]) || 0;
     paramMap = { value: node.offset };
+    return { type, node, paramMap, portaTime };
   } else if (type === "osc~") {
     node = audioCtx.createOscillator();
     node.frequency.value = parseFloat(tokens[0]) || 1;
     node.type = tokens[1] || "sine";
     node.start();
     paramMap = { frequency: node.frequency, detune: node.detune };
+  } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
+          || type === "throw~" || type === "catch~") {
+    // Wireless audio: pass-through GainNode (unity gain)
+    node = audioCtx.createGain();
+    return { type, node, paramMap: {} };
   } else if (type === "noise~") {
     const def = SIGNAL_WORKLETS["noise~-worklet"];
     if (!workletModulesLoaded.has(def.module)) {
@@ -243,17 +251,73 @@ function buildAudioTopology(voice, patch) {
       srcNode.connect(dstNode, 0, audioInputIdx);
     }
   }
+
+  // Wireless audio connections: send~/s~ → receive~/r~, throw~/catch~
+  const wirelessSends = new Map(); // name -> [srcNode]
+  const wirelessRecvs = new Map(); // name -> [boxId]
+  const wirelessThrows = new Map();
+  const wirelessCatches = new Map();
+  const sendTypes = new Set(["send~", "s~"]);
+  const recvTypes = new Set(["receive~", "r~"]);
+
+  for (const box of patch.boxes) {
+    const name = box.args?.trim();
+    if (!name) continue;
+    if (sendTypes.has(box.type)) {
+      if (!wirelessSends.has(name)) wirelessSends.set(name, []);
+      const node = getNode(box.id);
+      if (node) wirelessSends.get(name).push(node);
+    } else if (recvTypes.has(box.type)) {
+      if (!wirelessRecvs.has(name)) wirelessRecvs.set(name, []);
+      wirelessRecvs.get(name).push(box.id);
+    } else if (box.type === "throw~") {
+      if (!wirelessThrows.has(name)) wirelessThrows.set(name, []);
+      const node = getNode(box.id);
+      if (node) wirelessThrows.get(name).push(node);
+    } else if (box.type === "catch~") {
+      if (!wirelessCatches.has(name)) wirelessCatches.set(name, []);
+      wirelessCatches.get(name).push(box.id);
+    }
+  }
+
+  // send~ → receive~ (one-to-many: each send connects to all matching receives)
+  for (const [name, srcNodes] of wirelessSends) {
+    const recvIds = wirelessRecvs.get(name);
+    if (!recvIds) continue;
+    for (const srcNode of srcNodes) {
+      for (const recvId of recvIds) {
+        const recvNode = getNode(recvId);
+        if (recvNode) srcNode.connect(recvNode);
+      }
+    }
+  }
+
+  // throw~ → catch~ (many-to-one: all throws connect to matching catch, Web Audio sums)
+  for (const [name, srcNodes] of wirelessThrows) {
+    const catchIds = wirelessCatches.get(name);
+    if (!catchIds) continue;
+    for (const srcNode of srcNodes) {
+      for (const catchId of catchIds) {
+        const catchNode = getNode(catchId);
+        if (catchNode) srcNode.connect(catchNode);
+      }
+    }
+  }
 }
 
 function sendParams(engine, params) {
   if (!engine) return;
   if (!engine.currentParams) engine.currentParams = {};
   Object.assign(engine.currentParams, params);
+  // Update portamento time if provided (sig~ inlet 1)
+  if (params.portamento !== undefined) engine.portaTime = params.portamento;
+  const timeConst = engine.portaTime > 0 ? engine.portaTime : 0.005;
   for (const [k, v] of Object.entries(params)) {
+    if (k === "portamento") continue; // not an AudioParam
     if (typeof v !== "number") continue;
     // Native node: use paramMap
     if (engine.paramMap?.[k]) {
-      engine.paramMap[k].setTargetAtTime(v, audioCtx.currentTime, 0.005);
+      engine.paramMap[k].setTargetAtTime(v, audioCtx.currentTime, timeConst);
     }
     // Worklet: use parameters AudioParamMap
     else if (engine.worklet?.parameters?.has(k)) {
