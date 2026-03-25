@@ -325,8 +325,9 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
         const engineDef = graph.engines.get(cable.dstBox);
         const paramName = engineDef.paramNames[cable.dstInlet];
         const engine = engines.get(cable.dstBox);
-        if (paramName && engine?.worklet) {
-          const param = engine.worklet.parameters.get(paramName);
+        if (paramName && engine) {
+          // Support both worklet AudioParams and native node AudioParams
+          const param = engine.paramMap?.[paramName] || engine.worklet?.parameters?.get(paramName);
           if (param) {
             param.setValueAtTime(0, audioCtx.currentTime);
             srcAudioNode.connect(param);

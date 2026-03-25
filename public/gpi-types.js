@@ -275,6 +275,26 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "audio", description: "Audio signal" }],
                     outlets: [] },
 
+  // --- native Web Audio API nodes ---
+  oscillatorNode: { zone: "synth", role: "engine", description: "Native Web Audio oscillator. Types: sine, square, sawtooth, triangle.", args: "[type]", example: "oscillatorNode sawtooth",
+                    inlets: [
+                      { name: "frequency", type: "number", description: "Frequency in Hz" },
+                      { name: "detune", type: "number", description: "Detune in cents" }],
+                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
+  gainNode:       { zone: "synth", role: "effect", description: "Native Web Audio gain. Multiplies audio signal.", args: "[gain]", example: "gainNode 0.5",
+                    inlets: [
+                      { name: "in", type: "audio", description: "Audio input" },
+                      { name: "gain", type: "number", description: "Gain multiplier (default 1)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
+  biquadFilterNode: { zone: "synth", role: "effect", description: "Native Web Audio biquad filter. Types: lowpass, highpass, bandpass, notch, allpass, peaking, lowshelf, highshelf.", args: "[type]", example: "biquadFilterNode highpass",
+                    inlets: [
+                      { name: "in", type: "audio", description: "Audio input" },
+                      { name: "frequency", type: "number", description: "Cutoff/center frequency in Hz" },
+                      { name: "Q", type: "number", description: "Quality factor" },
+                      { name: "gain", type: "number", description: "Gain in dB (shelf/peaking only)" },
+                      { name: "detune", type: "number", description: "Detune in cents" }],
+                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
+
   // --- audio effects ---
   reverb:         { zone: "synth", role: "effect", description: "FDN reverb. Metallic resonance to deep halls. Freeze at decay=1.",
                     inlets: [

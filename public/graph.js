@@ -67,6 +67,7 @@ function buildGraph(patch) {
     if (box.engine) {
       graph.engines.set(box.id, {
         type: box.type,
+        args: box.args || "",
         paramNames: box.paramNames || [],
       });
     }

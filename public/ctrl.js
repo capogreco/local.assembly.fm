@@ -1022,20 +1022,29 @@ class PatchEditor {
     if (!box) return;
     this.editingBoxId = boxId;
     this.mode = "editing";
+    this.input.value = box.text;
     const w = Math.max(this.boxWidth(box, boxId), 80);
     const s = this.screenFromPatch(box.x, box.y);
+    const pad = BOX_PAD_X * this.zoom;
+    const h = BOX_HEIGHT * this.zoom;
     Object.assign(this.input.style, {
-      left: (s.x + BOX_PAD_X * this.zoom) + "px",
+      left: s.x + "px",
       top: s.y + "px",
       width: (w * this.zoom) + "px",
-      height: (BOX_HEIGHT * this.zoom) + "px",
-      lineHeight: (BOX_HEIGHT * this.zoom) + "px",
+      height: h + "px",
+      lineHeight: h + "px",
       fontSize: (12 * this.zoom) + "px",
+      paddingLeft: pad + "px",
+      paddingRight: pad + "px",
+      paddingTop: "0",
+      paddingBottom: "0",
+      boxSizing: "border-box",
       display: "block"
     });
-    this.input.value = box.text;
     this.input.focus();
     this.input.select();
+    // Prevent Chrome auto-scroll from misaligning text
+    requestAnimationFrame(() => { this.input.scrollLeft = 0; });
     this.render();
   }
 
@@ -1438,6 +1447,12 @@ class PatchEditor {
       }
     }
 
+    if (e.key === "Enter" && this.selection.size === 1) {
+      e.preventDefault();
+      this.startEditing([...this.selection][0]);
+      return true;
+    }
+
     if (e.key === "Tab" && this.selection.size === 1) {
       e.preventDefault();
       const srcId = [...this.selection][0];
@@ -1591,7 +1606,10 @@ input.addEventListener("keydown", (e) => {
 });
 input.addEventListener("input", () => {
   if (mainEditor.editingBoxId === null) return;
-  const w = Math.max(mainEditor.measureText(input.value || " ") + BOX_PAD_X * 2, 80);
+  const box = mainEditor.boxes.get(mainEditor.editingBoxId);
+  if (!box) return;
+  const w = Math.max(mainEditor.measureText(input.value || " ") + BOX_PAD_X * 2,
+    (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 80);
   input.style.width = (w * mainEditor.zoom) + "px";
   mainEditor.render();
 });

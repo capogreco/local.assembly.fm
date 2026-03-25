@@ -1061,3 +1061,21 @@ Migrated all engine worklets to receive numeric parameters exclusively via Audio
 
 Native Web Audio nodes (OscillatorNode, BiquadFilterNode, GainNode, etc.) use AudioParams. With worklets also on AudioParams, the patching system can treat custom worklets and native nodes identically — unified parameter delivery via `setTargetAtTime`. This is the foundation for exposing Web Audio API nodes as GPI objects.
 
+## Native Web Audio API nodes in GPI (2026-03-25)
+
+Added `oscillatorNode`, `gainNode`, `biquadFilterNode` as native Web Audio objects in the patching system. These use the browser's built-in audio processing — no custom worklets.
+
+- `oscillatorNode sawtooth` — OscillatorNode with type arg. Params: frequency, detune
+- `gainNode 0.5` — GainNode with initial gain arg. Param: gain
+- `biquadFilterNode highpass` — BiquadFilterNode with type arg. Params: frequency, Q, gain, detune
+
+Native nodes use `paramMap` (direct AudioParam references) instead of `worklet.parameters`. `sendParams()` and `audio-graph.js` handle both transparently. `createNativeNode()` creates and starts the node; teardown calls `.stop()` for oscillators.
+
+Example subtractive synth chain: `oscillatorNode sawtooth → biquadFilterNode lowpass → gainNode → dac`
+
+## UI improvements (2026-03-25)
+
+- Enter key on selected box starts text editing
+- Fixed input text alignment: `boxWidth()` was measuring empty input because `editingBoxId` was set before input value was populated. Moved value assignment before width calculation.
+- Chrome auto-scroll on `input.select()` defeated with `requestAnimationFrame(() => scrollLeft = 0)`
+

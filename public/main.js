@@ -39,7 +39,10 @@ const ENGINES = {
   reverb:           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
 };
 
-async function createEngine(type) {
+async function createEngine(type, args) {
+  // Native Web Audio nodes
+  if (NATIVE_NODES.has(type)) return createNativeNode(type, args);
+
   const def = ENGINES[type];
   if (!def) return null;
   if (!workletModulesLoaded.has(def.module)) {
@@ -73,7 +76,32 @@ async function createEngine(type) {
 }
 
 function getEngineOutput(engine) {
-  return engine.out || engine.worklet;
+  return engine.out || engine.node || engine.worklet;
+}
+
+const NATIVE_NODES = new Set(["oscillatorNode", "gainNode", "biquadFilterNode"]);
+
+function createNativeNode(type, args) {
+  let node, paramMap;
+
+  if (type === "oscillatorNode") {
+    node = audioCtx.createOscillator();
+    node.type = args || "sine";
+    node.start();
+    paramMap = { frequency: node.frequency, detune: node.detune };
+  } else if (type === "gainNode") {
+    node = audioCtx.createGain();
+    node.gain.value = parseFloat(args) || 1;
+    paramMap = { gain: node.gain };
+  } else if (type === "biquadFilterNode") {
+    node = audioCtx.createBiquadFilter();
+    node.type = args || "lowpass";
+    paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
+  } else {
+    return null;
+  }
+
+  return { type, node, paramMap };
 }
 
 function buildAudioTopology(voice, patch) {
@@ -106,7 +134,7 @@ function buildAudioTopology(voice, patch) {
         connected.add(cable.srcBox);
         const srcPatchBox = patch.boxes.find(b => b.id === cable.srcBox);
         if (srcPatchBox?.role === "effect") {
-          connectUpstream(cable.srcBox, engine.worklet);
+          connectUpstream(cable.srcBox, engine.node || engine.worklet);
         }
       }
     }
@@ -116,9 +144,8 @@ function buildAudioTopology(voice, patch) {
 }
 
 function sendParams(engine, params, audioParamSet) {
-  if (!engine?.worklet) return;
+  if (!engine) return;
   if (!engine.currentParams) engine.currentParams = {};
-  // Filter out audio-connected params — those are driven by AudioParam connections
   let filtered = params;
   if (audioParamSet) {
     filtered = {};
@@ -128,9 +155,16 @@ function sendParams(engine, params, audioParamSet) {
     if (Object.keys(filtered).length === 0) return;
   }
   Object.assign(engine.currentParams, filtered);
-  const wp = engine.worklet.parameters;
   for (const [k, v] of Object.entries(filtered)) {
-    if (typeof v === "number") wp.get(k).setTargetAtTime(v, audioCtx.currentTime, 0.005);
+    if (typeof v !== "number") continue;
+    // Native node: use paramMap
+    if (engine.paramMap?.[k]) {
+      engine.paramMap[k].setTargetAtTime(v, audioCtx.currentTime, 0.005);
+    }
+    // Worklet: use parameters AudioParamMap
+    else if (engine.worklet?.parameters?.has(k)) {
+      engine.worklet.parameters.get(k).setTargetAtTime(v, audioCtx.currentTime, 0.005);
+    }
   }
 }
 
@@ -164,6 +198,10 @@ async function loadPatchForVoice(voice, patch) {
   // tear down old engines and audio subgraph
   if (voice.audioSubgraph) { voice.audioSubgraph.teardown(); voice.audioSubgraph = null; }
   for (const e of voice.engines.values()) {
+    if (e.node) {
+      try { e.node.stop?.(); } catch {}
+      e.node.disconnect();
+    }
     e.worklet?.disconnect();
     e.splitter?.disconnect();
     e.out?.disconnect();
@@ -174,7 +212,7 @@ async function loadPatchForVoice(voice, patch) {
 
   // Create all engines and effects (unconnected)
   for (const [id, def] of voice.graph.engines) {
-    const engine = await createEngine(def.type);
+    const engine = await createEngine(def.type, def.args);
     if (engine) voice.engines.set(id, engine);
   }
 
