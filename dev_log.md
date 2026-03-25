@@ -1079,3 +1079,11 @@ Example subtractive synth chain: `oscillatorNode sawtooth → biquadFilterNode l
 - Fixed input text alignment: `boxWidth()` was measuring empty input because `editingBoxId` was set before input value was populated. Moved value assignment before width calculation.
 - Chrome auto-scroll on `input.select()` defeated with `requestAnimationFrame(() => scrollLeft = 0)`
 
+## Removed `role` field — derive from port types (2026-03-25)
+
+The `role` field (`"engine"`, `"effect"`, `"dac"`, and proposed `"signal"`) was an artificial distinction. An `osc~` used for modulation and an `osc~` going to speakers are the same object — the wiring determines the role, not a label.
+
+Replaced with port-type helpers: `hasAudioIn()`, `hasAudioOut()`, `isDac()`, `isAudioBox()`. The server derives `engine` flag and `paramNames` from port types: any synth-zone box with audio ports and number inlets gets paramNames. The topology builder checks for audio inlets to determine recursive wiring, not a role string.
+
+This simplification is prerequisite for the `~` paradigm — audio-rate signal objects need to work identically whether they're modulating a parameter or producing audible output.
+

@@ -57,7 +57,7 @@ function importCjs(src: string): any {
 }
 
 const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
-const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef } = boxTypes;
+const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, isAudioBox, isDac } = boxTypes;
 
 const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
 const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, advanceSig, expandIntegerNotation } = graphCore;
@@ -1446,13 +1446,13 @@ function serializeSynthPatch(): Record<string, unknown> {
     if (synth) {
       synthIds.add(id);
       const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
-      const role = def.role; // "engine", "effect", "dac", or undefined
       // deno-lint-ignore no-explicit-any
       const pb: any = { id, type: name, args };
-      if (role) pb.role = role;
-      if (role === "engine" || role === "effect") {
+      if (isDac(box.text)) pb.dac = true;
+      // Any audio box with number inlets needs paramNames for the synth client
+      if (isAudioBox(box.text) && def.inlets.length > 0) {
         pb.engine = true;
-        // Use null for audio inlets to preserve index alignment with cable dstInlet
+        // null for audio inlets to preserve index alignment with cable dstInlet
         pb.paramNames = def.inlets.map((i: { name: string; type: string }) => i.type === "audio" ? null : i.name);
       }
       patchBoxes.push(pb);

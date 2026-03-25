@@ -116,7 +116,7 @@ function buildAudioTopology(voice, patch) {
   }
 
   // Find the DAC box
-  const dacBox = patch.boxes.find(b => b.role === "dac");
+  const dacBox = patch.boxes.find(b => b.dac);
   if (!dacBox) return;
 
   // Recursively connect upstream audio sources to a destination AudioNode
@@ -129,11 +129,12 @@ function buildAudioTopology(voice, patch) {
       if (!engine) continue;
       const srcNode = getEngineOutput(engine);
       srcNode.connect(destNode);
-      // If source is an effect, recursively wire its inputs
+      // If source has audio inlets, recursively wire its inputs
       if (!connected.has(cable.srcBox)) {
         connected.add(cable.srcBox);
         const srcPatchBox = patch.boxes.find(b => b.id === cable.srcBox);
-        if (srcPatchBox?.role === "effect") {
+        const hasAudioIn = srcPatchBox?.paramNames?.some(p => p === null);
+        if (hasAudioIn) {
           connectUpstream(cable.srcBox, engine.node || engine.worklet);
         }
       }
