@@ -85,7 +85,7 @@ function getEngineOutput(engine) {
 
 const NATIVE_NODES = new Set([
   "oscillatorNode~", "gainNode~", "biquadFilterNode~",
-  "sig~", "osc~", "noise~",
+  "const~", "sig~", "osc~", "noise~",
   "send~", "s~", "receive~", "r~", "throw~", "catch~",
 ]);
 
@@ -97,7 +97,7 @@ const SIGNAL_WORKLETS = {
   "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
 };
 
-const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "scale~", "clip~", "mtof~"]);
+const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~"]);
 
 async function createNativeNode(type, args) {
   let node, paramMap = {};
@@ -116,6 +116,11 @@ async function createNativeNode(type, args) {
     node = audioCtx.createBiquadFilter();
     node.type = tokens[0] || "lowpass";
     paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
+  } else if (type === "const~") {
+    node = audioCtx.createConstantSource();
+    node.offset.value = parseFloat(tokens[0]) || 0;
+    node.start();
+    return { type, node, paramMap: {} };
   } else if (type === "sig~") {
     node = audioCtx.createConstantSource();
     node.offset.value = 0;
@@ -229,8 +234,10 @@ function buildAudioTopology(voice, patch) {
     }
 
     // Case 2: destination inlet is an AudioParam (number inlet on audio box)
+    // Zero the intrinsic value so the audio signal IS the value, not additive
     const param = getParam(cable.dstBox, cable.dstInlet);
     if (param) {
+      param.setValueAtTime(0, audioCtx.currentTime);
       srcNode.connect(param);
       continue;
     }

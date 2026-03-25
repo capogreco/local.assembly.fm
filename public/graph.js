@@ -305,6 +305,27 @@ function processRouterValue(graph, routerId, channel, value) {
         if (!allUpdates[entry.targetBox]) allUpdates[entry.targetBox] = {};
         allUpdates[entry.targetBox][paramName] = value;
       }
+    } else if (node.type === "send" || node.type === "s") {
+      // Wireless send: forward to matching receives
+      const name = node.args.trim();
+      const w = graph.wireless.get(name);
+      if (w) {
+        for (const recvId of w.receives) {
+          mergeUpdates(allUpdates, propagateInGraph(graph, recvId, 0, value));
+        }
+      }
+    } else if (node.type === "throw") {
+      const name = node.args.trim();
+      const w = graph.wireless.get(name);
+      if (w) {
+        for (const catchId of w.catches) {
+          const catchNode = graph.boxes.get(catchId);
+          if (catchNode) {
+            catchNode.inletValues[0] = (catchNode.inletValues[0] || 0) + value;
+            mergeUpdates(allUpdates, propagateInGraph(graph, catchId, 0, catchNode.inletValues[0]));
+          }
+        }
+      }
     } else {
       const result = evaluateNode(graph, entry.targetBox);
       const updates = propagateInGraph(graph, entry.targetBox, 0, result);

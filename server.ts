@@ -1473,9 +1473,8 @@ function serializeSynthPatch(): Record<string, unknown> {
       const pb: any = { id, type: name, args };
       if (isDac(box.text)) pb.dac = true;
       // Any audio box with number inlets needs paramNames for the synth client
-      if (isAudioBox(box.text) && def.inlets.length > 0) {
+      if (isAudioBox(box.text)) {
         pb.engine = true;
-        // null for audio inlets to preserve index alignment with cable dstInlet
         pb.paramNames = def.inlets.map((i: { name: string; type: string }) => i.type === "audio" ? null : i.name);
       }
       patchBoxes.push(pb);

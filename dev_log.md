@@ -1132,3 +1132,20 @@ Control-rate: `send`/`s` + `receive`/`r` (one-to-many), `throw`/`catch` (many-to
 
 `createMathNode` was sending `{ op, arg }` via `postMessage` after construction, but the worklet constructor defaulted to `op: "+"`. If `process()` ran before the message arrived, `*~` would add instead of multiply. Fixed by passing `processorOptions: { op, arg }` in the constructor options.
 
+### Wireless send/receive fix for router targets
+
+Wireless sends (`s`, `send`) in the synth zone weren't forwarding when reached via router entries. `processRouterValue` delivered the value but `propagateInGraph` never triggered the wireless forwarding (send boxes have no outlet cables). Fixed by adding wireless type checks directly in `processRouterValue`.
+
+### AudioParam zeroing on audio connection
+
+When an audio cable connects to a number inlet (AudioParam modulation), the intrinsic value is now zeroed: `param.setValueAtTime(0, now)`. This makes the audio signal the actual value, not additive to the default. Without this, `*~ → oscillatorNode~.frequency` would add to the 440Hz default instead of replacing it.
+
+### No-inlet audio boxes (noise~, const~)
+
+`serializeSynthPatch` only marked boxes as `engine: true` if they had inlets. Boxes with audio outlets but no inlets (`noise~`, `const~`) were never created on the synth client. Fixed by checking `isAudioBox()` without the inlet count condition.
+
+### New objects
+
+- `const~` — constant audio signal (ConstantSourceNode, no inlets)
+- `**~` — audio-rate exponent
+

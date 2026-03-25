@@ -302,6 +302,9 @@ const BOX_TYPES = {
   "dac~":         { zone: "synth", description: "Audio output. Connects to phone speaker.",
                     inlets: [{ name: "in", type: "audio", description: "Audio signal" }],
                     outlets: [] },
+  "const~":       { zone: "synth", description: "Constant audio signal.", args: "value", example: "const~ 440",
+                    inlets: [],
+                    outlets: [{ name: "out", type: "audio", description: "Constant audio signal" }] },
   "sig~":         { zone: "synth", description: "Convert number to audio signal. Optional portamento time in seconds.", args: "[portamento]", example: "sig~ 0.1",
                     inlets: [
                       { name: "value", type: "number", description: "Value to output as audio" },
@@ -349,6 +352,11 @@ const BOX_TYPES = {
                       { name: "a", type: "audio", description: "Left operand" },
                       { name: "b", type: "audio", description: "Right operand (or arg)" }],
                     outlets: [{ name: "out", type: "audio", description: "Quotient" }] },
+  "**~":          { zone: "synth", description: "Audio-rate exponent.", args: "[power]", example: "**~ 2",
+                    inlets: [
+                      { name: "base", type: "audio", description: "Base value" },
+                      { name: "exp", type: "audio", description: "Exponent (or arg)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Result" }] },
   "scale~":       { zone: "synth", description: "Audio-rate range mapping.", args: "min max", example: "scale~ 100 5000",
                     inlets: [{ name: "in", type: "audio", description: "Input (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Scaled output" }] },
