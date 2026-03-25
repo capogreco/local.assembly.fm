@@ -40,8 +40,12 @@ const ENGINES = {
 };
 
 async function createEngine(type, args) {
-  // Native Web Audio nodes
-  if (NATIVE_NODES.has(type)) return createNativeNode(type, args);
+  // Native Web Audio nodes (oscillatorNode, gainNode, etc. + sig~, osc~, noise~)
+  if (NATIVE_NODES.has(type)) return await createNativeNode(type, args);
+  // Signal worklets (lfo~, phasor~, ar~, slew~)
+  if (SIGNAL_WORKLETS[type]) return await createSignalWorklet(type, args);
+  // Audio-rate math (+~, *~, -~, /~, scale~, clip~, mtof~)
+  if (MATH_OPS.has(type)) return await createMathNode(type, args);
 
   const def = ENGINES[type];
   if (!def) return null;
@@ -79,24 +83,57 @@ function getEngineOutput(engine) {
   return engine.out || engine.node || engine.worklet;
 }
 
-const NATIVE_NODES = new Set(["oscillatorNode", "gainNode", "biquadFilterNode"]);
+const NATIVE_NODES = new Set([
+  "oscillatorNode", "gainNode", "biquadFilterNode",
+  "sig~", "osc~", "noise~",
+]);
 
-function createNativeNode(type, args) {
-  let node, paramMap;
+const SIGNAL_WORKLETS = {
+  "lfo~":    { module: "lfo-processor.js",    worklet: "lfo-processor" },
+  "phasor~": { module: "phasor-processor.js", worklet: "phasor-processor" },
+  "ar~":     { module: "ar-processor.js",     worklet: "ar-processor" },
+  "slew~":   { module: "slew-processor.js",   worklet: "slew-processor" },
+  "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
+};
+
+const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "scale~", "clip~", "mtof~"]);
+
+async function createNativeNode(type, args) {
+  let node, paramMap = {};
+  const tokens = (args || "").split(/\s+/).filter(Boolean);
 
   if (type === "oscillatorNode") {
     node = audioCtx.createOscillator();
-    node.type = args || "sine";
+    node.type = tokens[0] || "sine";
     node.start();
     paramMap = { frequency: node.frequency, detune: node.detune };
   } else if (type === "gainNode") {
     node = audioCtx.createGain();
-    node.gain.value = parseFloat(args) || 1;
+    node.gain.value = parseFloat(tokens[0]) || 1;
     paramMap = { gain: node.gain };
   } else if (type === "biquadFilterNode") {
     node = audioCtx.createBiquadFilter();
-    node.type = args || "lowpass";
+    node.type = tokens[0] || "lowpass";
     paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
+  } else if (type === "sig~") {
+    node = audioCtx.createConstantSource();
+    node.offset.value = parseFloat(tokens[0]) || 0;
+    node.start();
+    paramMap = { value: node.offset };
+  } else if (type === "osc~") {
+    node = audioCtx.createOscillator();
+    node.frequency.value = parseFloat(tokens[0]) || 1;
+    node.type = tokens[1] || "sine";
+    node.start();
+    paramMap = { frequency: node.frequency, detune: node.detune };
+  } else if (type === "noise~") {
+    const def = SIGNAL_WORKLETS["noise~-worklet"];
+    if (!workletModulesLoaded.has(def.module)) {
+      await audioCtx.audioWorklet.addModule(def.module);
+      workletModulesLoaded.add(def.module);
+    }
+    node = new AudioWorkletNode(audioCtx, def.worklet);
+    return { type, node, worklet: node, paramMap: {} };
   } else {
     return null;
   }
@@ -104,59 +141,115 @@ function createNativeNode(type, args) {
   return { type, node, paramMap };
 }
 
+async function createSignalWorklet(type, args) {
+  const def = SIGNAL_WORKLETS[type];
+  if (!def) return null;
+  if (!workletModulesLoaded.has(def.module)) {
+    await audioCtx.audioWorklet.addModule(def.module);
+    workletModulesLoaded.add(def.module);
+  }
+  const tokens = (args || "").split(/\s+/).filter(Boolean);
+  const node = new AudioWorkletNode(audioCtx, def.worklet);
+
+  const paramMap = {};
+  for (const [name, param] of node.parameters) paramMap[name] = param;
+
+  // Set initial values from args
+  if (type === "lfo~") {
+    if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
+  } else if (type === "phasor~") {
+    if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
+  } else if (type === "ar~") {
+    if (tokens[0]) node.parameters.get("attack")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("release")?.setValueAtTime(parseFloat(tokens[1]), 0);
+  } else if (type === "slew~") {
+    if (tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
+  }
+
+  return { type, node, worklet: node, paramMap };
+}
+
+async function createMathNode(type, args) {
+  const op = type.replace("~", "");
+  if (!workletModulesLoaded.has("math-processor.js")) {
+    await audioCtx.audioWorklet.addModule("math-processor.js");
+    workletModulesLoaded.add("math-processor.js");
+  }
+  const tokens = (args || "").split(/\s+/).filter(Boolean);
+  const arg = parseFloat(tokens[0]) || (op === "*" ? 1 : 0);
+  const node = new AudioWorkletNode(audioCtx, "math-processor", {
+    numberOfInputs: 2,
+    processorOptions: { op, arg },
+  });
+  return { type, node, worklet: node, paramMap: {} };
+}
+
 function buildAudioTopology(voice, patch) {
   const audioCables = patch.audioCables || [];
   if (audioCables.length === 0) return;
 
-  // Build map: dstBox -> [{ srcBox, srcOutlet, dstInlet }]
-  const incoming = new Map();
-  for (const c of audioCables) {
-    if (!incoming.has(c.dstBox)) incoming.set(c.dstBox, []);
-    incoming.get(c.dstBox).push(c);
+  const dacBox = patch.boxes.find(b => b.dac);
+
+  // Get AudioNode for any box
+  function getNode(boxId) {
+    const eng = voice.engines.get(boxId);
+    if (!eng) return null;
+    return eng.node || eng.worklet || null;
   }
 
-  // Find the DAC box
-  const dacBox = patch.boxes.find(b => b.dac);
-  if (!dacBox) return;
+  // Get AudioParam for a destination inlet (number inlet on an audio box)
+  function getParam(boxId, inletIndex) {
+    const patchBox = patch.boxes.find(b => b.id === boxId);
+    if (!patchBox?.paramNames) return null;
+    const paramName = patchBox.paramNames[inletIndex];
+    if (!paramName) return null; // null = audio inlet, not a param
+    const eng = voice.engines.get(boxId);
+    if (!eng) return null;
+    return eng.paramMap?.[paramName] || eng.worklet?.parameters?.get(paramName) || null;
+  }
 
-  // Recursively connect upstream audio sources to a destination AudioNode
-  const connected = new Set();
-  function connectUpstream(boxId, destNode) {
-    const cables = incoming.get(boxId);
-    if (!cables) return;
-    for (const cable of cables) {
-      const engine = voice.engines.get(cable.srcBox);
-      if (!engine) continue;
-      const srcNode = getEngineOutput(engine);
-      srcNode.connect(destNode);
-      // If source has audio inlets, recursively wire its inputs
-      if (!connected.has(cable.srcBox)) {
-        connected.add(cable.srcBox);
-        const srcPatchBox = patch.boxes.find(b => b.id === cable.srcBox);
-        const hasAudioIn = srcPatchBox?.paramNames?.some(p => p === null);
-        if (hasAudioIn) {
-          connectUpstream(cable.srcBox, engine.node || engine.worklet);
+  // Process each audio cable
+  for (const cable of audioCables) {
+    const srcEng = voice.engines.get(cable.srcBox);
+    if (!srcEng) continue;
+    const srcNode = getEngineOutput(srcEng);
+
+    // Case 1: destination is dac
+    if (dacBox && cable.dstBox === dacBox.id) {
+      srcNode.connect(voice.destination);
+      continue;
+    }
+
+    // Case 2: destination inlet is an AudioParam (number inlet on audio box)
+    const param = getParam(cable.dstBox, cable.dstInlet);
+    if (param) {
+      srcNode.connect(param);
+      continue;
+    }
+
+    // Case 3: destination inlet is audio bus (type "audio")
+    const dstNode = getNode(cable.dstBox);
+    if (dstNode) {
+      // For multi-input nodes (math), dstInlet maps to Web Audio input index
+      const patchBox = patch.boxes.find(b => b.id === cable.dstBox);
+      const inletDef = patchBox?.paramNames;
+      // Count audio inlets before this one to get the Web Audio input index
+      let audioInputIdx = 0;
+      if (inletDef) {
+        for (let i = 0; i < cable.dstInlet; i++) {
+          if (inletDef[i] === null) audioInputIdx++;
         }
       }
+      srcNode.connect(dstNode, 0, audioInputIdx);
     }
   }
-
-  connectUpstream(dacBox.id, voice.destination);
 }
 
-function sendParams(engine, params, audioParamSet) {
+function sendParams(engine, params) {
   if (!engine) return;
   if (!engine.currentParams) engine.currentParams = {};
-  let filtered = params;
-  if (audioParamSet) {
-    filtered = {};
-    for (const [k, v] of Object.entries(params)) {
-      if (!audioParamSet.has(k)) filtered[k] = v;
-    }
-    if (Object.keys(filtered).length === 0) return;
-  }
-  Object.assign(engine.currentParams, filtered);
-  for (const [k, v] of Object.entries(filtered)) {
+  Object.assign(engine.currentParams, params);
+  for (const [k, v] of Object.entries(params)) {
     if (typeof v !== "number") continue;
     // Native node: use paramMap
     if (engine.paramMap?.[k]) {
@@ -172,8 +265,7 @@ function sendParams(engine, params, audioParamSet) {
 function voiceSendParams(voice, engineId, params) {
   const engine = voice.engines.get(engineId);
   if (!engine) return;
-  const aps = voice.audioSubgraph?.audioParamSet?.get(engineId);
-  sendParams(engine, params, aps);
+  sendParams(engine, params);
 }
 
 function updateParamDisplay() {
@@ -197,7 +289,6 @@ async function loadPatchForVoice(voice, patch) {
   voice.pendingMessages = [];
 
   // tear down old engines and audio subgraph
-  if (voice.audioSubgraph) { voice.audioSubgraph.teardown(); voice.audioSubgraph = null; }
   for (const e of voice.engines.values()) {
     if (e.node) {
       try { e.node.stop?.(); } catch {}
@@ -242,24 +333,6 @@ async function loadPatchForVoice(voice, patch) {
     }
   }
 
-  // build audio-rate subgraph for continuous modulation
-  voice.audioSubgraph = buildAudioSubgraph(audioCtx, voice.graph, voice.engines,
-    (boxId, outlet, value) => {
-      // Event callback: audio worklet fired an event (end, wrap) — propagate through JS graph
-      const updates = propagateInGraph(voice.graph, boxId, outlet, value);
-      for (const [id, params] of Object.entries(updates)) {
-        voiceSendParams(voice, Number(id), params);
-      }
-    },
-  );
-
-  // Mark audio-hoisted boxes so tickGraph and handleEvent skip them
-  if (voice.audioSubgraph) {
-    voice.graph.audioBoxes = voice.audioSubgraph.audioBoxes;
-    voice.graph._audioSubgraphForwardEvent = voice.audioSubgraph.forwardEvent;
-    voice.graph._audioSubgraphForwardDiscrete = voice.audioSubgraph.forwardDiscreteValue;
-  }
-
   // apply initial values
   if (patch.initialValues) {
     for (const [key, value] of Object.entries(patch.initialValues)) {
@@ -287,15 +360,6 @@ function voiceOnMessage(voice, msg) {
   }
   if (voice.patchLoading) { voice.pendingMessages.push(msg); return; }
   if (msg.type === "rv" && voice.graph) {
-    // Forward discrete values to audio subgraph boxes if applicable
-    if (voice.audioSubgraph) {
-      const entries = voice.graph.entries.get(msg.r + ":" + (msg.ch || 0));
-      if (entries) {
-        for (const entry of entries) {
-          voice.audioSubgraph.forwardDiscreteValue(entry.targetBox, entry.targetInlet, msg.v);
-        }
-      }
-    }
     const updates = processRouterValue(voice.graph, msg.r, msg.ch, msg.v);
     for (const [id, params] of Object.entries(updates)) {
       voiceSendParams(voice, Number(id), params);
@@ -311,15 +375,6 @@ function voiceOnMessage(voice, msg) {
     // slew/lag values are ticked in clientTick via tickEnvelopes
   }
   if (msg.type === "re" && voice.graph) {
-    // Forward event triggers to audio subgraph boxes if applicable
-    if (voice.audioSubgraph) {
-      const entries = voice.graph.entries.get(msg.r + ":0");
-      if (entries) {
-        for (const entry of entries) {
-          voice.audioSubgraph.forwardEvent(entry.targetBox);
-        }
-      }
-    }
     const updates = processRouterEvent(voice.graph, msg.r);
     for (const [id, params] of Object.entries(updates)) {
       voiceSendParams(voice, Number(id), params);
@@ -332,7 +387,6 @@ function voiceOnMessage(voice, msg) {
 
 function tearDown() {
   for (const voice of voices) {
-    if (voice.audioSubgraph) { voice.audioSubgraph.teardown(); voice.audioSubgraph = null; }
     for (const e of voice.engines.values()) {
       e.worklet?.disconnect();
       e.splitter?.disconnect();
@@ -420,7 +474,6 @@ function clientTick(time) {
 
   for (const voice of voices) {
     if (!voice.graph || voice.patchLoading) continue;
-    // tickGraph now skips audio-hoisted boxes (checked via graph.audioBoxes)
     const updates = tickGraph(voice.graph, dt);
     const envUpdates = tickEnvelopes(voice.graph, dt);
     mergeUpdates(updates, envUpdates);
@@ -455,7 +508,6 @@ async function handleStart() {
     await audioCtx.resume();
     masterGain = audioCtx.createGain();
     masterGain.connect(audioCtx.destination);
-    await loadModWorklets(audioCtx);
     try { const wl = await navigator.wakeLock?.request("screen"); wl?.addEventListener("release", () => {}); } catch {}
   } catch (err) {
     overlay.querySelector("span").textContent = "audio failed";

@@ -123,16 +123,6 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
 
     dstNode.inletValues[cable.dstInlet] = value;
 
-    // audio-rate boxes: forward to worklet
-    if (graph.audioBoxes && graph.audioBoxes.has(cable.dstBox)) {
-      if (isEventTrigger(dstNode.type, cable.dstInlet)) {
-        deferred.push(cable.dstBox);
-      } else if (graph._audioSubgraphForwardDiscrete) {
-        graph._audioSubgraphForwardDiscrete(cable.dstBox, cable.dstInlet, value);
-      }
-      continue;
-    }
-
     if (graph.engines.has(cable.dstBox)) {
       const engine = graph.engines.get(cable.dstBox);
       const paramName = engine.paramNames[cable.dstInlet];
@@ -202,12 +192,6 @@ function handleEvent(graph, boxId) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
 
-  // Audio-rate boxes receive events via worklet message port
-  if (graph.audioBoxes && graph.audioBoxes.has(boxId)) {
-    if (graph._audioSubgraphForwardEvent) graph._audioSubgraphForwardEvent(boxId);
-    return {};
-  }
-
   if (!node.state) return {};
 
   const result = handleBoxEvent(node.type, node.state, node.inletValues);
@@ -235,7 +219,6 @@ function tickGraph(graph, dt) {
   const allUpdates = {};
   for (const [id, node] of graph.boxes) {
     if (!node.state) continue;
-    if (graph.audioBoxes && graph.audioBoxes.has(id)) continue;
 
     const result = tickBox(node.type, node.state, node.inletValues, dt);
     if (!result) continue;
@@ -262,16 +245,6 @@ function processRouterValue(graph, routerId, channel, value) {
     if (!node) continue;
 
     node.inletValues[entry.targetInlet] = value;
-
-    // Audio-hoisted boxes
-    if (graph.audioBoxes && graph.audioBoxes.has(entry.targetBox)) {
-      if (isEventTrigger(node.type, entry.targetInlet)) {
-        mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
-      } else if (graph._audioSubgraphForwardDiscrete) {
-        graph._audioSubgraphForwardDiscrete(entry.targetBox, entry.targetInlet, value);
-      }
-      continue;
-    }
 
     if (node.type === "phasor") {
       if (entry.targetInlet === 1 && node.state) {

@@ -275,6 +275,65 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "audio", description: "Audio signal" }],
                     outlets: [] },
 
+  // --- audio-rate signal objects (~) ---
+  "sig~":         { zone: "synth", description: "Convert number to audio signal. ConstantSourceNode bridge.",
+                    inlets: [{ name: "value", type: "number", description: "Value to output as audio" }],
+                    outlets: [{ name: "out", type: "audio", description: "Constant audio signal" }] },
+  "osc~":         { zone: "synth", description: "Audio-rate oscillator. Types: sine, square, sawtooth, triangle.", args: "[freq] [type]", example: "osc~ 2 sine",
+                    inlets: [
+                      { name: "frequency", type: "number", description: "Frequency in Hz" },
+                      { name: "detune", type: "number", description: "Detune in cents" }],
+                    outlets: [{ name: "out", type: "audio", description: "Audio signal" }] },
+  "lfo~":         { zone: "synth", description: "Audio-rate LFO. Unipolar (0-1) or bipolar (-1 to 1).", args: "period [bipolar]", example: "lfo~ 4",
+                    inlets: [
+                      { name: "period", type: "number", description: "Cycle period in seconds" }],
+                    outlets: [{ name: "out", type: "audio", description: "LFO signal" }] },
+  "phasor~":      { zone: "synth", description: "Audio-rate ramp 0-1.", args: "period [once]", example: "phasor~ 4",
+                    inlets: [
+                      { name: "period", type: "number", description: "Cycle period in seconds" }],
+                    outlets: [{ name: "out", type: "audio", description: "Ramp signal" }] },
+  "noise~":       { zone: "synth", description: "White noise source.",
+                    inlets: [],
+                    outlets: [{ name: "out", type: "audio", description: "Noise signal" }] },
+  "ar~":          { zone: "synth", description: "Audio-rate attack-release envelope.", args: "attack release", example: "ar~ 0.01 0.3",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire envelope" },
+                      { name: "attack", type: "number", description: "Attack time in seconds" },
+                      { name: "release", type: "number", description: "Release time in seconds" }],
+                    outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
+  "+~":           { zone: "synth", description: "Audio-rate add.", args: "[operand]", example: "+~ 100",
+                    inlets: [
+                      { name: "a", type: "audio", description: "Left operand" },
+                      { name: "b", type: "audio", description: "Right operand (or arg)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Sum" }] },
+  "-~":           { zone: "synth", description: "Audio-rate subtract.", args: "[operand]", example: "-~ 1",
+                    inlets: [
+                      { name: "a", type: "audio", description: "Left operand" },
+                      { name: "b", type: "audio", description: "Right operand (or arg)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Difference" }] },
+  "*~":           { zone: "synth", description: "Audio-rate multiply.", args: "[factor]", example: "*~ 0.5",
+                    inlets: [
+                      { name: "a", type: "audio", description: "Left operand" },
+                      { name: "b", type: "audio", description: "Right operand (or arg)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Product" }] },
+  "/~":           { zone: "synth", description: "Audio-rate divide.", args: "[divisor]", example: "/~ 2",
+                    inlets: [
+                      { name: "a", type: "audio", description: "Left operand" },
+                      { name: "b", type: "audio", description: "Right operand (or arg)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Quotient" }] },
+  "scale~":       { zone: "synth", description: "Audio-rate range mapping.", args: "min max", example: "scale~ 100 5000",
+                    inlets: [{ name: "in", type: "audio", description: "Input (0-1)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Scaled output" }] },
+  "clip~":        { zone: "synth", description: "Audio-rate clamp.", args: "min max", example: "clip~ 0 1",
+                    inlets: [{ name: "in", type: "audio", description: "Input" }],
+                    outlets: [{ name: "out", type: "audio", description: "Clamped output" }] },
+  "mtof~":        { zone: "synth", description: "Audio-rate MIDI note to frequency.",
+                    inlets: [{ name: "in", type: "audio", description: "MIDI note" }],
+                    outlets: [{ name: "out", type: "audio", description: "Frequency in Hz" }] },
+  "slew~":        { zone: "synth", description: "Audio-rate slew limiter.", args: "time", example: "slew~ 0.05",
+                    inlets: [{ name: "in", type: "audio", description: "Input" }],
+                    outlets: [{ name: "out", type: "audio", description: "Smoothed output" }] },
+
   // --- native Web Audio API nodes ---
   oscillatorNode: { zone: "synth", description: "Native Web Audio oscillator. Types: sine, square, sawtooth, triangle.", args: "[type]", example: "oscillatorNode sawtooth",
                     inlets: [

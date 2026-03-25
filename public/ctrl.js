@@ -23,7 +23,7 @@ const COLORS = {
   routerFill: "#2a2a2a", routerStroke: "#555",
   abstractionFill: "#2a2a3a", abstractionStroke: "#668",
   commentText: "#888",
-  cableAudio: "#8af", portAudio: "#8af",
+  cableAudio: "#8af", portAudio: "#8af", portEvent: "#fa4",
 };
 const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, SYNTH_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -996,12 +996,14 @@ class PatchEditor {
       // Ports
       for (let i = 0; i < box.inlets; i++) {
         const p = this.inletPos(box, i, id);
-        this.ctx.fillStyle = def?.inlets?.[i]?.type === "audio" ? COLORS.portAudio : COLORS.port;
+        const iType = def?.inlets?.[i]?.type;
+        this.ctx.fillStyle = iType === "audio" ? COLORS.portAudio : iType === "event" ? COLORS.portEvent : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
       }
       for (let i = 0; i < box.outlets; i++) {
         const p = this.outletPos(box, i, id);
-        this.ctx.fillStyle = def?.outlets?.[i]?.type === "audio" ? COLORS.portAudio : COLORS.port;
+        const oType = def?.outlets?.[i]?.type;
+        this.ctx.fillStyle = oType === "audio" ? COLORS.portAudio : oType === "event" ? COLORS.portEvent : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
       }
     }
@@ -1313,13 +1315,17 @@ class PatchEditor {
     if (this.mode === "cabling" && this.cableFrom) {
       const inlet = this.hitTestInlet(m.x, m.y);
       if (inlet && inlet.boxId !== this.cableFrom.boxId) {
-        // Validate audio/control type match
+        // Validate cable types:
+        // - audio → audio: OK (signal routing)
+        // - audio → number: OK (AudioParam modulation)
+        // - number → audio: REJECTED (can't send control to audio bus — use sig~)
+        // - number → number: OK (control)
         const srcBoxObj = this.boxes.get(this.cableFrom.boxId);
         const srcDef = getDef(srcBoxObj?.text);
         const srcIsAudio = srcDef?.outlets?.[this.cableFrom.index]?.type === "audio";
         const dstIsAudio = this.isAudioInlet(inlet.boxId, inlet.index);
-        if (srcIsAudio !== dstIsAudio) {
-          // type mismatch — reject cable
+        if (!srcIsAudio && dstIsAudio) {
+          // number → audio: rejected, use sig~ to bridge
           this.cableFrom = null;
           this.mode = "idle";
           this.canvas.style.cursor = "default";

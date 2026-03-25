@@ -1087,3 +1087,36 @@ Replaced with port-type helpers: `hasAudioIn()`, `hasAudioOut()`, `isDac()`, `is
 
 This simplification is prerequisite for the `~` paradigm — audio-rate signal objects need to work identically whether they're modulating a parameter or producing audible output.
 
+## Explicit audio-rate `~` paradigm (2026-03-25)
+
+### Architecture
+
+Introduced Pd-style `~` suffix objects for explicit audio-rate signal processing. The user places `osc~` when they want audio-rate, `lfo` when they want control-rate — no inference, no auto-hoisting.
+
+**New `~` objects:**
+- `sig~` — number→audio bridge (ConstantSourceNode). The explicit converter between control and audio worlds.
+- `osc~` — audio oscillator (native OscillatorNode wrapper)
+- `lfo~`, `phasor~` — audio-rate modulation sources (existing worklet processors)
+- `noise~` — white noise source (new `noise-signal-processor.js`)
+- `ar~` — audio-rate AR envelope
+- `+~`, `-~`, `*~`, `/~` — audio-rate math (existing `math-processor.js`)
+- `scale~`, `clip~`, `mtof~`, `slew~` — audio-rate utilities
+
+**Audio→AudioParam modulation:** Audio cables from `~` outlets can connect to number inlets on engines/effects. `buildAudioTopology` detects this: if the destination inlet maps to an AudioParam (paramName is not null), it does `srcNode.connect(param)`. This is the foundation for FM synthesis, filter modulation, etc.
+
+**Connection rules:**
+- audio→audio: OK (signal routing)
+- audio→number: OK (AudioParam modulation)
+- number→audio: REJECTED (use `sig~` to bridge)
+- number→number: OK (control)
+
+**Port colours:** blue=audio, orange=event, white=number.
+
+### Removed `audio-graph.js`
+
+The automatic audio-rate hoisting system (`identifyAudioBoxes`, `buildAudioSubgraph`, `CONTINUOUS_TYPES`, `loadModWorklets`, `audioConnectedParams` notification) is deleted entirely. All audio-rate processing is now explicit via `~` objects placed by the user. Removed from `main.js`, `graph.js`, `index.html`, `ensemble.html`.
+
+### Math processor race condition fix
+
+`createMathNode` was sending `{ op, arg }` via `postMessage` after construction, but the worklet constructor defaulted to `op: "+"`. If `process()` ran before the message arrived, `*~` would add instead of multiply. Fixed by passing `processorOptions: { op, arg }` in the constructor options.
+
