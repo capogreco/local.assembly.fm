@@ -440,14 +440,6 @@ function buildAudioSubgraph(audioCtx, graph, engines, onEvent) {
     return false;
   }
 
-  // Notify engines which params are audio-connected (so they skip portamento for those)
-  for (const [engineId, paramNames] of audioParamSet) {
-    const engine = engines.get(engineId);
-    if (engine?.worklet) {
-      engine.worklet.port.postMessage({ type: "audioConnected", params: [...paramNames] });
-    }
-  }
-
   function teardown() {
     for (const [, audioNode] of audioNodes) {
       try { audioNode.disconnect(); } catch {}

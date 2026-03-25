@@ -128,7 +128,10 @@ function sendParams(engine, params, audioParamSet) {
     if (Object.keys(filtered).length === 0) return;
   }
   Object.assign(engine.currentParams, filtered);
-  engine.worklet.port.postMessage({ type: "params", ...filtered });
+  const wp = engine.worklet.parameters;
+  for (const [k, v] of Object.entries(filtered)) {
+    if (typeof v === "number") wp.get(k).setTargetAtTime(v, audioCtx.currentTime, 0.005);
+  }
 }
 
 function voiceSendParams(voice, engineId, params) {

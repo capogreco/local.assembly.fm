@@ -1037,3 +1037,27 @@ Pool increased to 192. Added DC blocker on output. Added `ready` flag to prevent
 - Multiple cables to the same inlet now allowed (last value wins, like Pd)
 - Bare key shortcuts: `n`=new, `s`=save, `S`=save abstraction, `o`=open (avoids fighting browser Cmd shortcuts)
 
+## AudioParam migration — MessagePort → AudioParam for all engine params (2026-03-25)
+
+### Problem
+
+All engine worklets received parameter values via `port.postMessage({ type: "params", ... })` with custom per-worklet portamento smoothing. This required:
+- 15-25 lines of portamento boilerplate per worklet (`targets`, `current`, `portamentoAlpha`)
+- An `audioConnectedParams` Set + notification message to switch between MessagePort and AudioParam per-param
+- The `ready` flag pattern (swarm) to gate processing until first async message arrived
+- No way to unify with native Web Audio nodes (which use AudioParams, not MessagePort)
+
+### Fix
+
+Migrated all engine worklets to receive numeric parameters exclusively via AudioParam:
+- `sendParams()` now calls `param.setTargetAtTime(value, now, 0.005)` — smoothing handled natively
+- All portamento boilerplate removed from worklets (targets, current, smoothing loops)
+- `audioConnected` notification message removed from `audio-graph.js`
+- Formant engine reads per-sample from `parameters[name]` for audio-rate modulation
+- Swarm uses `amplitude: 0` default to gate spawning (replaces `ready` flag)
+- KS processor keeps MessagePort only for `{ type: "excite" }` (imperative trigger)
+
+### Why this matters
+
+Native Web Audio nodes (OscillatorNode, BiquadFilterNode, GainNode, etc.) use AudioParams. With worklets also on AudioParams, the patching system can treat custom worklets and native nodes identically — unified parameter delivery via `setTargetAtTime`. This is the foundation for exposing Web Audio API nodes as GPI objects.
+
