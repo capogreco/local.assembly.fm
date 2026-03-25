@@ -1023,3 +1023,17 @@ Pool increased to 192. Added DC blocker on output. Added `ready` flag to prevent
 
 **Fix:** Added `upgrading` flag in `connection.js`. When SSE opens and WebSocket upgrade begins, SSE messages are suppressed. Only WebSocket messages are delivered. If WebSocket fails, the flag clears and SSE resumes as active transport. Single patch load, no teardown of wasted work.
 
+## CC box, scale curve, and patching improvements (2026-03-25)
+
+### Generic MIDI CC input (`cc` box)
+- `cc 14` — listens to CC#14, outputs 0-1
+- `cc` (bare, no arg) — monitor mode, displays incoming CC number and value on the box (like `print`)
+- Unknown MIDI devices no longer auto-create `key` boxes — user places `cc` or `key` explicitly
+
+### Scale curve parameter
+`scale` now accepts an optional third argument for response curve: `scale 100 5000 3` applies `pow(input, 3)` before mapping. Curve=1 is linear (default), >1 is exponential (good for frequency knobs), <1 is logarithmic.
+
+### Patching changes
+- Multiple cables to the same inlet now allowed (last value wins, like Pd)
+- Bare key shortcuts: `n`=new, `s`=save, `S`=save abstraction, `o`=open (avoids fighting browser Cmd shortcuts)
+

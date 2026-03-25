@@ -23,6 +23,8 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
   tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
+  cc:             { zone: "ctrl", description: "MIDI CC input. Arg is CC number. No arg = monitor all CCs (displays cc:value).", args: "[number]", example: "cc 1",
+                    inlets: [], outlets: [{ name: "value", type: "number", description: "CC value (0-1)" }] },
   key:            { zone: "ctrl", description: "MIDI keyboard input.",
                     inlets: [], outlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
@@ -187,7 +189,7 @@ const BOX_TYPES = {
   "**":           { zone: "any", description: "Exponent.", args: "power", example: "** 2",
                     inlets: [{ name: "base", type: "number", description: "Base value" }, { name: "exp", type: "number", description: "Exponent (or arg)" }],
                     outlets: [{ name: "result", type: "number", description: "Result" }] },
-  scale:          { zone: "any", description: "Map 0-1 input to output range.", args: "min max", example: "scale 55 880",
+  scale:          { zone: "any", description: "Map 0-1 input to output range. Optional curve: 1=linear (default), 2+=exponential, 0.5=logarithmic.", args: "min max [curve]", example: "scale 55 880 2",
                     inlets: [{ name: "in", type: "number", description: "Input (0-1)" }],
                     outlets: [{ name: "out", type: "number", description: "Scaled output" }] },
   clip:           { zone: "any", description: "Clamp value to range.", args: "min max", example: "clip 0 1",

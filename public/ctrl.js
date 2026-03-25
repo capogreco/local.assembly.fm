@@ -606,9 +606,10 @@ class PatchEditor {
   boxWidth(box, id) {
     let text = (id !== undefined && id === this.editingBoxId && this.input)
       ? (this.input.value || " ") : (box.text || " ");
-    if (boxTypeName(box.text) === "print" && id !== undefined && this.boxValues.has(id)) {
+    const _type = boxTypeName(box.text);
+    if ((_type === "print" || (_type === "cc" && box.text.trim() === "cc")) && id !== undefined && this.boxValues.has(id)) {
       const v = this.boxValues.get(id);
-      text = "print " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
+      text = _type + " " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
     return Math.ceil(Math.max(this.measureText(text) + BOX_PAD_X * 2, (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 30));
   }
@@ -982,10 +983,11 @@ class PatchEditor {
       if (this.editingBoxId !== id) {
         this.ctx.fillStyle = COLORS.text;
         this.ctx.textBaseline = "middle";
-        if (boxTypeName(box.text) === "print" && this.boxValues.has(id)) {
+        const _bt = boxTypeName(box.text);
+        if ((_bt === "print" || (_bt === "cc" && box.text.trim() === "cc")) && this.boxValues.has(id)) {
           const v = this.boxValues.get(id);
           const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
-          this.ctx.fillText("print " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+          this.ctx.fillText(_bt + " " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
         } else {
           this.ctx.fillText(box.text, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
         }
@@ -1301,7 +1303,7 @@ class PatchEditor {
 
     if (this.mode === "cabling" && this.cableFrom) {
       const inlet = this.hitTestInlet(m.x, m.y);
-      if (inlet && inlet.boxId !== this.cableFrom.boxId && !this.inletHasCable(inlet.boxId, inlet.index)) {
+      if (inlet && inlet.boxId !== this.cableFrom.boxId) {
         // Validate audio/control type match
         const srcBoxObj = this.boxes.get(this.cableFrom.boxId);
         const srcDef = getDef(srcBoxObj?.text);
@@ -1705,9 +1707,10 @@ window.addEventListener("keydown", (e) => {
     else mainEditor.zoomToFit();
     return;
   }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "s") { e.preventDefault(); saveAsAbstraction(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); savePatch(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === "o") { e.preventDefault(); loadPatch(); return; }
+  if (e.key === "s" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); savePatch(); return; }
+  if (e.key === "S" && !e.metaKey && !e.ctrlKey && e.shiftKey) { e.preventDefault(); saveAsAbstraction(); return; }
+  if (e.key === "o" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); loadPatch(); return; }
+  if (e.key === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); mainEditor.pushUndo(); mainEditor.boxes.clear(); mainEditor.cables.clear(); mainEditor.selection.clear(); mainEditor.cableSelection.clear(); mainEditor.nextId = 1; mainEditor.dirty = true; mainEditor.onDirty(); mainEditor.resetView(); currentPatchName = null; mainEditor.render(); return; }
   if (e.key === "h" && mainEditor.selection.size === 1) {
     e.preventDefault();
     const boxId = [...mainEditor.selection][0];
@@ -1864,7 +1867,7 @@ function autoCreateSources(deviceName) {
   if (!midiDeviceNames.includes(deviceName)) { midiDeviceNames.push(deviceName); mainEditor.render(); }
   let sources = null;
   for (const dev of MIDI_DEVICES) if (dev.match.some(p => lower.includes(p))) { sources = dev.sources; break; }
-  if (!sources) sources = ["key"];
+  if (!sources) return; // unknown device — don't auto-create boxes
 
   let nextY = 30, created = false;
   for (const box of mainEditor.boxes.values()) {

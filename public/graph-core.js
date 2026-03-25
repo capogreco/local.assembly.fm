@@ -181,7 +181,7 @@ function evaluatePure(type, args, iv) {
     case "/": { const d = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return d !== 0 ? a / d : 0; }
     case "%": { const d = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return d !== 0 ? a % d : 0; }
     case "**": return Math.pow(a, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
-    case "scale": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1; return a * (max - min) + min; }
+    case "scale": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1, curve = parseFloat(args[2]) || 1; return Math.pow(Math.max(0, Math.min(1, a)), curve) * (max - min) + min; }
     case "clip": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1; return Math.max(min, Math.min(max, a)); }
     case "pow": return Math.pow(a, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
     case "mtof": return 440 * Math.pow(2, ((iv[0] || 69) - 69) / 12);

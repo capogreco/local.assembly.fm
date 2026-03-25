@@ -881,7 +881,7 @@ interface Cable {
 
 const boxes = new Map<number, Box>();
 const cables = new Map<number, Cable>();
-type BoxValue = number | number[];
+type BoxValue = number | number[] | string;
 const boxValues = new Map<number, BoxValue>();
 const inletValues = new Map<number, number[]>();
 // deno-lint-ignore no-explicit-any
@@ -1557,10 +1557,20 @@ function handleCtrlWs(req: Request): Response {
         handleApply(msg);
       } else if (msg.type === "midi") {
         if (msg.cc !== undefined) {
+          // Named CC sources (breath, bite, nod, tilt)
           const name = CC_SOURCE[msg.cc];
           if (name) {
             const id = findBoxByText(name);
             if (id !== null) setBoxValueAndNotify(id, msg.value / 127);
+          }
+          // Generic CC boxes: "cc N" matches CC number N
+          const ccId = findBoxByText("cc " + msg.cc);
+          if (ccId !== null) setBoxValueAndNotify(ccId, msg.value / 127);
+          // CC monitor: bare "cc" with no arg — display cc:value
+          const monId = findBoxByText("cc");
+          if (monId !== null) {
+            boxValues.set(monId, msg.value / 127);
+            queueValueUpdate(monId, msg.cc + ":" + (msg.value / 127).toFixed(2));
           }
         } else if (msg.note !== undefined) {
           const id = findBoxByText("key");
