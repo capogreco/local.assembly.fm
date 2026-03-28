@@ -977,6 +977,13 @@ class PatchEditor {
           const sMin = parseFloat(_args[0]) || 0, sMax = parseFloat(_args[1]) || 1;
           barVal = sMax !== sMin ? (val - sMin) / (sMax - sMin) : 0;
         }
+        if (_tn === "knob" && typeof val === "number") {
+          const _args = box.text.split(/\s+/).slice(1).map(Number);
+          const kMin = _args[1] !== undefined ? _args[1] : 0, kMax = _args[2] !== undefined ? _args[2] : 1;
+          const kCurve = _args[3] || 1;
+          // Show linear position in normalised (pre-curve) space for intuitive bar
+          barVal = kMax !== kMin ? Math.pow(Math.max(0, Math.min(1, (val - kMin) / (kMax - kMin))), 1 / kCurve) : 0;
+        }
         if (typeof barVal === "number" && barVal >= 0 && barVal <= 1) {
           this.ctx.fillStyle = "#4a4a4a";
           this.ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * barVal, BOX_HEIGHT - 2);
@@ -1010,6 +1017,17 @@ class PatchEditor {
         this.ctx.fillStyle = oDef?.type === "audio" ? COLORS.portAudio : oDef?.type === "event" ? COLORS.portEvent : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
       }
+    }
+
+    // Knob value labels (below the box)
+    for (const [id, box] of this.boxes) {
+      if (boxTypeName(box.text) !== "knob" || !this.boxValues.has(id)) continue;
+      const v = this.boxValues.get(id);
+      const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+      this.ctx.font = SMALL_FONT;
+      this.ctx.fillStyle = "#888";
+      this.ctx.textBaseline = "top";
+      this.ctx.fillText(display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT + 2);
     }
 
     // Draw overlays in screen space (reset pan/zoom)
@@ -1523,6 +1541,30 @@ class PatchEditor {
 
   _onWheel(e) {
     e.preventDefault();
+    // Check if scrolling over a knob box
+    const m = this.canvasCoords(e);
+    const knobId = this.hitTestBox(m.x, m.y);
+    if (knobId !== null) {
+      const box = this.boxes.get(knobId);
+      if (box && boxTypeName(box.text) === "knob") {
+        const args = box.text.split(/\s+/).slice(1).map(Number);
+        const min = args[1] !== undefined ? args[1] : 0;
+        const max = args[2] !== undefined ? args[2] : 1;
+        const curve = args[3] || 1;
+        const range = max - min;
+        const current = this.boxValues.get(knobId) ?? (args[0] !== undefined ? args[0] : 0.5);
+        // Work in normalised 0-1 space, apply curve
+        const norm = range !== 0 ? Math.pow(Math.max(0, Math.min(1, (current - min) / range)), 1 / curve) : 0;
+        const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const step = e.shiftKey ? 0.0005 : 0.005;
+        const newNorm = Math.max(0, Math.min(1, norm - delta * step));
+        const newVal = min + Math.pow(newNorm, curve) * range;
+        this.boxValues.set(knobId, newVal);
+        send({ type: "knob", id: knobId, value: newVal });
+        this.render();
+        return;
+      }
+    }
     if (e.ctrlKey || e.metaKey) {
       // Pinch-zoom or ctrl+scroll → zoom around cursor
       const r = this.canvas.getBoundingClientRect();

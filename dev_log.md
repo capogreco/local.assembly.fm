@@ -1212,3 +1212,17 @@ New `chaos-processor.js` AudioWorklet with 3-channel output (x, y, z state varia
 - Nonlinear Circuits Sloth Chaos (Andrew Fitch)
 - Hetrick/NonlinearCircuits VCV Rack port (DSP by Don Cross)
 
+## Chaos-driven swarm engine (2026-03-28)
+
+Replaced `Math.random()` in the swarm event spawner with an embedded Rössler attractor. Events are now temporally correlated: chaos x modulates event rate (natural clustering), chaos y drives frequency selection (spectral sweeps), chaos z drives amplitude (emergent dynamics). Only noise burst samples remain random (because that IS noise).
+
+New `chaosSpeed` AudioParam controls attractor traversal speed independently of event rate. Per-instance random initial conditions ensure each phone diverges.
+
+Fixed attractor stepping: was stepping once per event spawn (barely moving). Now steps continuously per audio block (`chaosSpeed * 10` steps/block) plus between consecutive event spawns. Eliminates spectral bias from attractor's natural orbital frequency.
+
+## Knob object (2026-03-28)
+
+Interactive `knob` box with scroll wheel control. Args: `knob init [min] [max] [curve]`. Shift+scroll for fine control. Value displayed underneath the box (args stay visible). Value bar normalised to range in pre-curve space. Curve arg applies `pow` mapping (same as `scale`).
+
+Propagates init value on apply. Server handles `knob` message type for real-time updates.
+

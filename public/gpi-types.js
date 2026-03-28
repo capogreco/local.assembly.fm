@@ -49,7 +49,7 @@ const BOX_TYPES = {
   // --- values ---
   const:          { zone: "any", description: "Constant value.", args: "value", example: "const 220",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Constant output" }] },
-  number:         { zone: "any", description: "Editable number. Drag to change in performance mode.",
+  knob:           { zone: "any", description: "Interactive knob. Scroll wheel to change value. Args: init [min] [max] [curve].", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Current value" }] },
   toggle:         { zone: "any", description: "On/off switch. Click to flip. Inlet sets state directly.",
                     inlets: [{ name: "set", type: "number", description: "0 = off, >0 = on" }],
@@ -496,7 +496,8 @@ const BOX_TYPES = {
                       { name: "amplitude", type: "number", description: "Output level (0-1)" },
                       { name: "transientMix", type: "number", description: "Noise burst probability (0-1)" },
                       { name: "resonatorQ", type: "number", description: "Biquad Q (0=sinusoid, >0=resonator)" },
-                      { name: "density", type: "number", description: "Output scaling (0-1)" }],
+                      { name: "density", type: "number", description: "Output scaling (0-1)" },
+                      { name: "chaosSpeed", type: "number", description: "Chaos attractor speed (0.1=slow, 1=normal, 10=fast)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
 };
 

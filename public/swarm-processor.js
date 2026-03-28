@@ -1,9 +1,12 @@
 /**
- * Stochastic Event Swarm Worklet — resonant event swarm synthesis
+ * Stochastic Event Swarm Worklet — chaos-driven resonant event synthesis
+ *
+ * Embedded Rössler attractor replaces randomness for event parameters.
+ * Chaos outputs drive: event timing (x), frequency selection (y),
+ * amplitude (z). Creates temporally correlated, non-repeating events.
+ *
  * Parameters via AudioParam: rate, freqMin, freqMax, chirp, decay,
- * amplitude, transientMix, resonatorQ, density.
- * Physically-motivated: log-uniform frequency, constant-Q decay,
- * amplitude-frequency correlation, temporal clustering, sibling spawning.
+ * amplitude, transientMix, resonatorQ, density, chaosSpeed.
  */
 
 class SwarmProcessor extends AudioWorkletProcessor {
@@ -18,6 +21,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
       { name: "transientMix", defaultValue: 0,    automationRate: "k-rate" },
       { name: "resonatorQ",   defaultValue: 0,    automationRate: "k-rate" },
       { name: "density",      defaultValue: 1,    automationRate: "k-rate" },
+      { name: "chaosSpeed",   defaultValue: 1,    automationRate: "k-rate" },
     ];
   }
 
@@ -48,13 +52,61 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.a2     = new Float32Array(N);
 
     this.nextEvent = 0;
-    this.rateMod = 0;
     this.globalLP = 0;
     this.dcX = 0;
     this.dcY = 0;
 
-    // Cached params (read from AudioParams once per block)
+    // Embedded Rössler attractor — replaces Math.random()
+    // Random initial conditions for per-instance divergence
+    this.cx = (Math.random() - 0.5) * 2;
+    this.cy = (Math.random() - 0.5) * 2;
+    this.cz = (Math.random() - 0.5) * 0.5;
+    // Normalisation tracking
+    this.cMaxX = 10; this.cMaxY = 10; this.cMaxZ = 5;
+
     this.c = {};
+  }
+
+  // Step the Rössler attractor and return normalised (0-1) values
+  stepChaos(speed) {
+    const a = 0.2, b = 0.2, c = 5.7;
+    const dt = speed * 0.05; // scale for reasonable traversal speed
+
+    // RK4
+    const dx1 = -(this.cy + this.cz);
+    const dy1 = this.cx + a * this.cy;
+    const dz1 = b + this.cz * (this.cx - c);
+    const x2 = this.cx + dx1 * dt * 0.5, y2 = this.cy + dy1 * dt * 0.5, z2 = this.cz + dz1 * dt * 0.5;
+    const dx2 = -(y2 + z2);
+    const dy2 = x2 + a * y2;
+    const dz2 = b + z2 * (x2 - c);
+    const x3 = this.cx + dx2 * dt * 0.5, y3 = this.cy + dy2 * dt * 0.5, z3 = this.cz + dz2 * dt * 0.5;
+    const dx3 = -(y3 + z3);
+    const dy3 = x3 + a * y3;
+    const dz3 = b + z3 * (x3 - c);
+    const x4 = this.cx + dx3 * dt, y4 = this.cy + dy3 * dt, z4 = this.cz + dz3 * dt;
+    const dx4 = -(y4 + z4);
+    const dy4 = x4 + a * y4;
+    const dz4 = b + z4 * (x4 - c);
+
+    this.cx += (dx1 + 2 * dx2 + 2 * dx3 + dx4) * dt / 6;
+    this.cy += (dy1 + 2 * dy2 + 2 * dy3 + dy4) * dt / 6;
+    this.cz += (dz1 + 2 * dz2 + 2 * dz3 + dz4) * dt / 6;
+
+    // Blow-up protection
+    const m = Math.max(Math.abs(this.cx), Math.abs(this.cy), Math.abs(this.cz));
+    if (m > 1e6 || isNaN(m)) { this.cx = 0.1; this.cy = 0; this.cz = 0; }
+
+    // Adaptive normalisation to 0-1
+    this.cMaxX = Math.max(this.cMaxX * 0.9999, Math.abs(this.cx));
+    this.cMaxY = Math.max(this.cMaxY * 0.9999, Math.abs(this.cy));
+    this.cMaxZ = Math.max(this.cMaxZ * 0.9999, Math.abs(this.cz));
+
+    return {
+      x: (this.cx / this.cMaxX) * 0.5 + 0.5,  // 0-1
+      y: (this.cy / this.cMaxY) * 0.5 + 0.5,
+      z: (this.cz / this.cMaxZ) * 0.5 + 0.5,
+    };
   }
 
   spawnEventAt(f, a, dm, chirpVal, chirpDk, hasTransient) {
@@ -65,7 +117,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
     if (slot < 0) return;
 
     this.active[slot] = 1;
-    this.phase[slot] = Math.random() * 6.2832;
+    this.phase[slot] = this.lastChaos.z * 6.2832; // chaos-driven initial phase
     this.freq[slot] = f;
     this.evChirp[slot] = chirpVal;
     this.chirpDecay[slot] = chirpDk;
@@ -73,7 +125,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.decayMul[slot] = dm;
 
     if (hasTransient) {
-      const len = Math.round((0.001 + Math.random() * 0.004) * this.sr);
+      const len = Math.round((0.001 + this.lastChaos.z * 0.004) * this.sr);
       this.transLeft[slot] = len;
       this.transLen[slot] = len;
       this.transLP[slot] = 0;
@@ -90,7 +142,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
       const alpha = Math.sin(w0) / (2 * resQ);
       const a0 = 1 + alpha;
       this.b0[slot] = alpha / a0;
-      this.b1[slot] = 1; // impulse pending
+      this.b1[slot] = 1;
       this.b2[slot] = -alpha / a0;
       this.a1[slot] = (-2 * Math.cos(w0)) / a0;
       this.a2[slot] = (1 - alpha) / a0;
@@ -103,18 +155,25 @@ class SwarmProcessor extends AudioWorkletProcessor {
 
   spawnEvent() {
     const c = this.c;
+    const ch = this.stepChaos(c.chaosSpeed || 1);
+    this.lastChaos = ch;
+
+    // Chaos y drives frequency (log-uniform, chaos-weighted)
     const logMin = Math.log(c.freqMin || 20);
     const logMax = Math.log(c.freqMax || 20000);
-    const f = Math.exp(logMin + Math.random() * (logMax - logMin));
+    const f = Math.exp(logMin + ch.y * (logMax - logMin));
 
+    // Chaos z drives amplitude (with 1/f correlation)
     const fRef = Math.exp((logMin + logMax) * 0.5);
     const ampScale = Math.min(fRef / f, 4.0);
-    const a = Math.random() * c.amplitude * ampScale;
+    const a = ch.z * c.amplitude * ampScale;
 
+    // Constant-Q decay
     const Q = 5 + c.decay * 25;
     const t60 = Q / f;
     const dm = Math.exp(-6.9 / (t60 * this.sr));
 
+    // Chirp
     let chirpVal, chirpDk;
     if (c.chirp > 0) {
       chirpVal = c.chirp / this.sr;
@@ -127,15 +186,18 @@ class SwarmProcessor extends AudioWorkletProcessor {
       chirpDk = Math.exp(-10 / (0.003 * this.sr));
     }
 
-    const hasTransient = Math.random() < c.transientMix;
+    // Chaos x drives transient probability
+    const hasTransient = ch.x < c.transientMix;
     this.spawnEventAt(f, a, dm, chirpVal, chirpDk, hasTransient);
 
-    if (Math.random() < 0.3) {
-      const numSiblings = 1 + Math.floor(Math.random() * 3);
+    // Sibling spawning — chaos-driven probability and count
+    if (ch.x > 0.7) {
+      const numSiblings = 1 + Math.floor(ch.z * 3);
       for (let s = 0; s < numSiblings; s++) {
-        const sibF = f * (0.7 + Math.random() * 0.5);
+        const sibCh = this.stepChaos(c.chaosSpeed || 1);
+        const sibF = f * (0.7 + sibCh.y * 0.5);
         const sibAmpScale = Math.min(fRef / sibF, 4.0);
-        const sibA = Math.random() * c.amplitude * sibAmpScale * 0.5;
+        const sibA = sibCh.z * c.amplitude * sibAmpScale * 0.5;
         const sibT60 = Q / sibF;
         const sibDm = Math.exp(-6.9 / (sibT60 * this.sr));
         this.spawnEventAt(sibF, sibA, sibDm, chirpVal * 0.7, chirpDk, false);
@@ -148,7 +210,6 @@ class SwarmProcessor extends AudioWorkletProcessor {
     if (!out) return true;
     const blockSize = out.length;
 
-    // Cache AudioParam values for this block
     const c = this.c;
     c.rate         = parameters.rate[0];
     c.freqMin      = parameters.freqMin[0];
@@ -159,18 +220,23 @@ class SwarmProcessor extends AudioWorkletProcessor {
     c.transientMix = parameters.transientMix[0];
     c.resonatorQ   = parameters.resonatorQ[0];
     c.density      = parameters.density[0];
+    c.chaosSpeed   = parameters.chaosSpeed[0];
 
-    // Don't spawn if amplitude is zero (no params set yet)
+    // Step chaos continuously — multiple steps per block for proper traversal
+    const chaosSteps = Math.max(1, Math.ceil((c.chaosSpeed || 1) * 10));
+    for (let i = 0; i < chaosSteps; i++) this.lastChaos = this.stepChaos(c.chaosSpeed || 1);
+
+    // Don't spawn if amplitude is zero
     if (c.amplitude > 0) {
-      this.rateMod += (Math.random() - 0.5) * 0.1;
-      this.rateMod *= 0.995;
-      const effectiveRate = Math.max(0.01, c.rate * Math.exp(this.rateMod));
+      const rateModulator = 0.3 + this.lastChaos.x * 1.4;
+      const effectiveRate = Math.max(0.01, c.rate * rateModulator);
 
       const blockDuration = blockSize / this.sr;
       this.nextEvent -= blockDuration;
       while (this.nextEvent <= 0) {
         this.spawnEvent();
-        this.nextEvent += -Math.log(Math.max(1e-10, 1 - Math.random())) / effectiveRate;
+        this.lastChaos = this.stepChaos(c.chaosSpeed || 1);
+        this.nextEvent += -Math.log(Math.max(1e-10, 1 - this.lastChaos.y)) / effectiveRate;
       }
     }
 
@@ -189,7 +255,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
           const t = 1 - this.transLeft[i] / this.transLen[i];
           const noiseEnv = Math.exp(-5 * t);
           const toneEnv = t;
-          const noise = Math.random() * 2 - 1;
+          const noise = Math.random() * 2 - 1; // noise stays random (it IS noise)
           this.transLP[i] = this.transLP[i] * (1 - transientLP) + noise * transientLP;
           const sinSample = Math.sin(this.phase[i]);
           sample = this.amp[i] * (this.transLP[i] * noiseEnv + sinSample * toneEnv);

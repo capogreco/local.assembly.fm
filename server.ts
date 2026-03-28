@@ -1063,6 +1063,11 @@ function evaluateAllConsts(): void {
     const name = boxTypeName(box.text);
     if (name === "const") {
       setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
+    } else if (name === "knob") {
+      const kArgs = box.text.split(/\s+/).slice(1).map(Number);
+      const init = kArgs[0] !== undefined ? kArgs[0] : 0.5;
+      boxValues.set(id, init);
+      setBoxValueAndNotify(id, init);
     } else if (name === "toggle") {
       const state = boxState.get(id);
       if (state) setBoxValueAndNotify(id, state.value);
@@ -1626,6 +1631,8 @@ function handleCtrlWs(req: Request): Response {
           const id = findBoxByText("key");
           if (id !== null) setBoxValueAndNotify(id, msg.note);
         }
+      } else if (msg.type === "knob") {
+        setBoxValueAndNotify(msg.id, msg.value);
       } else if (msg.type === "toggle-click") {
         const state = boxState.get(msg.id);
         if (state) {
