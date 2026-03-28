@@ -308,6 +308,14 @@ const BOX_TYPES = {
                       { name: "value", type: "number", description: "Value to output as audio" },
                       { name: "portamento", type: "number", description: "Glide time in seconds" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio signal" }] },
+  "chaos~":       { zone: "synth", description: "Chaotic attractor. Systems: rossler, lorenz, sprott-b to sprott-s, jerk, sloth. 3 outputs (x,y,z).", args: "system", example: "chaos~ rossler",
+                    inlets: [
+                      { name: "speed", type: "number", description: "Time dilation (1=audio rate, 0.001=slow)" },
+                      { name: "param", type: "number", description: "System-specific character" }],
+                    outlets: [
+                      { name: "x", type: "audio", description: "State variable X" },
+                      { name: "y", type: "audio", description: "State variable Y" },
+                      { name: "z", type: "audio", description: "State variable Z" }] },
   "osc~":         { zone: "synth", description: "Audio-rate oscillator. Types: sine, square, sawtooth, triangle.", args: "[freq] [type]", example: "osc~ 2 sine",
                     inlets: [
                       { name: "frequency", type: "number", description: "Frequency in Hz" },

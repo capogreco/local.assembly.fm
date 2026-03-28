@@ -1182,3 +1182,33 @@ New audio-rate envelopes: `adsr~`, `sigmoid~`, `cosine~`, `ramp~`, `step~` (new 
 - Random now accepts optional curve arg: `random 0 1 2` biases toward min.
 - Scale value bar normalizes display to the scale's own range.
 
+## Chaotic attractor modulation — chaos~ (2026-03-28)
+
+### Motivation
+
+Inspired by Nonlinear Circuits (Andrew Fitch) Eurorack modules, particularly the Sloth series. Chaotic systems provide modulation that is bounded, correlated across outputs, and never repeats — qualities that are uniquely interesting for distributed synthesis where each phone can run the same attractor from different initial conditions, producing coherent but non-unison variation.
+
+### Implementation
+
+New `chaos-processor.js` AudioWorklet with 3-channel output (x, y, z state variables). RK4 integration with adaptive normalisation. 22 selectable systems via arg:
+
+**Classic attractors:** `rossler`, `lorenz`
+**Sprott simple chaotic flows:** `sprott-b` through `sprott-s` (19 algebraically simple systems, 5-6 terms each)
+**Simplest chaotic flow:** `jerk` (Sprott's x''' + Ax'' - x'² + x = 0)
+**NLC-inspired:** `sloth` (mathematical essence of the double-scroll comparator system, not circuit model)
+
+**Parameters:**
+- `speed` (inlet 0) — time dilation. 1=audio rate, 0.01=slow modulation, 0.00001=glacial drift
+- `param` (inlet 1) — system-specific character (e.g. Rössler's c, Lorenz's rho)
+
+**Multi-output architecture:** First `~` object with 3 audio outlets. Uses ChannelSplitter to separate 3-channel worklet output into individual GainNodes. `getEngineOutput(engine, outletIndex)` selects the correct output. `buildAudioTopology` passes `cable.srcOutlet` to source node selection.
+
+**Per-instance divergence:** Random initial conditions ensure each phone's chaos trajectory diverges immediately (butterfly effect). All phones are on the same attractor but at different positions — coherent without unison.
+
+### References
+
+- Sprott, "Some Simple Chaotic Flows" (Physical Review E, 1994)
+- Sprott, "Simplest Dissipative Chaotic Flow" (Physics Letters A, 1997)
+- Nonlinear Circuits Sloth Chaos (Andrew Fitch)
+- Hetrick/NonlinearCircuits VCV Rack port (DSP by Don Cross)
+

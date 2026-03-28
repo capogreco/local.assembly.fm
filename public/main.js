@@ -79,7 +79,8 @@ async function createEngine(type, args) {
   return { type, worklet };
 }
 
-function getEngineOutput(engine) {
+function getEngineOutput(engine, outletIndex) {
+  if (engine.outputs && outletIndex !== undefined) return engine.outputs[outletIndex];
   return engine.out || engine.node || engine.worklet;
 }
 
@@ -90,6 +91,7 @@ const NATIVE_NODES = new Set([
 ]);
 
 const SIGNAL_WORKLETS = {
+  "chaos~":   { module: "chaos-processor.js",   worklet: "chaos-processor" },
   "lfo~":     { module: "lfo-processor.js",     worklet: "lfo-processor" },
   "phasor~":  { module: "phasor-processor.js",  worklet: "phasor-processor" },
   "ar~":      { module: "ar-processor.js",      worklet: "ar-processor" },
@@ -167,12 +169,30 @@ async function createSignalWorklet(type, args) {
     workletModulesLoaded.add(def.module);
   }
   const tokens = (args || "").split(/\s+/).filter(Boolean);
+
+  // chaos~ needs 3-channel output + splitter
+  if (type === "chaos~") {
+    const system = tokens[0] || "rossler";
+    const node = new AudioWorkletNode(audioCtx, def.worklet, {
+      outputChannelCount: [3],
+      processorOptions: { system },
+    });
+    const splitter = audioCtx.createChannelSplitter(3);
+    node.connect(splitter);
+    const outX = audioCtx.createGain(); splitter.connect(outX, 0);
+    const outY = audioCtx.createGain(); splitter.connect(outY, 1);
+    const outZ = audioCtx.createGain(); splitter.connect(outZ, 2);
+    const paramMap = {};
+    for (const [name, param] of node.parameters) paramMap[name] = param;
+    return { type, worklet: node, splitter, outputs: [outX, outY, outZ], paramMap };
+  }
+
   const node = new AudioWorkletNode(audioCtx, def.worklet);
 
   const paramMap = {};
   for (const [name, param] of node.parameters) paramMap[name] = param;
 
-  // Set initial values from args (via message port for envelope config)
+  // Set initial values from args
   if (type === "lfo~") {
     if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
   } else if (type === "phasor~") {
@@ -257,7 +277,7 @@ function buildAudioTopology(voice, patch) {
   for (const cable of audioCables) {
     const srcEng = voice.engines.get(cable.srcBox);
     if (!srcEng) continue;
-    const srcNode = getEngineOutput(srcEng);
+    const srcNode = getEngineOutput(srcEng, cable.srcOutlet);
 
     // Case 1: destination is dac
     if (dacBox && cable.dstBox === dacBox.id) {
@@ -406,6 +426,7 @@ async function loadPatchForVoice(voice, patch) {
     e.worklet?.disconnect();
     e.splitter?.disconnect();
     e.out?.disconnect();
+    if (e.outputs) for (const o of e.outputs) o.disconnect();
   }
   voice.engines.clear();
 
@@ -500,6 +521,7 @@ function tearDown() {
       e.worklet?.disconnect();
       e.splitter?.disconnect();
       e.out?.disconnect();
+      if (e.outputs) for (const o of e.outputs) o.disconnect();
     }
     if (voice.panner) voice.panner.disconnect();
     if (voice.conn?.close) voice.conn.close();
