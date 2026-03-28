@@ -1255,3 +1255,7 @@ The ctrl client now has a full `buildCtrlAudioTopology()` that mirrors main.js: 
 - Same `~` objects, same patching, different output destination
 - Full audio-rate signal chains on the laptop alongside phone distribution
 
+## Audio input — adc~ (2026-03-28)
+
+`adc~ 1` reads from audio interface input channel 1 (1-indexed). Shared `getUserMedia` call across all `adc~` boxes with echo cancellation, noise suppression, and auto gain control disabled (essential for DC-coupled CV from ES-8). ChannelSplitterNode separates channels, each `adc~` taps its channel via GainNode. Enables bidirectional CV bridge with Eurorack.
+

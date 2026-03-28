@@ -41,6 +41,8 @@ let currentPatchName = null;
 
 let ctrlAudioCtx = null;
 let ctrlChannelMerger = null;
+let ctrlInputSource = null;   // MediaStreamSourceNode (shared)
+let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
 
@@ -55,7 +57,7 @@ const ENGINES = {
 
 const CTRL_NATIVE_NODES = new Set([
   "oscillatorNode~", "gainNode~", "biquadFilterNode~",
-  "const~", "sig~", "osc~", "noise~",
+  "const~", "sig~", "osc~", "noise~", "adc~",
   "send~", "s~", "receive~", "r~", "throw~", "catch~",
 ]);
 
@@ -112,6 +114,26 @@ async function createCtrlNativeNode(type, args) {
     }
     node = new AudioWorkletNode(ctrlAudioCtx, def.worklet);
     return { type, node, worklet: node, paramMap: {} };
+  } else if (type === "adc~") {
+    // Audio input — tap from shared input splitter
+    if (!ctrlInputSource) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: { ideal: 8 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        });
+        ctrlInputSource = ctrlAudioCtx.createMediaStreamSource(stream);
+        const channelCount = ctrlInputSource.channelCount || 2;
+        ctrlInputSplitter = ctrlAudioCtx.createChannelSplitter(channelCount);
+        ctrlInputSource.connect(ctrlInputSplitter);
+      } catch (err) {
+        console.error("adc~ failed to get audio input:", err);
+        return null;
+      }
+    }
+    const ch = (parseInt(tokens[0]) || 1) - 1; // 1-indexed to 0-indexed
+    const node = ctrlAudioCtx.createGain();
+    try { ctrlInputSplitter.connect(node, ch); } catch { ctrlInputSplitter.connect(node, 0); }
+    return { type, node, paramMap: {} };
   } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
           || type === "throw~" || type === "catch~") {
     node = ctrlAudioCtx.createGain();
@@ -211,6 +233,8 @@ async function buildCtrlAudioTopology() {
   }
   ctrlEngines.clear();
   if (ctrlChannelMerger) { ctrlChannelMerger.disconnect(); ctrlChannelMerger = null; }
+  if (ctrlInputSplitter) { ctrlInputSplitter.disconnect(); ctrlInputSplitter = null; }
+  if (ctrlInputSource) { ctrlInputSource.disconnect(); ctrlInputSource = null; }
 
   // Collect ctrl-zone audio boxes
   const ctrlAudioBoxes = new Map();

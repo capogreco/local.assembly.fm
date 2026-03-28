@@ -297,6 +297,9 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "audio", description: "Summed audio" }] },
 
   // --- audio-rate objects (~) — any box with audio ports ---
+  "adc~":         { zone: "any", description: "Audio input. Channel arg selects input channel from audio interface.", args: "[channel]", example: "adc~ 1",
+                    inlets: [],
+                    outlets: [{ name: "out", type: "audio", description: "Audio input signal" }] },
   "dac~":         { zone: "any", description: "Audio output. Synth zone: mono to speaker. Ctrl zone: channel arg routes to interface.", args: "[channels...]", example: "dac~ 1 2",
                     inlets: [{ name: "in", type: "audio", description: "Audio signal" }],
                     outlets: [] },
