@@ -6,7 +6,7 @@
  * Also hosts ctrl-side engines (above-border) with audio output to laptop speakers.
  */
 
-import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef } from "./gpi-types.js";
+import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
 
 // DOM elements
 const canvas = document.getElementById("c");
@@ -40,8 +40,8 @@ let currentPatchName = null;
 // --- ctrl-side audio engine ---
 
 let ctrlAudioCtx = null;
-let ctrlMasterGain = null;
-const ctrlEngines = new Map(); // boxId -> { type, worklet, ... }
+let ctrlChannelMerger = null;
+const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
 
 const ENGINES = {
@@ -53,50 +53,308 @@ const ENGINES = {
   "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
 };
 
+const CTRL_NATIVE_NODES = new Set([
+  "oscillatorNode~", "gainNode~", "biquadFilterNode~",
+  "const~", "sig~", "osc~", "noise~",
+  "send~", "s~", "receive~", "r~", "throw~", "catch~",
+]);
+
+const CTRL_SIGNAL_WORKLETS = {
+  "chaos~":   { module: "chaos-processor.js",   worklet: "chaos-processor" },
+  "lfo~":     { module: "lfo-processor.js",     worklet: "lfo-processor" },
+  "phasor~":  { module: "phasor-processor.js",  worklet: "phasor-processor" },
+  "ar~":      { module: "ar-processor.js",      worklet: "ar-processor" },
+  "adsr~":    { module: "adsr-processor.js",    worklet: "adsr-processor" },
+  "sigmoid~": { module: "sigmoid-processor.js", worklet: "sigmoid-processor" },
+  "cosine~":  { module: "cosine-processor.js",  worklet: "cosine-processor" },
+  "ramp~":    { module: "ramp-processor.js",    worklet: "ramp-processor" },
+  "step~":    { module: "step-processor.js",    worklet: "step-processor" },
+  "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
+  "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
+};
+
+const CTRL_MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~"]);
+
 async function initCtrlAudio() {
   if (ctrlAudioCtx) return;
-  ctrlAudioCtx = new AudioContext();
+  ctrlAudioCtx = new AudioContext({ sampleRate: 48000 });
   await ctrlAudioCtx.resume();
-  ctrlMasterGain = ctrlAudioCtx.createGain();
-  ctrlMasterGain.connect(ctrlAudioCtx.destination);
 }
 
-async function createCtrlEngine(type, boxId) {
-  const def = ENGINES[type];
-  if (!def || !ctrlAudioCtx) return null;
+// Mirror of main.js createNativeNode but using ctrlAudioCtx
+async function createCtrlNativeNode(type, args) {
+  const tokens = (args || "").split(/\s+/).filter(Boolean);
+  let node, paramMap = {};
+  if (type === "oscillatorNode~") {
+    node = ctrlAudioCtx.createOscillator(); node.type = tokens[0] || "sine"; node.start();
+    paramMap = { frequency: node.frequency, detune: node.detune };
+  } else if (type === "gainNode~") {
+    node = ctrlAudioCtx.createGain(); node.gain.value = parseFloat(tokens[0]) || 1;
+    paramMap = { gain: node.gain };
+  } else if (type === "biquadFilterNode~") {
+    node = ctrlAudioCtx.createBiquadFilter(); node.type = tokens[0] || "lowpass";
+    paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
+  } else if (type === "const~") {
+    node = ctrlAudioCtx.createConstantSource(); node.offset.value = parseFloat(tokens[0]) || 0; node.start();
+    return { type, node, paramMap: {} };
+  } else if (type === "sig~") {
+    node = ctrlAudioCtx.createConstantSource(); node.offset.value = 0; node.start();
+    const portaTime = parseFloat(tokens[0]) || 0;
+    return { type, node, paramMap: { value: node.offset }, portaTime };
+  } else if (type === "osc~") {
+    node = ctrlAudioCtx.createOscillator(); node.frequency.value = parseFloat(tokens[0]) || 1;
+    node.type = tokens[1] || "sine"; node.start();
+    paramMap = { frequency: node.frequency, detune: node.detune };
+  } else if (type === "noise~") {
+    const def = CTRL_SIGNAL_WORKLETS["noise~-worklet"];
+    if (!ctrlWorkletModulesLoaded.has(def.module)) {
+      await ctrlAudioCtx.audioWorklet.addModule(def.module); ctrlWorkletModulesLoaded.add(def.module);
+    }
+    node = new AudioWorkletNode(ctrlAudioCtx, def.worklet);
+    return { type, node, worklet: node, paramMap: {} };
+  } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
+          || type === "throw~" || type === "catch~") {
+    node = ctrlAudioCtx.createGain();
+    return { type, node, paramMap: {} };
+  } else { return null; }
+  return { type, node, paramMap };
+}
+
+async function createCtrlSignalWorklet(type, args) {
+  const def = CTRL_SIGNAL_WORKLETS[type];
+  if (!def) return null;
   if (!ctrlWorkletModulesLoaded.has(def.module)) {
-    await ctrlAudioCtx.audioWorklet.addModule(def.module);
-    ctrlWorkletModulesLoaded.add(def.module);
+    await ctrlAudioCtx.audioWorklet.addModule(def.module); ctrlWorkletModulesLoaded.add(def.module);
+  }
+  const tokens = (args || "").split(/\s+/).filter(Boolean);
+  if (type === "chaos~") {
+    const system = tokens[0] || "rossler";
+    const node = new AudioWorkletNode(ctrlAudioCtx, def.worklet, {
+      outputChannelCount: [3], processorOptions: { system },
+    });
+    const splitter = ctrlAudioCtx.createChannelSplitter(3);
+    node.connect(splitter);
+    const outX = ctrlAudioCtx.createGain(); splitter.connect(outX, 0);
+    const outY = ctrlAudioCtx.createGain(); splitter.connect(outY, 1);
+    const outZ = ctrlAudioCtx.createGain(); splitter.connect(outZ, 2);
+    const paramMap = {};
+    for (const [name, param] of node.parameters) paramMap[name] = param;
+    return { type, worklet: node, splitter, outputs: [outX, outY, outZ], paramMap };
+  }
+  const node = new AudioWorkletNode(ctrlAudioCtx, def.worklet);
+  const paramMap = {};
+  for (const [name, param] of node.parameters) paramMap[name] = param;
+  // Init from args (same as main.js)
+  if (type === "lfo~" && tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
+  else if (type === "phasor~" && tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
+  else if (type === "ar~") { if (tokens[0]) node.parameters.get("attack")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("release")?.setValueAtTime(parseFloat(tokens[1]), 0); }
+  else if (type === "adsr~") { if (tokens[0]) node.parameters.get("a")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("d")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("s")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("r")?.setValueAtTime(parseFloat(tokens[3]), 0); }
+  else if (type === "sigmoid~") { if (tokens[0]) node.parameters.get("start")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("end")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[3]), 0); if (tokens[4]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[4]), 0); }
+  else if (type === "cosine~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0); }
+  else if (type === "ramp~") { if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); }
+  else if (type === "step~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0); }
+  else if (type === "slew~" && tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
+  return { type, node, worklet: node, paramMap };
+}
+
+async function createCtrlMathNode(type, args) {
+  const op = type.replace("~", "");
+  if (!ctrlWorkletModulesLoaded.has("math-processor.js")) {
+    await ctrlAudioCtx.audioWorklet.addModule("math-processor.js"); ctrlWorkletModulesLoaded.add("math-processor.js");
+  }
+  const tokens = (args || "").split(/\s+/).filter(Boolean);
+  const arg = parseFloat(tokens[0]) || (op === "*" ? 1 : 0);
+  const node = new AudioWorkletNode(ctrlAudioCtx, "math-processor", {
+    numberOfInputs: 2, processorOptions: { op, arg },
+  });
+  return { type, node, worklet: node, paramMap: {} };
+}
+
+async function createCtrlEngineNew(type, args) {
+  if (CTRL_NATIVE_NODES.has(type)) return await createCtrlNativeNode(type, args);
+  if (CTRL_SIGNAL_WORKLETS[type]) return await createCtrlSignalWorklet(type, args);
+  if (CTRL_MATH_OPS.has(type)) return await createCtrlMathNode(type, args);
+  const def = ENGINES[type];
+  if (!def) return null;
+  if (!ctrlWorkletModulesLoaded.has(def.module)) {
+    await ctrlAudioCtx.audioWorklet.addModule(def.module); ctrlWorkletModulesLoaded.add(def.module);
   }
   const opts = def.channels > 1 ? { outputChannelCount: [def.channels] } : {};
   const worklet = new AudioWorkletNode(ctrlAudioCtx, def.worklet, opts);
   if (def.channels > 1) {
     const splitter = ctrlAudioCtx.createChannelSplitter(def.channels);
     worklet.connect(splitter);
-    const out = ctrlAudioCtx.createGain();
-    splitter.connect(out, 0);
-    out.connect(ctrlMasterGain);
-    return { type, worklet, splitter, out };
+    const out = ctrlAudioCtx.createGain(); splitter.connect(out, 0);
+    const engine = { type, worklet, splitter, out };
+    if (type === "formant~") {
+      for (const [ch, key] of [[1, "analyserF1"], [2, "analyserF2"], [3, "analyserF3"]]) {
+        const a = ctrlAudioCtx.createAnalyser(); a.fftSize = 512; a.smoothingTimeConstant = 0;
+        splitter.connect(a, ch); engine[key] = a;
+      }
+    }
+    return engine;
   }
-  worklet.connect(ctrlMasterGain);
   return { type, worklet };
 }
 
-function handleEngineParam(msg) {
-  const engine = ctrlEngines.get(msg.boxId);
-  if (engine?.worklet) {
-    engine.worklet.port.postMessage({ type: "params", [msg.param]: msg.value });
-  } else if (msg.engineType && !ctrlEngines.has(msg.boxId)) {
-    // lazily create engine on first param message
-    initCtrlAudio().then(() => {
-      createCtrlEngine(msg.engineType, msg.boxId).then((eng) => {
-        if (eng) {
-          ctrlEngines.set(msg.boxId, eng);
-          eng.worklet.port.postMessage({ type: "params", [msg.param]: msg.value });
-        }
-      });
-    });
+function getCtrlEngineOutput(engine, outletIndex) {
+  if (engine.outputs && outletIndex !== undefined) return engine.outputs[outletIndex];
+  return engine.out || engine.node || engine.worklet;
+}
+
+async function buildCtrlAudioTopology() {
+  // Tear down existing
+  for (const eng of ctrlEngines.values()) {
+    if (eng.node) { try { eng.node.stop?.(); } catch {} eng.node.disconnect(); }
+    eng.worklet?.disconnect(); eng.splitter?.disconnect(); eng.out?.disconnect();
+    if (eng.outputs) for (const o of eng.outputs) o.disconnect();
   }
+  ctrlEngines.clear();
+  if (ctrlChannelMerger) { ctrlChannelMerger.disconnect(); ctrlChannelMerger = null; }
+
+  // Collect ctrl-zone audio boxes
+  const ctrlAudioBoxes = new Map();
+  for (const [id, box] of mainEditor.boxes) {
+    if (isAudioBox(box.text) && !mainEditor.isSynthZone(box.y)) {
+      ctrlAudioBoxes.set(id, box);
+    }
+  }
+  if (ctrlAudioBoxes.size === 0) return;
+
+  await initCtrlAudio();
+
+  // Determine max channel for multi-channel output
+  let maxChannel = 2;
+  for (const [, box] of ctrlAudioBoxes) {
+    if (boxTypeName(box.text) === "dac~") {
+      const chs = box.text.split(/\s+/).slice(1).map(Number).filter(n => !isNaN(n) && n > 0);
+      for (const ch of chs) maxChannel = Math.max(maxChannel, ch);
+    }
+  }
+  ctrlAudioCtx.destination.channelCount = maxChannel;
+  ctrlAudioCtx.destination.channelInterpretation = "discrete";
+  ctrlChannelMerger = ctrlAudioCtx.createChannelMerger(maxChannel);
+  ctrlChannelMerger.connect(ctrlAudioCtx.destination);
+
+  // Create engines
+  for (const [id, box] of ctrlAudioBoxes) {
+    const type = boxTypeName(box.text);
+    if (type === "dac~") continue;
+    const args = box.text.split(/\s+/).slice(1).join(" ");
+    const engine = await createCtrlEngineNew(type, args);
+    if (engine) ctrlEngines.set(id, engine);
+  }
+
+  // Collect audio cables between ctrl-zone audio boxes
+  const audioCables = [];
+  for (const [, cable] of mainEditor.cables) {
+    if (!ctrlAudioBoxes.has(cable.srcBox) && !ctrlAudioBoxes.has(cable.dstBox)) continue;
+    const srcBox = mainEditor.boxes.get(cable.srcBox);
+    if (!srcBox) continue;
+    const srcOutletDef = getOutletDef(srcBox.text, cable.srcOutlet);
+    if (srcOutletDef?.type === "audio") audioCables.push(cable);
+  }
+
+  // Wire audio cables
+  for (const cable of audioCables) {
+    const srcEng = ctrlEngines.get(cable.srcBox);
+    if (!srcEng) continue;
+    const srcNode = getCtrlEngineOutput(srcEng, cable.srcOutlet);
+
+    // dac~
+    const dstBox = mainEditor.boxes.get(cable.dstBox);
+    if (dstBox && boxTypeName(dstBox.text) === "dac~") {
+      const chs = dstBox.text.split(/\s+/).slice(1).map(Number).filter(n => !isNaN(n) && n > 0);
+      if (chs.length === 0) chs.push(1, 2); // default stereo
+      for (const ch of chs) srcNode.connect(ctrlChannelMerger, 0, ch - 1);
+      continue;
+    }
+
+    // AudioParam modulation (audio → number inlet)
+    const dstInletDef = dstBox ? getInletDef(dstBox.text, cable.dstInlet) : null;
+    if (dstInletDef && dstInletDef.type !== "audio") {
+      const dstEng = ctrlEngines.get(cable.dstBox);
+      if (dstEng) {
+        const paramName = dstInletDef.name;
+        const param = dstEng.paramMap?.[paramName] || dstEng.worklet?.parameters?.get(paramName);
+        if (param) { param.setValueAtTime(0, ctrlAudioCtx.currentTime); srcNode.connect(param); }
+      }
+      continue;
+    }
+
+    // Audio bus connection
+    const dstEng = ctrlEngines.get(cable.dstBox);
+    if (dstEng) {
+      const dstNode = dstEng.node || dstEng.worklet;
+      if (dstNode) {
+        // Map inlet index to Web Audio input index
+        const dstDef = dstBox ? getBoxDef(dstBox.text) : null;
+        let audioInputIdx = 0;
+        if (dstDef) {
+          for (let i = 0; i < cable.dstInlet; i++) {
+            if (dstDef.inlets[i]?.type === "audio") audioInputIdx++;
+          }
+        }
+        srcNode.connect(dstNode, 0, audioInputIdx);
+      }
+    }
+  }
+
+  // Wireless audio (same as main.js)
+  const wirelessSends = new Map(), wirelessRecvs = new Map();
+  const wirelessThrows = new Map(), wirelessCatches = new Map();
+  const sendTypes = new Set(["send~", "s~"]), recvTypes = new Set(["receive~", "r~"]);
+  for (const [id, box] of ctrlAudioBoxes) {
+    const type = boxTypeName(box.text);
+    const name = box.text.split(/\s+/).slice(1).join(" ").trim();
+    if (!name) continue;
+    const eng = ctrlEngines.get(id);
+    if (!eng) continue;
+    const node = eng.node || eng.worklet;
+    if (sendTypes.has(type)) { if (!wirelessSends.has(name)) wirelessSends.set(name, []); wirelessSends.get(name).push(node); }
+    else if (recvTypes.has(type)) { if (!wirelessRecvs.has(name)) wirelessRecvs.set(name, []); wirelessRecvs.get(name).push(id); }
+    else if (type === "throw~") { if (!wirelessThrows.has(name)) wirelessThrows.set(name, []); wirelessThrows.get(name).push(node); }
+    else if (type === "catch~") { if (!wirelessCatches.has(name)) wirelessCatches.set(name, []); wirelessCatches.get(name).push(id); }
+  }
+  for (const [name, srcNodes] of wirelessSends) {
+    const recvIds = wirelessRecvs.get(name); if (!recvIds) continue;
+    for (const sn of srcNodes) for (const rid of recvIds) { const re = ctrlEngines.get(rid); if (re) sn.connect(re.node || re.worklet); }
+  }
+  for (const [name, srcNodes] of wirelessThrows) {
+    const catchIds = wirelessCatches.get(name); if (!catchIds) continue;
+    for (const sn of srcNodes) for (const cid of catchIds) { const ce = ctrlEngines.get(cid); if (ce) sn.connect(ce.node || ce.worklet); }
+  }
+}
+
+function handleCtrlAudioParam(msg) {
+  const engine = ctrlEngines.get(msg.boxId);
+  if (!engine) return;
+  const box = mainEditor.boxes.get(msg.boxId);
+  if (!box) return;
+  const inletDef = getInletDef(box.text, msg.inlet);
+  if (!inletDef) return;
+  const paramName = inletDef.name;
+
+  if (paramName === "trigger") {
+    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
+  } else if (paramName === "gate") {
+    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "gate", value: msg.value });
+  } else if (paramName === "portamento" && engine.portaTime !== undefined) {
+    engine.portaTime = msg.value;
+  } else if (typeof msg.value === "number") {
+    const param = engine.paramMap?.[paramName] || engine.worklet?.parameters?.get(paramName);
+    if (param) {
+      const now = ctrlAudioCtx.currentTime;
+      if (engine.portaTime > 0) param.setTargetAtTime(msg.value, now, engine.portaTime);
+      else param.setValueAtTime(msg.value, now);
+    }
+  }
+}
+
+function handleCtrlAudioEvent(msg) {
+  const engine = ctrlEngines.get(msg.boxId);
+  if (!engine) return;
+  (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
 }
 
 // --- abstraction registry ---
@@ -1894,13 +2152,7 @@ function connectWS() {
       } else if (msg.type === "applied") {
         mainEditor.applied = true;
         mainEditor.dirty = false;
-        // tear down ctrl-side engines — they'll be re-created on demand
-        for (const eng of ctrlEngines.values()) {
-          eng.worklet?.disconnect();
-          eng.splitter?.disconnect();
-          eng.out?.disconnect();
-        }
-        ctrlEngines.clear();
+        buildCtrlAudioTopology();
         mainEditor.render();
       } else if (msg.type === "count") {
         connectedClients = msg.clients;
@@ -1932,8 +2184,10 @@ function connectWS() {
           midiDeviceNames.splice(arcIndex, 1);
           mainEditor.render();
         }
-      } else if (msg.type === "engine-param") {
-        handleEngineParam(msg);
+      } else if (msg.type === "ctrl-audio-param") {
+        handleCtrlAudioParam(msg);
+      } else if (msg.type === "ctrl-audio-event") {
+        handleCtrlAudioEvent(msg);
       }
     } catch {}
   });

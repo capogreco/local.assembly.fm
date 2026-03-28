@@ -998,11 +998,13 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
       } else {
         handleRouterInlet(cable.dstBox, cable.dstInlet, value);
       }
-    } else if (def.zone === "synth" && !isSynthZone(dst.x, dst.y)) {
-      // above-border engine — send param to ctrl client for local playback
-      const paramName = def.inlets[cable.dstInlet]?.name;
-      if (paramName) {
-        sendCtrl({ type: "engine-param", boxId: cable.dstBox, engineType: boxTypeName(dst.text), param: paramName, value });
+    } else if (isAudioBox(dst.text) && isCtrlSide(dst)) {
+      // Ctrl-side audio box — forward param to ctrl client
+      const inletDef = def.inlets[cable.dstInlet];
+      if (inletDef?.type === "event") {
+        deferred.push(() => sendCtrl({ type: "ctrl-audio-event", boxId: cable.dstBox, inlet: cable.dstInlet }));
+      } else {
+        sendCtrl({ type: "ctrl-audio-param", boxId: cable.dstBox, inlet: cable.dstInlet, value });
       }
     } else if (isWirelessSend(dst.text)) {
       // Wireless send: propagate to all matching receives
@@ -1122,6 +1124,7 @@ function shouldServerEval(box: Box): boolean {
   const zone = getBoxZone(box.text);
   if (zone === "synth") return false;
   if (zone === "any" && isSynthZone(box.x, box.y)) return false;
+  if (isAudioBox(box.text)) return false; // audio boxes run on clients, not server
   return true;
 }
 

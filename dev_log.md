@@ -1226,3 +1226,32 @@ Interactive `knob` box with scroll wheel control. Args: `knob init [min] [max] [
 
 Propagates init value on apply. Server handles `knob` message type for real-time updates.
 
+## Ctrl-side audio — ~ objects above the border (2026-03-28)
+
+### Architecture change
+
+All `~` objects changed from `zone: "synth"` to `zone: "any"` — they can now live in either ctrl or synth zone. Where they are determines which AudioContext they run on:
+- **Synth zone (below border)**: phone AudioContext, routed via synth patch deployment
+- **Ctrl zone (above border)**: laptop AudioContext, built locally by ctrl client
+
+### Ctrl audio topology
+
+The ctrl client now has a full `buildCtrlAudioTopology()` that mirrors main.js: creates AudioWorkletNodes, native Web Audio nodes, wires audio cables, handles AudioParam modulation, wireless send~/receive~, and multi-output nodes (chaos~). Rebuilt on every apply.
+
+### Multi-channel `dac~` for ES-8
+
+`dac~` in ctrl zone takes channel arguments: `dac~ 3` routes to ES-8 channel 3, `dac~ 1 2` stereo to channels 1+2. Uses ChannelMergerNode with discrete channel interpretation. No args defaults to stereo (channels 1+2).
+
+`dac~` in synth zone remains mono (dual-mono to phone speakers), no channel args.
+
+### Server changes
+
+`shouldServerEval` now skips `isAudioBox` boxes — audio boxes run on clients, not the server. `propagateAndNotify` sends `ctrl-audio-param` and `ctrl-audio-event` messages to the ctrl client when control values reach ctrl-zone audio boxes. Replaces the old `engine-param` system entirely.
+
+### What this enables
+
+- CV output to Eurorack via ES-8 (8-channel DC-coupled)
+- Direct synthesis from ctrl client to PA (bass, effects)
+- Same `~` objects, same patching, different output destination
+- Full audio-rate signal chains on the laptop alongside phone distribution
+
