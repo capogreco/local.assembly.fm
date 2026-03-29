@@ -1286,3 +1286,13 @@ formant~ now exposes 4 audio outlets via ChannelSplitter → individual GainNode
 
 Hovering over a box body shows description, args, and example in the tooltip.
 
+### scope~ audio-rate HSB colour (2026-03-29)
+
+Unified colour model for knot and background. Knot colour is fully audio-rate HSB via 3 audio inlets (knotH, knotS, knotB) — each vertex carries its own hue, saturation, and brightness. Background uses control-rate HSB via number inlets (bgH, bgS, bgB) with JS-side HSB→RGB conversion.
+
+Replaces the previous single `colour` audio inlet + `hue`/`saturation` number inlets. 6 audio inlets total (x, y, z, knotH, knotS, knotB). 7 floats per vertex in the ring buffer.
+
+### Dynamic inlet colouring
+
+Number inlets turn blue when an audio-rate cable is connected, showing they're receiving audio-rate modulation.
+

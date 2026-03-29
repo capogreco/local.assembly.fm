@@ -72,9 +72,8 @@ let _scopeAnimFrame = null;
 let _scopeCleanup = null;
 
 const _scopeParams = {
-  hue: 0.6, saturation: 1.0,
   persistence: 0.5, zoom: 3, spin: 0.1,
-  density: 0, bgR: 0, bgG: 0, bgB: 0,
+  density: 0, bgH: 0, bgS: 0, bgB: 0,
 };
 
 function setScopeParams(params) {
@@ -91,16 +90,16 @@ function initScope(canvas, instances) {
   if (!gl) { console.warn("WebGL2 not available"); return; }
 
   const RING_CAPACITY = 256 * 1024;
-  const FLOATS_PER_VERT = 5; // x, y, z, brightness, hue
+  const FLOATS_PER_VERT = 7; // x, y, z, hue, saturation, brightness, pad
   const BYTES_PER_VERT = FLOATS_PER_VERT * 4;
 
   const vsSource = `#version 300 es
 layout(location = 0) in vec3 aPosition;
-layout(location = 1) in float aBrightness;
-layout(location = 2) in float aHue;
+layout(location = 1) in float aHue;
+layout(location = 2) in float aSaturation;
+layout(location = 3) in float aBrightness;
 uniform mat4 uMVP;
 uniform float uAlphaBase;
-uniform float uSaturation;
 out vec4 vColor;
 
 vec3 hsb2rgb(float h, float s, float b) {
@@ -111,7 +110,8 @@ vec3 hsb2rgb(float h, float s, float b) {
 void main() {
   gl_Position = uMVP * vec4(aPosition, 1.0);
   float b = clamp(aBrightness, 0.0, 1.0);
-  vec3 rgb = hsb2rgb(aHue, uSaturation, max(b, 0.3));
+  float s = clamp(aSaturation, 0.0, 1.0);
+  vec3 rgb = hsb2rgb(aHue, s, max(b, 0.3));
   vColor = vec4(rgb, uAlphaBase);
 }`;
 
@@ -136,7 +136,6 @@ void main() { fragColor = vColor; }`;
 
   const uMVP = gl.getUniformLocation(program, "uMVP");
   const uAlphaBase = gl.getUniformLocation(program, "uAlphaBase");
-  const uSaturation = gl.getUniformLocation(program, "uSaturation");
 
   // Per-instance data
   const instData = instances.map((inst) => {
@@ -150,9 +149,11 @@ void main() { fragColor = vColor; }`;
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, BYTES_PER_VERT, 0);  // x,y,z
     gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, BYTES_PER_VERT, 12); // brightness
+    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, BYTES_PER_VERT, 12); // hue
     gl.enableVertexAttribArray(2);
-    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, BYTES_PER_VERT, 16); // hue
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, BYTES_PER_VERT, 16); // saturation
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, BYTES_PER_VERT, 20); // brightness
     gl.bindVertexArray(null);
 
     return {
@@ -163,10 +164,11 @@ void main() { fragColor = vColor; }`;
       bufX: new Float32Array(analyserSamples),
       bufY: new Float32Array(analyserSamples),
       bufZ: new Float32Array(analyserSamples),
-      bufC: new Float32Array(analyserSamples),
-      chunkData: new Float32Array(analyserSamples * 4),
-      analyserX: inst.analyserX, analyserY: inst.analyserY,
-      analyserZ: inst.analyserZ, analyserC: inst.analyserC || null,
+      bufH: new Float32Array(analyserSamples),
+      bufS: new Float32Array(analyserSamples),
+      bufB: new Float32Array(analyserSamples),
+      analyserX: inst.analyserX, analyserY: inst.analyserY, analyserZ: inst.analyserZ,
+      analyserH: inst.analyserH || null, analyserS: inst.analyserS || null, analyserB: inst.analyserB || null,
       pointBuf: new Float32Array(FLOATS_PER_VERT),
       maxX: 0.1, maxY: 0.1, maxZ: 0.1,
       // Track chunk boundaries for pen-lifting between frames
@@ -237,20 +239,31 @@ void main() { fragColor = vColor; }`;
     const model = quatToMat4(orientation);
     const view = mat4Translate(0, 0, -Math.max(0.5, p.zoom));
 
-    gl.clearColor(p.bgR, p.bgG, p.bgB, 1.0);
+    // Background: HSB → RGB
+    const bgH = p.bgH, bgS = p.bgS, bgBr = p.bgB;
+    const bgRgb = [0,0,0];
+    { // inline HSB→RGB for background
+      const h6 = bgH * 6;
+      const c = bgBr * bgS, x = c * (1 - Math.abs(h6 % 2 - 1)), m = bgBr - c;
+      const i = Math.floor(h6) % 6;
+      const r = [c,x,0,0,x,c][i]+m, g = [x,c,c,x,0,0][i]+m, b = [0,0,x,c,c,x][i]+m;
+      bgRgb[0]=r; bgRgb[1]=g; bgRgb[2]=b;
+    }
+    gl.clearColor(bgRgb[0], bgRgb[1], bgRgb[2], 1.0);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(program);
-    gl.uniform1f(uSaturation, p.saturation);
 
     for (let i = 0; i < N; i++) {
       const d = instData[i];
 
-      // Read latest sample from each analyser
+      // Read latest samples from each analyser
       d.analyserX.getFloatTimeDomainData(d.bufX);
       d.analyserY.getFloatTimeDomainData(d.bufY);
       d.analyserZ.getFloatTimeDomainData(d.bufZ);
-      if (d.analyserC) d.analyserC.getFloatTimeDomainData(d.bufC);
+      if (d.analyserH) d.analyserH.getFloatTimeDomainData(d.bufH);
+      if (d.analyserS) d.analyserS.getFloatTimeDomainData(d.bufS);
+      if (d.analyserB) d.analyserB.getFloatTimeDomainData(d.bufB);
 
       if (_debugCount++ === 120 && i === 0) {
         let pX=0,pY=0,pZ=0;
@@ -273,7 +286,6 @@ void main() { fragColor = vColor; }`;
       d.maxX *= 0.9999; d.maxY *= 0.9999; d.maxZ *= 0.9999;
       d.maxX = Math.max(d.maxX, 0.001); d.maxY = Math.max(d.maxY, 0.001); d.maxZ = Math.max(d.maxZ, 0.001);
       const scX = 1.0 / d.maxX, scY = 1.0 / d.maxY, scZ = 1.0 / d.maxZ;
-      const hue = p.hue;
 
       // Write samplesPerFrame vertices to ring buffer
       gl.bindBuffer(gl.ARRAY_BUFFER, d.vbo);
@@ -281,9 +293,12 @@ void main() { fragColor = vColor; }`;
       for (let j = 0; j < samplesPerFrame; j++) {
         const s = Math.min(Math.floor(j * step), d.analyserSamples - 1);
         const px = d.bufX[s], py = d.bufY[s], pz = d.bufZ[s];
-        const pc = d.analyserC ? Math.max(0.15, Math.abs(d.bufC[s]) * 2) : 1.0;
+        const h = d.analyserH ? Math.abs(d.bufH[s]) : 0.6;
+        const sat = d.analyserS ? Math.abs(d.bufS[s]) : 1.0;
+        const bri = d.analyserB ? Math.max(0.15, Math.abs(d.bufB[s])) : 1.0;
         const point = d.pointBuf;
-        point[0] = px * scX; point[1] = py * scY; point[2] = pz * scZ; point[3] = pc; point[4] = hue;
+        point[0] = px * scX; point[1] = py * scY; point[2] = pz * scZ;
+        point[3] = h; point[4] = sat; point[5] = bri; point[6] = 0;
         gl.bufferSubData(gl.ARRAY_BUFFER, d.writePos * BYTES_PER_VERT, point);
         d.writePos = (d.writePos + 1) % RING_CAPACITY;
         d.totalWritten++;

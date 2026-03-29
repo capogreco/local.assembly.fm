@@ -1290,7 +1290,13 @@ class PatchEditor {
       for (let i = 0; i < box.inlets; i++) {
         const p = this.inletPos(box, i, id);
         const iDef = getInletDef(box.text, i);
-        this.ctx.fillStyle = iDef?.type === "audio" ? COLORS.portAudio : iDef?.type === "event" ? COLORS.portEvent : COLORS.port;
+        let iHasAudioCable = false;
+        if (iDef?.type === "number") {
+          for (const [, c] of this.cables) {
+            if (c.dstBox === id && c.dstInlet === i && this.isAudioCable(c)) { iHasAudioCable = true; break; }
+          }
+        }
+        this.ctx.fillStyle = (iDef?.type === "audio" || iHasAudioCable) ? COLORS.portAudio : iDef?.type === "event" ? COLORS.portEvent : COLORS.port;
         this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
       }
       for (let i = 0; i < box.outlets; i++) {

@@ -144,17 +144,18 @@ async function createNativeNode(type, args) {
     // scope~ creates individual analyser nodes — one per audio inlet
     // Each inlet gets its own AnalyserNode; audio cables connect directly to them
     const makeAnalyser = () => { const a = audioCtx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0; return a; };
-    const analyserX = makeAnalyser(), analyserY = makeAnalyser(), analyserZ = makeAnalyser(), analyserC = makeAnalyser();
+    const analyserX = makeAnalyser(), analyserY = makeAnalyser(), analyserZ = makeAnalyser();
+    const analyserH = makeAnalyser(), analyserS = makeAnalyser(), analyserB = makeAnalyser();
     // Silent connection to destination keeps the audio graph alive
     // (Web Audio won't process nodes unless they connect to destination)
     const dummy = audioCtx.createGain();
     dummy.gain.value = 0;
-    analyserX.connect(dummy); analyserY.connect(dummy); analyserZ.connect(dummy); analyserC.connect(dummy);
+    analyserX.connect(dummy); analyserY.connect(dummy); analyserZ.connect(dummy);
+    analyserH.connect(dummy); analyserS.connect(dummy); analyserB.connect(dummy);
     dummy.connect(audioCtx.destination);
     return { type, node: dummy, paramMap: {},
-             // Individual input nodes for each audio inlet (indexed by audioInputIdx)
-             audioInputs: [analyserX, analyserY, analyserZ, analyserC],
-             scopeAnalysers: { analyserX, analyserY, analyserZ, analyserC } };
+             audioInputs: [analyserX, analyserY, analyserZ, analyserH, analyserS, analyserB],
+             scopeAnalysers: { analyserX, analyserY, analyserZ, analyserH, analyserS, analyserB } };
   } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
           || type === "throw~" || type === "catch~") {
     // Wireless audio: pass-through GainNode (unity gain)
