@@ -63,12 +63,11 @@ async function createEngine(type, args) {
     // DO NOT connect to destination — audio topology wires this
     const engine = { type, worklet, splitter, out };
     if (type === "formant~") {
-      for (const [ch, key] of [[1, "analyserF1"], [2, "analyserF2"], [3, "analyserF3"]]) {
-        const a = audioCtx.createAnalyser();
-        a.fftSize = 512; a.smoothingTimeConstant = 0;
-        splitter.connect(a, ch);
-        engine[key] = a;
-      }
+      // Create GainNodes for F1/F2/F3 channels as routable outputs
+      const outF1 = audioCtx.createGain(); splitter.connect(outF1, 1);
+      const outF2 = audioCtx.createGain(); splitter.connect(outF2, 2);
+      const outF3 = audioCtx.createGain(); splitter.connect(outF3, 3);
+      engine.outputs = [out, outF1, outF2, outF3];
     }
     return engine;
   }
@@ -86,7 +85,7 @@ function getEngineOutput(engine, outletIndex) {
 
 const NATIVE_NODES = new Set([
   "oscillatorNode~", "gainNode~", "biquadFilterNode~",
-  "const~", "sig~", "osc~", "noise~",
+  "const~", "sig~", "osc~", "noise~", "scope~",
   "send~", "s~", "receive~", "r~", "throw~", "catch~",
 ]);
 
@@ -141,6 +140,21 @@ async function createNativeNode(type, args) {
     node.type = tokens[1] || "sine";
     node.start();
     paramMap = { frequency: node.frequency, detune: node.detune };
+  } else if (type === "scope~") {
+    // scope~ creates individual analyser nodes — one per audio inlet
+    // Each inlet gets its own AnalyserNode; audio cables connect directly to them
+    const makeAnalyser = () => { const a = audioCtx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0; return a; };
+    const analyserX = makeAnalyser(), analyserY = makeAnalyser(), analyserZ = makeAnalyser(), analyserC = makeAnalyser();
+    // Silent connection to destination keeps the audio graph alive
+    // (Web Audio won't process nodes unless they connect to destination)
+    const dummy = audioCtx.createGain();
+    dummy.gain.value = 0;
+    analyserX.connect(dummy); analyserY.connect(dummy); analyserZ.connect(dummy); analyserC.connect(dummy);
+    dummy.connect(audioCtx.destination);
+    return { type, node: dummy, paramMap: {},
+             // Individual input nodes for each audio inlet (indexed by audioInputIdx)
+             audioInputs: [analyserX, analyserY, analyserZ, analyserC],
+             scopeAnalysers: { analyserX, analyserY, analyserZ, analyserC } };
   } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
           || type === "throw~" || type === "catch~") {
     // Wireless audio: pass-through GainNode (unity gain)
@@ -274,10 +288,12 @@ function buildAudioTopology(voice, patch) {
   }
 
   // Process each audio cable
+  console.log("buildAudioTopology:", audioCables.length, "audio cables");
   for (const cable of audioCables) {
     const srcEng = voice.engines.get(cable.srcBox);
-    if (!srcEng) continue;
+    if (!srcEng) { console.log("  SKIP cable: no src engine for box", cable.srcBox); continue; }
     const srcNode = getEngineOutput(srcEng, cable.srcOutlet);
+    console.log("  cable:", srcEng.type, "out"+cable.srcOutlet, "→ box"+cable.dstBox, "in"+cable.dstInlet, "srcNode="+srcNode?.constructor?.name);
 
     // Case 1: destination is dac
     if (dacBox && cable.dstBox === dacBox.id) {
@@ -295,19 +311,23 @@ function buildAudioTopology(voice, patch) {
     }
 
     // Case 3: destination inlet is audio bus (type "audio")
+    const dstEng = voice.engines.get(cable.dstBox);
     const dstNode = getNode(cable.dstBox);
-    if (dstNode) {
-      // For multi-input nodes (math), dstInlet maps to Web Audio input index
+    if (dstNode || dstEng) {
       const patchBox = patch.boxes.find(b => b.id === cable.dstBox);
       const inletDef = patchBox?.paramNames;
-      // Count audio inlets before this one to get the Web Audio input index
       let audioInputIdx = 0;
       if (inletDef) {
         for (let i = 0; i < cable.dstInlet; i++) {
           if (inletDef[i] === null) audioInputIdx++;
         }
       }
-      srcNode.connect(dstNode, 0, audioInputIdx);
+      // If destination has individual audio input nodes (scope~), connect directly
+      if (dstEng?.audioInputs?.[audioInputIdx]) {
+        srcNode.connect(dstEng.audioInputs[audioInputIdx]);
+      } else if (dstNode) {
+        srcNode.connect(dstNode, 0, audioInputIdx);
+      }
     }
   }
 
@@ -368,7 +388,12 @@ function sendParams(engine, params) {
   if (!engine) return;
   if (!engine.currentParams) engine.currentParams = {};
   Object.assign(engine.currentParams, params);
-  // Update portamento time if provided (sig~ inlet 1)
+  // scope~ params go to the scope renderer, not AudioParams
+  if (engine.type === "scope~" && typeof setScopeParams === "function") {
+    console.log("sendParams scope~:", params);
+    setScopeParams(params);
+    return;
+  }
   if (params.portamento !== undefined) engine.portaTime = params.portamento;
   const port = engine.worklet?.port;
   const now = audioCtx.currentTime;
@@ -582,14 +607,27 @@ function buildVoices() {
 function setupScope() {
   const scopeCanvas = document.getElementById("scope");
   if (!scopeCanvas || typeof window.initScope !== "function" || voices.length === 0) return;
-  // collect formant engines from all voices — scope renders each as a strip
-  const allFormant = [];
+  // Collect scope~ instances from all voices
+  const scopeInstances = [];
   for (const voice of voices) {
     for (const engine of voice.engines.values()) {
-      if (engine.analyserF1) allFormant.push(engine);
+      if (engine.scopeAnalysers) scopeInstances.push(engine.scopeAnalysers);
     }
   }
-  if (allFormant.length > 0) scopeSetOrbit = window.initScope(scopeCanvas, allFormant);
+  // Fall back to formant~ analysers for backward compat
+  if (scopeInstances.length === 0) {
+    for (const voice of voices) {
+      for (const engine of voice.engines.values()) {
+        if (engine.analyserF1) {
+          scopeInstances.push({
+            analyserX: engine.analyserF1, analyserY: engine.analyserF2,
+            analyserZ: engine.analyserF3, analyserC: null,
+          });
+        }
+      }
+    }
+  }
+  if (scopeInstances.length > 0) scopeSetOrbit = window.initScope(scopeCanvas, scopeInstances);
   else scopeSetOrbit = null;
 }
 

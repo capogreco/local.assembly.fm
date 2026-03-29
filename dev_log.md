@@ -1259,3 +1259,30 @@ The ctrl client now has a full `buildCtrlAudioTopology()` that mirrors main.js: 
 
 `adc~ 1` reads from audio interface input channel 1 (1-indexed). Shared `getUserMedia` call across all `adc~` boxes with echo cancellation, noise suppression, and auto gain control disabled (essential for DC-coupled CV from ES-8). ChannelSplitterNode separates channels, each `adc~` taps its channel via GainNode. Enables bidirectional CV bridge with Eurorack.
 
+## scope~ — decoupled 3D Lissajous oscilloscope (2026-03-29)
+
+### Disarticulation from formant~
+
+The 3D Lissajous scope was hardwired to formant~'s internal F1/F2/F3 analyser channels. Now `scope~` is a standalone GPI object that accepts any 3 audio signals as X/Y/Z coordinates. formant~ gains 4 audio outlets (main + F1 + F2 + F3) so formants can be routed to scope~ or used elsewhere.
+
+### scope~ features
+
+**Audio inlets:** x, y, z (position), colour (brightness along knot)
+**Number inlets:** hue, saturation, persistence, zoom, spin, density, bgR, bgG, bgB
+
+**Per-vertex colour:** Each point stamped with current hue at write time. Changing hue only affects new points — the trail paints a colour history. Brightness from 4th audio inlet drives HSB B channel per-vertex.
+
+**Continuous ring buffer:** 256K vertex capacity. One point per render frame at density=0 (71 min trail), up to 2048 points per frame at density=1 (~2 sec of audio-rate detail). Persistence and density are independent orthogonal controls.
+
+**Per-axis auto-scaling:** Each axis (X/Y/Z) tracks its own peak and normalises independently. Prevents one dominant axis from squashing the others.
+
+**AnalyserNode fftSize=2048:** ~42ms window overlaps frame intervals (~16.6ms), eliminating gaps between frames for continuous LINE_STRIP rendering.
+
+### formant~ multi-output
+
+formant~ now exposes 4 audio outlets via ChannelSplitter → individual GainNodes, same architecture as chaos~. Outlet 0 = main audio, outlets 1-3 = F1/F2/F3 formant signals.
+
+### Object tooltips
+
+Hovering over a box body shows description, args, and example in the tooltip.
+

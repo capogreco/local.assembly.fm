@@ -1603,7 +1603,26 @@ class PatchEditor {
           }
         }
       } else {
-        tooltipEl.style.display = "none";
+        // Hover over box body — show description and args
+        const boxId = this.hitTestBox(m.x, m.y);
+        if (boxId !== null) {
+          const box = this.boxes.get(boxId);
+          const def = box ? getBoxDef(box.text) : null;
+          if (def) {
+            let tip = `<span class="tt-name">${boxTypeName(box.text)}</span>`;
+            if (def.args) tip += ` <span class="tt-type">${def.args}</span>`;
+            tip += `<br>${def.description}`;
+            if (def.example) tip += `<br><span class="tt-type">e.g. ${def.example}</span>`;
+            tooltipEl.innerHTML = tip;
+            tooltipEl.style.left = (e.clientX + 12) + "px";
+            tooltipEl.style.top = (e.clientY + 12) + "px";
+            tooltipEl.style.display = "block";
+          } else {
+            tooltipEl.style.display = "none";
+          }
+        } else {
+          tooltipEl.style.display = "none";
+        }
       }
     }
   }

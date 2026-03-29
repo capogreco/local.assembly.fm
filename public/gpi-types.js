@@ -297,6 +297,22 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "audio", description: "Summed audio" }] },
 
   // --- audio-rate objects (~) — any box with audio ports ---
+  "scope~":       { zone: "any", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z with optional colour modulation.",
+                    inlets: [
+                      { name: "x", type: "audio", description: "X axis signal" },
+                      { name: "y", type: "audio", description: "Y axis signal" },
+                      { name: "z", type: "audio", description: "Z axis signal" },
+                      { name: "colour", type: "audio", description: "Brightness along knot" },
+                      { name: "hue", type: "number", description: "Base hue (0-1)" },
+                      { name: "saturation", type: "number", description: "Colour saturation (0-1)" },
+                      { name: "persistence", type: "number", description: "Trail count (1-64)" },
+                      { name: "zoom", type: "number", description: "Camera distance (0.5-10)" },
+                      { name: "spin", type: "number", description: "Auto-rotation speed (0-1)" },
+                      { name: "density", type: "number", description: "Points per frame (0=1pt, 1=512pt)" },
+                      { name: "bgR", type: "number", description: "Background red (0-1)" },
+                      { name: "bgG", type: "number", description: "Background green (0-1)" },
+                      { name: "bgB", type: "number", description: "Background blue (0-1)" }],
+                    outlets: [] },
   "adc~":         { zone: "any", description: "Audio input. Channel arg selects input channel from audio interface.", args: "[channel]", example: "adc~ 1",
                     inlets: [],
                     outlets: [{ name: "out", type: "audio", description: "Audio input signal" }] },
@@ -480,7 +496,11 @@ const BOX_TYPES = {
                       { name: "zingAmount", type: "number", description: "Ring modulation depth (0-1)" },
                       { name: "symmetry", type: "number", description: "Waveform asymmetry (0-1)" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
-                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
+                    outlets: [
+                      { name: "out", type: "audio", description: "Main audio output" },
+                      { name: "F1", type: "audio", description: "Formant 1 signal" },
+                      { name: "F2", type: "audio", description: "Formant 2 signal" },
+                      { name: "F3", type: "audio", description: "Formant 3 signal" }] },
   "karplus-strong~": { zone: "any", description: "Karplus-Strong plucked string synthesis.",
                     inlets: [
                       { name: "freq", type: "number", description: "Frequency in Hz" },

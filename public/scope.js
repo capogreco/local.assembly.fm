@@ -1,9 +1,9 @@
 /**
  * WebGL2 3D Oscilloscope — Lissajous figure renderer
  *
- * Renders F1->X, F2->Y, F3->Z as a 3D Lissajous knot
- * with phosphor persistence and slow auto-rotation.
- * Supports 1-N instances as horizontal strips.
+ * Renders 3 audio signals as X/Y/Z coordinates in a 3D Lissajous knot.
+ * Optional 4th audio channel drives brightness along the knot.
+ * Continuous ring buffer with configurable history length.
  */
 
 // --- Minimal mat4 math (column-major Float32Array) ---
@@ -18,10 +18,8 @@ function mat4Perspective(fov, aspect, near, far) {
   const f = 1.0 / Math.tan(fov / 2);
   const nf = 1 / (near - far);
   const m = new Float32Array(16);
-  m[0] = f / aspect;
-  m[5] = f;
-  m[10] = (far + near) * nf;
-  m[11] = -1;
+  m[0] = f / aspect; m[5] = f;
+  m[10] = (far + near) * nf; m[11] = -1;
   m[14] = 2 * far * near * nf;
   return m;
 }
@@ -34,54 +32,37 @@ function mat4Translate(x, y, z) {
 
 function mat4Multiply(a, b) {
   const out = new Float32Array(16);
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 4; j++) {
-      out[j * 4 + i] =
-        a[i]      * b[j * 4]     +
-        a[4 + i]  * b[j * 4 + 1] +
-        a[8 + i]  * b[j * 4 + 2] +
-        a[12 + i] * b[j * 4 + 3];
-    }
-  }
+  for (let i = 0; i < 4; i++)
+    for (let j = 0; j < 4; j++)
+      out[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] + a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
   return out;
 }
 
-// --- Quaternion math ([x, y, z, w]) ---
+// --- Quaternion math ---
 
 function quatFromAxisAngle(ax, ay, az, angle) {
-  const half = angle * 0.5;
-  const s = Math.sin(half);
-  return [ax * s, ay * s, az * s, Math.cos(half)];
+  const s = Math.sin(angle * 0.5);
+  return [ax * s, ay * s, az * s, Math.cos(angle * 0.5)];
 }
 
 function quatMultiply(a, b) {
   return [
-    a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
-    a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
-    a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
-    a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2],
+    a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1], a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],
+    a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3], a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2],
   ];
 }
 
 function quatNormalize(q) {
-  const len = Math.sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
-  if (len > 0) { q[0] /= len; q[1] /= len; q[2] /= len; q[3] /= len; }
+  const len = Math.sqrt(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);
+  if (len > 0) { q[0]/=len; q[1]/=len; q[2]/=len; q[3]/=len; }
   return q;
 }
 
 function quatToMat4(q) {
-  const [x, y, z, w] = q;
-  const m = new Float32Array(16);
-  m[0]  = 1 - 2*(y*y + z*z);
-  m[1]  = 2*(x*y + w*z);
-  m[2]  = 2*(x*z - w*y);
-  m[4]  = 2*(x*y - w*z);
-  m[5]  = 1 - 2*(x*x + z*z);
-  m[6]  = 2*(y*z + w*x);
-  m[8]  = 2*(x*z + w*y);
-  m[9]  = 2*(y*z - w*x);
-  m[10] = 1 - 2*(x*x + y*y);
-  m[15] = 1;
+  const [x,y,z,w] = q, m = new Float32Array(16);
+  m[0]=1-2*(y*y+z*z); m[1]=2*(x*y+w*z); m[2]=2*(x*z-w*y);
+  m[4]=2*(x*y-w*z); m[5]=1-2*(x*x+z*z); m[6]=2*(y*z+w*x);
+  m[8]=2*(x*z+w*y); m[9]=2*(y*z-w*x); m[10]=1-2*(x*x+y*y); m[15]=1;
   return m;
 }
 
@@ -90,272 +71,259 @@ function quatToMat4(q) {
 let _scopeAnimFrame = null;
 let _scopeCleanup = null;
 
+const _scopeParams = {
+  hue: 0.6, saturation: 1.0,
+  persistence: 0.5, zoom: 3, spin: 0.1,
+  density: 0, bgR: 0, bgG: 0, bgB: 0,
+};
+
+function setScopeParams(params) {
+  for (const [k, v] of Object.entries(params))
+    if (k in _scopeParams && typeof v === "number") _scopeParams[k] = v;
+}
+
 function initScope(canvas, instances) {
-  // Cancel previous render loop and clean up GL resources
-  if (_scopeAnimFrame) {
-    cancelAnimationFrame(_scopeAnimFrame);
-    _scopeAnimFrame = null;
-  }
-  if (_scopeCleanup) {
-    _scopeCleanup();
-    _scopeCleanup = null;
-  }
+  if (_scopeAnimFrame) { cancelAnimationFrame(_scopeAnimFrame); _scopeAnimFrame = null; }
+  if (_scopeCleanup) { _scopeCleanup(); _scopeCleanup = null; }
 
-  // instances = [{ analyserF1, analyserF2, analyserF3 }, ...]
   const N = instances.length;
+  const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: "low-power" });
+  if (!gl) { console.warn("WebGL2 not available"); return; }
 
-  const gl = canvas.getContext("webgl2", {
-    alpha: false,
-    antialias: false,
-    depth: false,
-    stencil: false,
-    powerPreference: "low-power",
-  });
-
-  if (!gl) {
-    console.warn("WebGL2 not available — scope disabled");
-    return;
-  }
-
-  const TRAIL_COUNT = 12;
-
-  // --- Shaders ---
+  const RING_CAPACITY = 256 * 1024;
+  const FLOATS_PER_VERT = 5; // x, y, z, brightness, hue
+  const BYTES_PER_VERT = FLOATS_PER_VERT * 4;
 
   const vsSource = `#version 300 es
 layout(location = 0) in vec3 aPosition;
+layout(location = 1) in float aBrightness;
+layout(location = 2) in float aHue;
 uniform mat4 uMVP;
-uniform float uAlpha;
-out float vAlpha;
+uniform float uAlphaBase;
+uniform float uSaturation;
+out vec4 vColor;
+
+vec3 hsb2rgb(float h, float s, float b) {
+  vec3 rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+  return b * mix(vec3(1.0), rgb, s);
+}
+
 void main() {
   gl_Position = uMVP * vec4(aPosition, 1.0);
-  vAlpha = uAlpha;
+  float b = clamp(aBrightness, 0.0, 1.0);
+  vec3 rgb = hsb2rgb(aHue, uSaturation, max(b, 0.3));
+  vColor = vec4(rgb, uAlphaBase);
 }`;
 
   const fsSource = `#version 300 es
 precision mediump float;
-in float vAlpha;
+in vec4 vColor;
 out vec4 fragColor;
-void main() {
-  fragColor = vec4(1.0, 1.0, 1.0, vAlpha);
-}`;
+void main() { fragColor = vColor; }`;
 
-  function compileShader(type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error("Shader compile error:", gl.getShaderInfoLog(shader));
-      gl.deleteShader(shader);
-      return null;
-    }
-    return shader;
+  function compileShader(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); return null; }
+    return s;
   }
 
   const vs = compileShader(gl.VERTEX_SHADER, vsSource);
   const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
   if (!vs || !fs) return;
-
   const program = gl.createProgram();
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error("Program link error:", gl.getProgramInfoLog(program));
-    return;
-  }
+  gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(program)); return; }
 
   const uMVP = gl.getUniformLocation(program, "uMVP");
-  const uAlpha = gl.getUniformLocation(program, "uAlpha");
+  const uAlphaBase = gl.getUniformLocation(program, "uAlphaBase");
+  const uSaturation = gl.getUniformLocation(program, "uSaturation");
 
-  // --- Per-instance VBO/VAO and ring buffers ---
-
+  // Per-instance data
   const instData = instances.map((inst) => {
-    const samples = inst.analyserF1.fftSize;
-    const floatsPerFrame = samples * 3;
-    const totalFloats = TRAIL_COUNT * floatsPerFrame;
+    const analyserSamples = inst.analyserX.fftSize;
 
     const vao = gl.createVertexArray();
     gl.bindVertexArray(vao);
-
     const vbo = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, totalFloats * 4, gl.DYNAMIC_DRAW);
-
+    gl.bufferData(gl.ARRAY_BUFFER, RING_CAPACITY * BYTES_PER_VERT, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, BYTES_PER_VERT, 0);  // x,y,z
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, BYTES_PER_VERT, 12); // brightness
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, BYTES_PER_VERT, 16); // hue
     gl.bindVertexArray(null);
 
     return {
       vao, vbo,
-      ringIndex: 0,
-      samples,
-      floatsPerFrame,
-      frameData: new Float32Array(floatsPerFrame),
-      bufX: new Float32Array(samples),
-      bufY: new Float32Array(samples),
-      bufZ: new Float32Array(samples),
-      analyserX: inst.analyserF1,
-      analyserY: inst.analyserF2,
-      analyserZ: inst.analyserF3,
+      writePos: 0,       // next write position in ring
+      totalWritten: 0,   // total vertices written (for knowing how full the ring is)
+      analyserSamples,
+      bufX: new Float32Array(analyserSamples),
+      bufY: new Float32Array(analyserSamples),
+      bufZ: new Float32Array(analyserSamples),
+      bufC: new Float32Array(analyserSamples),
+      chunkData: new Float32Array(analyserSamples * 4),
+      analyserX: inst.analyserX, analyserY: inst.analyserY,
+      analyserZ: inst.analyserZ, analyserC: inst.analyserC || null,
+      pointBuf: new Float32Array(FLOATS_PER_VERT),
+      maxX: 0.1, maxY: 0.1, maxZ: 0.1,
+      // Track chunk boundaries for pen-lifting between frames
+      chunks: [],       // ring of { start, count } — each analyser frame is one chunk
+      maxChunks: 4096,  // max tracked chunks
     };
   });
-
-  // --- GL state ---
 
   gl.useProgram(program);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
 
-  // --- Orbit state (quaternion + velocity) ---
-
+  // Orbit state
   const orientation = [0, 0, 0, 1];
   const angVel = [0, 0, 0];
-  let thrustAngle = 0;
-  let thrustMag = 0;
-  const DRAG_TAU = 3.0;
   let lastTime = 0;
-  let dragging = false;
-  let lastPtrX = 0, lastPtrY = 0;
+  let dragging = false, lastPtrX = 0, lastPtrY = 0;
 
   canvas.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    lastPtrX = e.clientX;
-    lastPtrY = e.clientY;
+    dragging = true; lastPtrX = e.clientX; lastPtrY = e.clientY;
     canvas.setPointerCapture(e.pointerId);
     angVel[0] = angVel[1] = angVel[2] = 0;
   });
-
   canvas.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    const dx = (e.clientX - lastPtrX) * 0.01;
-    const dy = (e.clientY - lastPtrY) * 0.01;
-    const q = quatMultiply(
-      quatFromAxisAngle(0, 1, 0, dx),
-      quatFromAxisAngle(1, 0, 0, dy)
-    );
-    const r = quatMultiply(q, orientation);
-    orientation[0] = r[0]; orientation[1] = r[1];
-    orientation[2] = r[2]; orientation[3] = r[3];
+    const r = quatMultiply(quatFromAxisAngle(0,1,0,(e.clientX-lastPtrX)*0.01), quatFromAxisAngle(1,0,0,(e.clientY-lastPtrY)*0.01));
+    const q = quatMultiply(r, orientation);
+    orientation[0]=q[0]; orientation[1]=q[1]; orientation[2]=q[2]; orientation[3]=q[3];
     quatNormalize(orientation);
-    lastPtrX = e.clientX;
-    lastPtrY = e.clientY;
+    lastPtrX = e.clientX; lastPtrY = e.clientY;
   });
-
   canvas.addEventListener("touchmove", (e) => { e.preventDefault(); }, { passive: false });
   canvas.addEventListener("pointerup", () => { dragging = false; });
   canvas.addEventListener("pointercancel", () => { dragging = false; });
 
-  // --- Render loop ---
-
+  let _debugCount = 0;
   function render(time) {
     _scopeAnimFrame = requestAnimationFrame(render);
+    const p = _scopeParams;
 
-    // Resize canvas to display size
+    // Persistence: 0-1 maps to 256 vertices up to full ring capacity (256K)
+    // This gives many orders of magnitude of trail length
+    const displayCount = Math.min(RING_CAPACITY, Math.max(256, Math.round(Math.pow(p.persistence, 3) * RING_CAPACITY)));
+
+    // Resize
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth * dpr | 0;
-    const h = canvas.clientHeight * dpr | 0;
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
+    const w = canvas.clientWidth * dpr | 0, h = canvas.clientHeight * dpr | 0;
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
 
-    // Physics: thrust -> angular velocity -> orientation
+    // Physics
     if (lastTime === 0) lastTime = time;
     const dt = Math.min((time - lastTime) / 1000, 0.05);
     lastTime = time;
 
-    if (!dragging && thrustMag > 0) {
-      angVel[0] += -Math.sin(thrustAngle) * thrustMag * dt;
-      angVel[1] += Math.cos(thrustAngle) * thrustMag * dt;
+    if (!dragging && p.spin > 0) {
+      angVel[0] += -Math.sin(time * 0.0003) * p.spin * dt;
+      angVel[1] += Math.cos(time * 0.0003) * p.spin * dt;
     }
-
-    const decay = Math.exp(-dt / DRAG_TAU);
-    angVel[0] *= decay;
-    angVel[1] *= decay;
-    angVel[2] *= decay;
-
-    const speed = Math.sqrt(angVel[0]*angVel[0] + angVel[1]*angVel[1] + angVel[2]*angVel[2]);
+    const decay = Math.exp(-dt / 3.0);
+    angVel[0] *= decay; angVel[1] *= decay; angVel[2] *= decay;
+    const speed = Math.sqrt(angVel[0]*angVel[0]+angVel[1]*angVel[1]+angVel[2]*angVel[2]);
     if (speed > 0.0001) {
-      const r = quatMultiply(
-        quatFromAxisAngle(angVel[0]/speed, angVel[1]/speed, angVel[2]/speed, speed * dt),
-        orientation
-      );
-      orientation[0] = r[0]; orientation[1] = r[1];
-      orientation[2] = r[2]; orientation[3] = r[3];
+      const r = quatMultiply(quatFromAxisAngle(angVel[0]/speed, angVel[1]/speed, angVel[2]/speed, speed*dt), orientation);
+      orientation[0]=r[0]; orientation[1]=r[1]; orientation[2]=r[2]; orientation[3]=r[3];
       quatNormalize(orientation);
     }
 
     const model = quatToMat4(orientation);
-    const view = mat4Translate(0, 0, -3);
+    const view = mat4Translate(0, 0, -Math.max(0.5, p.zoom));
 
-    // Clear full canvas
+    gl.clearColor(p.bgR, p.bgG, p.bgB, 1.0);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(program);
+    gl.uniform1f(uSaturation, p.saturation);
 
-    // Draw each instance in its own viewport strip
     for (let i = 0; i < N; i++) {
       const d = instData[i];
 
-      // Read analyser time-domain data
+      // Read latest sample from each analyser
       d.analyserX.getFloatTimeDomainData(d.bufX);
       d.analyserY.getFloatTimeDomainData(d.bufY);
       d.analyserZ.getFloatTimeDomainData(d.bufZ);
+      if (d.analyserC) d.analyserC.getFloatTimeDomainData(d.bufC);
 
-      // Interleave into frame buffer
-      for (let s = 0; s < d.samples; s++) {
-        const idx = s * 3;
-        d.frameData[idx]     = d.bufX[s];
-        d.frameData[idx + 1] = d.bufY[s];
-        d.frameData[idx + 2] = d.bufZ[s];
+      if (_debugCount++ === 120 && i === 0) {
+        let pX=0,pY=0,pZ=0;
+        for (let s=0;s<d.analyserSamples;s++) { pX=Math.max(pX,Math.abs(d.bufX[s])); pY=Math.max(pY,Math.abs(d.bufY[s])); pZ=Math.max(pZ,Math.abs(d.bufZ[s])); }
+        console.log("scope @2s: X="+pX.toFixed(4)+" Y="+pY.toFixed(4)+" Z="+pZ.toFixed(4)+" written="+d.totalWritten+" display="+displayCount+" density="+p.density);
       }
 
-      // Upload current frame to ring buffer slot
-      gl.bindBuffer(gl.ARRAY_BUFFER, d.vbo);
-      gl.bufferSubData(gl.ARRAY_BUFFER, d.ringIndex * d.floatsPerFrame * 4, d.frameData);
+      // Density controls how many samples to write per frame (1 to analyserSamples)
+      const maxSamples = d.analyserSamples;
+      const samplesPerFrame = Math.max(1, Math.round(Math.pow(maxSamples, Math.max(0, Math.min(1, p.density)))));
+      const step = maxSamples / samplesPerFrame;
 
-      // Viewport: horizontal strip
+      // Auto-scale: track peak per axis independently
+      for (let s = 0; s < d.analyserSamples; s++) {
+        const ax = Math.abs(d.bufX[s]), ay = Math.abs(d.bufY[s]), az = Math.abs(d.bufZ[s]);
+        if (ax > d.maxX) d.maxX = ax;
+        if (ay > d.maxY) d.maxY = ay;
+        if (az > d.maxZ) d.maxZ = az;
+      }
+      d.maxX *= 0.9999; d.maxY *= 0.9999; d.maxZ *= 0.9999;
+      d.maxX = Math.max(d.maxX, 0.001); d.maxY = Math.max(d.maxY, 0.001); d.maxZ = Math.max(d.maxZ, 0.001);
+      const scX = 1.0 / d.maxX, scY = 1.0 / d.maxY, scZ = 1.0 / d.maxZ;
+      const hue = p.hue;
+
+      // Write samplesPerFrame vertices to ring buffer
+      gl.bindBuffer(gl.ARRAY_BUFFER, d.vbo);
+      const chunkStart = d.writePos;
+      for (let j = 0; j < samplesPerFrame; j++) {
+        const s = Math.min(Math.floor(j * step), d.analyserSamples - 1);
+        const px = d.bufX[s], py = d.bufY[s], pz = d.bufZ[s];
+        const pc = d.analyserC ? Math.max(0.15, Math.abs(d.bufC[s]) * 2) : 1.0;
+        const point = d.pointBuf;
+        point[0] = px * scX; point[1] = py * scY; point[2] = pz * scZ; point[3] = pc; point[4] = hue;
+        gl.bufferSubData(gl.ARRAY_BUFFER, d.writePos * BYTES_PER_VERT, point);
+        d.writePos = (d.writePos + 1) % RING_CAPACITY;
+        d.totalWritten++;
+      }
+
+      // Record this chunk
+      d.chunks.push({ start: chunkStart, count: samplesPerFrame });
+      if (d.chunks.length > d.maxChunks) d.chunks.shift();
+
+      // How many vertices to draw
+      const available = Math.min(d.totalWritten, RING_CAPACITY);
+      const drawCount = Math.min(available, displayCount);
+      if (drawCount < 2) continue;
+
+      // Viewport strip
       const stripWidth = Math.round(canvas.width / N);
       const x = Math.round(i * canvas.width / N);
       gl.viewport(x, 0, stripWidth, canvas.height);
 
-      // Build MVP with strip aspect ratio
       const aspect = stripWidth / canvas.height;
       const proj = mat4Perspective(Math.PI / 6, aspect, 0.1, 100);
       const mvp = mat4Multiply(proj, mat4Multiply(view, model));
-
       gl.uniformMatrix4fv(uMVP, false, mvp);
+      gl.uniform1f(uAlphaBase, 0.8);
       gl.bindVertexArray(d.vao);
 
-      // Draw oldest to newest with increasing alpha
-      for (let t = 0; t < TRAIL_COUNT; t++) {
-        const frameIdx = (d.ringIndex + 1 + t) % TRAIL_COUNT;
-        const a = ((t + 1) / TRAIL_COUNT);
-        gl.uniform1f(uAlpha, a * a);
-        gl.drawArrays(gl.LINE_STRIP, frameIdx * d.samples, d.samples);
+      // Draw as continuous LINE_STRIP
+      const startVert = (d.writePos - drawCount + RING_CAPACITY) % RING_CAPACITY;
+      if (startVert + drawCount <= RING_CAPACITY) {
+        gl.drawArrays(gl.LINE_STRIP, startVert, drawCount);
+      } else {
+        const firstCount = RING_CAPACITY - startVert;
+        gl.drawArrays(gl.LINE_STRIP, startVert, firstCount);
+        gl.drawArrays(gl.LINE_STRIP, 0, drawCount - firstCount);
       }
 
       gl.bindVertexArray(null);
-
-      // Advance ring index
-      d.ringIndex = (d.ringIndex + 1) % TRAIL_COUNT;
     }
   }
 
   _scopeAnimFrame = requestAnimationFrame(render);
-
-  // Register cleanup for reinit
-  _scopeCleanup = () => {
-    for (const d of instData) {
-      gl.deleteVertexArray(d.vao);
-      gl.deleteBuffer(d.vbo);
-    }
-  };
-
-  return function setOrbit(angle, thrust) {
-    if (angle !== undefined) thrustAngle = angle;
-    if (thrust !== undefined) thrustMag = thrust;
-  };
+  _scopeCleanup = () => { for (const d of instData) { gl.deleteVertexArray(d.vao); gl.deleteBuffer(d.vbo); } };
 }
