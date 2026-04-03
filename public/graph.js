@@ -118,7 +118,7 @@ function evaluateNode(graph, boxId) {
 }
 
 // propagate a value from a box's outlet through the graph
-function propagateInGraph(graph, boxId, outletIndex, value) {
+function propagateInGraph(graph, boxId, outletIndex, value, isEvent = false) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
 
@@ -163,6 +163,8 @@ function propagateInGraph(graph, boxId, outletIndex, value) {
       const engine = graph.engines.get(cable.dstBox);
       const paramName = engine.paramNames[cable.dstInlet];
       if (paramName) {
+        // event params (trigger, gate) only fire when isEvent is set
+        if ((paramName === "trigger" || paramName === "gate") && !isEvent) continue;
         if (graphDebug) console.log(`  → engine box:${cable.dstBox} ${paramName}=${value}`);
         if (!updates[cable.dstBox]) updates[cable.dstBox] = {};
         updates[cable.dstBox][paramName] = value;
@@ -239,13 +241,13 @@ function handleEvent(graph, boxId) {
   if (result.outputs) {
     let allUpdates = {};
     for (const { outlet, value } of result.outputs) {
-      mergeUpdates(allUpdates, propagateInGraph(graph, boxId, outlet, value));
+      mergeUpdates(allUpdates, propagateInGraph(graph, boxId, outlet, value, true));
     }
     return allUpdates;
   }
 
   if (result.propagate) {
-    return propagateInGraph(graph, boxId, 0, result.value);
+    return propagateInGraph(graph, boxId, 0, result.value, true);
   }
   return {};
 }
@@ -261,7 +263,7 @@ function tickGraph(graph, dt) {
 
     mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, result.value));
     for (const outlet of result.events) {
-      mergeUpdates(allUpdates, propagateInGraph(graph, id, outlet, 0));
+      mergeUpdates(allUpdates, propagateInGraph(graph, id, outlet, 0, true));
     }
   }
   return allUpdates;

@@ -196,6 +196,23 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue):
     return;
   }
 
+  // sall — wireless send + broadcast to all synth clients
+  if (routerType === "sall") {
+    const name = box.text.split(/\s+/).slice(1).join(" ");
+    if (!name) return;
+    // ctrl-side wireless: propagate to matching r/receive boxes
+    for (const [recvId, recvBox] of boxes) {
+      if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isCtrlSide(recvBox)) {
+        setBoxValueAndNotify(recvId, value);
+      }
+    }
+    // broadcast to all synth clients
+    const msg = { type: "rv", r: routerBoxId, ch: 0, v: value } as Record<string, unknown>;
+    latestValues.set(routerBoxId + ":0", JSON.stringify(msg));
+    broadcastSynth(msg);
+    return;
+  }
+
   // all routers — send immediately
   sendViaRouter(routerBoxId, inlet, value);
 }
@@ -1535,6 +1552,19 @@ function serializeSynthPatch(): Record<string, unknown> {
   for (const [id, box] of boxes) {
     const def = getBoxDef(box.text);
     if (!def || def.zone !== "router") continue;
+    if (boxTypeName(box.text) === "sall") {
+      // sall: match synth-side r/receive boxes by name
+      const name = box.text.split(/\s+/).slice(1).join(" ");
+      if (!name) continue;
+      for (const [recvId, recvBox] of boxes) {
+        if (!synthIds.has(recvId)) continue;
+        const recvType = boxTypeName(recvBox.text);
+        if ((recvType === "r" || recvType === "receive") && recvBox.text.split(/\s+/).slice(1).join(" ") === name) {
+          entries.push({ routerId: id, routerOutlet: 0, targetBox: recvId, targetInlet: 0 });
+        }
+      }
+      continue;
+    }
     const channels = box.outlets || 1;
     for (let ch = 0; ch < channels; ch++) {
       for (const c of cablesFromOutlet(id, ch)) {

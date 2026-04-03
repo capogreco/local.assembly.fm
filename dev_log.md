@@ -1355,3 +1355,17 @@ Audited all audio worklet processors for silent-failure defaults. Several object
 
 **Fixed math operator defaults:** `/~` and `**~` with no args now default operand to 1 instead of 0 (avoids divide-by-zero / useless exponentiation).
 
+### sall — wireless send-all router (2026-04-03)
+
+New router object: `sall name` combines wireless send with an `all` router. One box replaces the `s → r → all → s → r` chain for ctrl→synth value broadcasting.
+
+- Zone: router (snaps to border)
+- 1 inlet, 0 outlets — value goes wireless
+- On the server: propagates to ctrl-side `r name` boxes AND broadcasts `rv` to all synth clients
+- On synth clients: entries map directly to synth-side `r name` boxes by matching the name argument
+- Usage: `sall freq` on the border, `r freq` anywhere on the synth side
+
+### Fix: synth-side metro progress leaking into event inlets
+
+Metro's continuous progress value (0→1) was propagating to engine `trigger`/`gate` inlets, causing ramp~ to re-trigger on every tick instead of once per cycle. Added `isEvent` flag to `propagateInGraph` — event params on engines only fire when the propagation originates from an actual event (metro bang, handleEvent), not from continuous value updates.
+

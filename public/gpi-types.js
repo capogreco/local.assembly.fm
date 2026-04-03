@@ -261,6 +261,9 @@ const BOX_TYPES = {
   sweep:          { zone: "router", description: "Send sequentially across phones on each null event.", args: "steps", example: "sweep 16",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "trigger", type: "event", description: "Advance to next phone" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on current phone" }] },
+  sall:           { zone: "router", description: "Wireless send-all. Broadcasts to all phones, delivered to matching r boxes.", args: "name", example: "sall freq",
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to broadcast" }],
+                    outlets: [] },
 
   "sample-hold":  { zone: "any", description: "Capture value on trigger, hold until next.",
                     inlets: [
