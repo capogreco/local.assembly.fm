@@ -8,6 +8,7 @@ set -e
 
 # Fixed config
 SUBNET="192.168.178"
+STATIC_IP="192.168.178.24"  # must match FritzBox DNS server setting
 PROJECT_DIR="/Users/capo_greco/Documents/local.assembly.fm"
 DNSMASQ_BIN="/opt/homebrew/opt/dnsmasq/sbin/dnsmasq"
 DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
@@ -58,11 +59,24 @@ detect_network() {
     fi
 
     ETHERNET_IF="$found_if"
-    MAC_IP="$found_ip"
+
+    # ensure the interface has the static IP the FritzBox expects
+    if [ "$found_ip" != "$STATIC_IP" ]; then
+        echo_warn "Interface $ETHERNET_IF has IP $found_ip, FritzBox expects $STATIC_IP"
+        echo_info "Setting static IP $STATIC_IP on $ETHERNET_IF..."
+        sudo ifconfig "$ETHERNET_IF" "$STATIC_IP" netmask 255.255.255.0
+        # re-add the gateway so we stay routable on the subnet
+        sudo route -n add -net "$SUBNET.0/24" "$STATIC_IP" 2>/dev/null || true
+        echo_info "IP set to $STATIC_IP"
+    fi
+
+    MAC_IP="$STATIC_IP"
     echo_info "Detected interface: $ETHERNET_IF ($MAC_IP)"
 }
 
 # --- Kill stale dnsmasq if running on wrong interface/IP ---
+
+DNSMASQ_ALREADY_OK=false
 
 ensure_clean_dnsmasq() {
     if pgrep -f "dnsmasq" > /dev/null 2>&1; then
@@ -86,6 +100,7 @@ ensure_clean_dnsmasq() {
             sleep 1
         else
             echo_info "dnsmasq already running with correct config"
+            DNSMASQ_ALREADY_OK=true
         fi
     fi
 }
@@ -168,7 +183,7 @@ start_server() {
     echo ""
 
     cd "$PROJECT_DIR"
-    sudo HOST_IP="$MAC_IP" deno task start
+    sudo $(which deno) run -A --unstable-net server.ts
 }
 
 show_status() {
@@ -241,11 +256,13 @@ case "${1:-}" in
         ensure_clean_dnsmasq
         ensure_dnsmasq_conf
 
-        echo_info "Starting dnsmasq in background..."
-        sudo "$DNSMASQ_BIN" \
-            --bind-interfaces \
-            --conf-file="$DNSMASQ_CONF"
-        echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
+        if [ "$DNSMASQ_ALREADY_OK" = false ]; then
+            echo_info "Starting dnsmasq in background..."
+            sudo "$DNSMASQ_BIN" \
+                --bind-interfaces \
+                --conf-file="$DNSMASQ_CONF"
+            echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
+        fi
 
         echo_info "Starting Deno server..."
         echo_info "Captive portal: http://$MAC_IP"
@@ -256,7 +273,7 @@ case "${1:-}" in
         trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
 
         cd "$PROJECT_DIR"
-        sudo HOST_IP="$MAC_IP" deno task start
+        sudo $(which deno) run -A --unstable-net server.ts
         ;;
     *)
         echo "local.assembly.fm macOS startup script"

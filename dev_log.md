@@ -1306,3 +1306,26 @@ Number inlets turn blue when an audio-rate cable is connected, showing they're r
 
 **Instance divergence**: increased IC jitter from ±0.005 to ±0.25, plus random Euler warm-up (50K-150K steps, ~1-2 orbits) to spread instances across the attractor. Each phone lands at a different orbital phase immediately — no waiting for butterfly effect.
 
+## 2026-04-03 — macOS Startup Automation
+
+### Problem
+Every time the hardware was set up at a new location, the ethernet interface name changed (en5 → en6 etc.), the DHCP-assigned IP didn't match what the FritzBox was handing out as DNS, and stale dnsmasq processes from previous sessions blocked startup. Required manual editing of `start-macos.sh`, `server.ts`, and `/opt/homebrew/etc/dnsmasq.d/assembly.conf` each time.
+
+### Solution
+`start-macos.sh start` now handles everything in a single command:
+- **Auto-detects** whichever interface has a `192.168.178.x` address
+- **Enforces static IP** `.24` (matching FritzBox DNS config) via `ifconfig` if DHCP assigned something different
+- **Kills stale dnsmasq** if running with wrong interface/IP, skips restart if already correct
+- **Auto-updates dnsmasq config** (`/opt/homebrew/etc/dnsmasq.d/assembly.conf`) when interface or IP changes
+- **Runs dnsmasq + Deno in one terminal** — Ctrl+C cleans up both
+- Server default `HOST_IP` changed to `.24` to match FritzBox config, eliminating need to pass env vars through `sudo`
+
+### Other fixes
+- HTTPS server now binds to `0.0.0.0` (was missing `hostname`, defaulting to localhost-only)
+- dnsmasq health check in server.ts queries `127.0.0.1:53` instead of external interface (macOS firewall blocks the latter)
+- Banner shows LAN IP and clickable `https://localhost/ctrl.html` for local ctrl access
+- Self-signed cert generation for dev/testing (no Let's Encrypt needed)
+
+### Two-computer dev setup
+MBP (ES-8 for CV) + Mac Studio (Arturia 16Rig for audio monitoring). Mac Studio on "assembly" wifi connects via captive portal. MBP accesses ctrl at `https://localhost/ctrl.html` while connected to home wifi on a different interface.
+

@@ -127,7 +127,7 @@ deno task dev
 
 **Network Topology:**
 ```
-Mac (192.168.178.24, USB ethernet en5)
+Mac (192.168.178.24, USB ethernet — auto-detected)
   ↓
 GS305PP PoE Switch
   ├─ FritzBox (192.168.178.1) — DHCP + gateway
@@ -152,11 +152,10 @@ sudo chown $(whoami) cert.pem key.pem
 
 **Configure DNS (dnsmasq):**
 ```bash
-# Create config
-echo "interface=en5
-address=/#/192.168.178.24" | sudo tee /opt/homebrew/etc/dnsmasq.d/assembly.conf
+# Config is auto-managed by start-macos.sh — no manual setup needed.
+# It detects the correct interface and writes /opt/homebrew/etc/dnsmasq.d/assembly.conf
 
-# Configure FritzBox to hand out Mac IP as DNS:
+# FritzBox must hand out 192.168.178.24 as DNS server:
 # 1. Open http://192.168.178.1
 # 2. Navigate to DNS settings (in Network or DHCP section)
 # 3. Set DNS server to: 192.168.178.24
@@ -190,20 +189,19 @@ exit
 docker compose down
 ```
 
-**Run System (requires 2 terminal windows):**
+**Run System (single terminal):**
 
-Terminal 1 — DNS:
 ```bash
-sudo /opt/homebrew/opt/dnsmasq/sbin/dnsmasq \
-  --keep-in-foreground \
-  --bind-interfaces \
-  --conf-file=/opt/homebrew/etc/dnsmasq.d/assembly.conf
+./start-macos.sh start
 ```
 
-Terminal 2 — Server (ports 80/443):
+This auto-detects the ethernet interface, sets the static IP (192.168.178.24) if needed, starts dnsmasq in the background, and launches the Deno server. Ctrl+C stops both.
+
+Separate commands are also available:
 ```bash
-cd /Users/capo_greco/Documents/local.assembly.fm
-sudo HOST_IP=192.168.178.24 deno task start
+./start-macos.sh dns       # DNS only
+./start-macos.sh server    # Server only
+./start-macos.sh status    # Check system status
 ```
 
 **Test:**
@@ -214,13 +212,18 @@ sudo HOST_IP=192.168.178.24 deno task start
 **Important Notes:**
 - **Server must run on ports 80/443** (pfctl port forwarding unreliable on macOS)
 - **Requires sudo** for both dnsmasq and server (privileged ports)
-- **Keep terminals open** during performance (or use screen/tmux)
-- **Mac IP must be 192.168.178.24** (configure static IP if DHCP changes)
+- **Mac IP must be 192.168.178.24** — startup script enforces this automatically
+- **Ethernet interface auto-detected** — works on any USB adapter (en5, en6, etc.)
 - See `dev_log.md` for full troubleshooting details
 
 ### TLS Certificates (Let's Encrypt)
 
-Uses a real CA-signed cert for `local.assembly.fm` — no browser warnings. dnsmasq resolves the domain to `192.168.178.10` on the LAN.
+Uses a real CA-signed cert for `local.assembly.fm` — no browser warnings. dnsmasq resolves the domain to `192.168.178.24` on the LAN. For dev/testing, a self-signed cert also works:
+```bash
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+  -nodes -keyout key.pem -out cert.pem -days 365 \
+  -subj "/CN=local.assembly.fm"
+```
 
 **Renew** (every 90 days, needs internet):
 ```bash

@@ -2,7 +2,7 @@ const CERT_FILE = "cert.pem";
 const KEY_FILE = "key.pem";
 const HTTPS_PORT = 443;
 const HTTP_PORT = 80;
-const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.10";
+const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.24";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
 
 // OSC / monome grid constants
@@ -1960,25 +1960,16 @@ const lanIP = getLanIP();
 
 const tlsAvailable = await hasCerts();
 
-// Check if HOST_IP is configured (especially important on macOS)
 const isMacOS = Deno.build.os === "darwin";
-const isDefaultIP = HOST_IP === "192.168.178.10";
-
-if (isMacOS && isDefaultIP) {
-  console.log("\x1b[33m⚠️  WARNING: HOST_IP not set!\x1b[0m");
-  console.log("\x1b[33mUsing default IP (192.168.178.10) but you're on macOS.\x1b[0m");
-  console.log("\x1b[33mUse ./start-macos.sh server to auto-detect.\x1b[0m");
-  console.log("");
-}
 
 // Check if dnsmasq is running (required for captive portal)
 if (isMacOS && tlsAvailable) {
   try {
-    const dnsCheck = await Deno.resolveDns("test.example.com", "A", { nameServer: { ipAddr: HOST_IP, port: 53 } });
+    const dnsCheck = await Deno.resolveDns("test.example.com", "A", { nameServer: { ipAddr: "127.0.0.1", port: 53 } });
     const allPointToHost = dnsCheck.every(record => record === HOST_IP);
     if (!allPointToHost) {
       console.log("\x1b[33m⚠️  WARNING: dnsmasq may not be configured correctly!\x1b[0m");
-      console.log("\x1b[33mCaptive portal requires all DNS queries to resolve to ${HOST_IP}\x1b[0m");
+      console.log(`\x1b[33mCaptive portal requires all DNS queries to resolve to ${HOST_IP}\x1b[0m`);
       console.log("\x1b[33mStart dnsmasq with:\x1b[0m");
       console.log("\x1b[33m  ./start-macos.sh dns\x1b[0m");
       console.log("");
@@ -2023,7 +2014,7 @@ const banner = `
   ${tlsAvailable ? "HTTPS + HTTP portal" : "dev mode (HTTP only)"}
   Server IP: ${HOST_IP}${lanLabel}
   synth:    ${tlsAvailable ? `https://${HOST_DOMAIN}/` : `http://localhost:${HTTP_PORT}/`}
-  ctrl:     ${tlsAvailable ? `https://${HOST_DOMAIN}/ctrl.html` : `http://localhost:${HTTP_PORT}/ctrl.html`}
+  ctrl:     https://localhost/ctrl.html
   ensemble: ${tlsAvailable ? `https://${HOST_DOMAIN}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}${lanUrls}
 `;
 console.log(banner);
