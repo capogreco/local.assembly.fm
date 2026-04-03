@@ -1367,5 +1367,21 @@ New router object: `sall name` combines wireless send with an `all` router. One 
 
 ### Fix: synth-side metro progress leaking into event inlets
 
-Metro's continuous progress value (0→1) was propagating to engine `trigger`/`gate` inlets, causing ramp~ to re-trigger on every tick instead of once per cycle. Added `isEvent` flag to `propagateInGraph` — event params on engines only fire when the propagation originates from an actual event (metro bang, handleEvent), not from continuous value updates.
+Metro's continuous progress value (0→1) was propagating to engine `trigger`/`gate` inlets, causing ramp~ to re-trigger on every tick instead of once per cycle. Added `isEvent` flag to `propagateInGraph` — event params on engines only fire when the propagation originates from an actual event (metro bang, handleEvent), not from continuous value updates. Router value paths (`processRouterValue`) also propagate with `isEvent=true` since `rv` messages are discrete.
+
+### Propagation model audit (2026-04-03)
+
+Audited our propagation model against Pure Data's. Identified core architectural drift: Pd has two separate data planes (messages = discrete/depth-first, signals = continuous/block-computed) while our system collapsed them into one path, patching ambiguity with the `isEvent` flag.
+
+**Key divergences from Pd:**
+- Metro outputs progress values into the graph (Pd metro only outputs bangs; progress is not observable)
+- No hot/cold inlet distinction (Pd: only inlet 0 triggers computation; our math boxes re-evaluate on any inlet)
+- Events and values share one propagation path (Pd: bang is a distinct message type)
+- Two-phase propagation (our adaptation of Pd's right-to-left convention — this is reasonable)
+
+**Planned refactor:**
+1. Split `propagateInGraph`/`propagateAndNotify` into separate value and event paths, typed by outlet definition
+2. Separate metro display value (UI-only) from output value (propagation-only)
+3. Adopt hot/cold inlet semantics for pure math boxes
+4. Evaluate Pd convenience objects (`trigger`, `pack`/`unpack`, `select`, etc.) for managing execution order
 

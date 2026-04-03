@@ -310,7 +310,7 @@ function processRouterValue(graph, routerId, channel, value) {
       const w = graph.wireless.get(name);
       if (w) {
         for (const recvId of w.receives) {
-          mergeUpdates(allUpdates, propagateInGraph(graph, recvId, 0, value));
+          mergeUpdates(allUpdates, propagateInGraph(graph, recvId, 0, value, true));
         }
       }
     } else if (node.type === "throw") {
@@ -327,7 +327,7 @@ function processRouterValue(graph, routerId, channel, value) {
       }
     } else {
       const result = evaluateNode(graph, entry.targetBox);
-      const updates = propagateInGraph(graph, entry.targetBox, 0, result);
+      const updates = propagateInGraph(graph, entry.targetBox, 0, result, true);
       mergeUpdates(allUpdates, updates);
     }
   }
