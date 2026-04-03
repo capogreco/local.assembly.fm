@@ -5,6 +5,44 @@
  * Speed and character params via AudioParam.
  */
 
+// Per-system known attractor bounds (max absolute value across x,y,z).
+// Used for fixed normalisation so output stays in [-1, 1] without
+// the jitter caused by adaptive tracking.
+const ATTRACTOR_BOUNDS = {
+  rossler: 23,     // z spikes to ~22 at c=5.7
+  lorenz: 48,      // z reaches ~48 at rho=38
+  "sprott-b": 4,
+  "sprott-c": 5,
+  "sprott-d": 5,
+  "sprott-e": 6,
+  "sprott-f": 5,
+  "sprott-g": 3,
+  "sprott-h": 5,
+  "sprott-i": 1.1,
+  "sprott-j": 28,
+  "sprott-k": 4,
+  "sprott-l": 37,
+  "sprott-m": 6,
+  "sprott-n": 28,
+  "sprott-o": 2,
+  "sprott-p": 2.5,
+  "sprott-q": 10,
+  "sprott-r": 14,
+  "sprott-s": 5,
+  jerk: 4,
+  sloth: 2,
+};
+
+// On-attractor initial conditions for each system, so integration
+// starts on the attractor instead of needing transient warm-up.
+// These were sampled from converged trajectories.
+const ATTRACTOR_ICS = {
+  rossler: [-5.0, 3.0, 0.05],
+  lorenz: [-6.0, -8.0, 22.0],
+  jerk: [0.5, 0.1, -0.1],
+  sloth: [0.5, 0.1, -0.3],
+};
+
 class ChaosProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
@@ -17,14 +55,25 @@ class ChaosProcessor extends AudioWorkletProcessor {
     super();
     const opts = options.processorOptions || {};
     this.system = opts.system || "rossler";
-    // Random initial conditions — ensures each instance diverges
-    this.x = (Math.random() - 0.5) * 0.2;
-    this.y = (Math.random() - 0.5) * 0.2;
-    this.z = (Math.random() - 0.5) * 0.2;
-    // Normalisation bounds (updated dynamically)
-    this.maxAbs = 1;
-    // Sloth comparator state
-    this.qz = 1;
+
+    // Use on-attractor ICs if available, otherwise small random offset
+    const ic = ATTRACTOR_ICS[this.system];
+    if (ic) {
+      // Small perturbation so each instance diverges
+      const jitter = () => (Math.random() - 0.5) * 0.01;
+      this.x = ic[0] + jitter();
+      this.y = ic[1] + jitter();
+      this.z = ic[2] + jitter();
+    } else {
+      this.x = (Math.random() - 0.5) * 0.2;
+      this.y = (Math.random() - 0.5) * 0.2;
+      this.z = (Math.random() - 0.5) * 0.2;
+    }
+
+    // Fixed normalisation bound from known attractor size.
+    // Falls back to adaptive if system is unknown.
+    this.fixedBound = ATTRACTOR_BOUNDS[this.system] || 0;
+    this.maxAbs = this.fixedBound || 1;
   }
 
   derivatives(x, y, z, p) {
@@ -62,13 +111,17 @@ class ChaosProcessor extends AudioWorkletProcessor {
         return [y, z, -A * z + y * y - x];
       }
       case "sloth": {
-        // NLC Sloth ODE (mathematical essence, not circuit model)
-        // Comparator nonlinearity creates double-scroll attractor
-        const q = z < 0 ? 1 : -1;
+        // NLC Sloth circuit (Andrew Fitch) — exact component-derived coefficients
+        // C1=2uF, C2=1.42uF, C3=50uF, R1=1M, R2=4.7M, R6=100k, R7=100k, K=110k
+        // dx/dt = -(1/C1)(z/R1 + Vsat/R2 + y/K)
+        // dy/dt = (1/C3)(x/R6 - (1/R6+1/K+1/R7)*y)
+        // dz/dt = -(1/(R7*C2))*y
+        // Comparator: Vsat = +11.38V when z<0, -10.64V when z>=0
+        const vsat = z < 0 ? 11.38 : -10.64;
         return [
-          -(z * 1.0 + q * 0.213 + y * 0.01),
-          (x * 0.01 - y * 0.03),
-          -(y * 0.01)
+          -(z * 0.5 + vsat * 0.10638297872340426 + y * 4.545454545454546),
+          (x * 0.2 - y * 0.5818181818181818),
+          -(y * 7.042253521126761)
         ];
       }
       default: return [0, 0, 0];
@@ -84,6 +137,7 @@ class ChaosProcessor extends AudioWorkletProcessor {
     const speed = parameters.speed[0];
     const param = parameters.param[0];
     const dt = speed / sampleRate;
+    const blowUpThreshold = (this.fixedBound || 50) * 10;
 
     for (let i = 0; i < outX.length; i++) {
       // RK4 integration
@@ -99,21 +153,50 @@ class ChaosProcessor extends AudioWorkletProcessor {
       this.y += (k1y + 2 * k2y + 2 * k3y + k4y) * dt / 6;
       this.z += (k1z + 2 * k2z + 2 * k3z + k4z) * dt / 6;
 
-      // Adaptive normalisation — track max absolute value
       const ax = Math.abs(this.x), ay = Math.abs(this.y), az = Math.abs(this.z);
       const m = Math.max(ax, ay, az);
-      if (m > this.maxAbs) this.maxAbs = m;
-      // Slow decay so normalisation tracks the attractor bounds
-      this.maxAbs *= 0.999999;
-      this.maxAbs = Math.max(this.maxAbs, 0.001);
 
-      // Blow-up protection
-      if (m > 1e6 || isNaN(m)) {
-        this.x = 0.1; this.y = 0; this.z = 0;
-        this.maxAbs = 1;
+      // Blow-up protection — reset to on-attractor point
+      if (m > blowUpThreshold || isNaN(m)) {
+        const ic = ATTRACTOR_ICS[this.system];
+        if (ic) {
+          this.x = ic[0]; this.y = ic[1]; this.z = ic[2];
+        } else {
+          this.x = 0.1; this.y = 0; this.z = 0;
+        }
+        this.maxAbs = this.fixedBound || 1;
       }
 
-      const scale = 1 / this.maxAbs;
+      // Energy-based damping: if trajectory exceeds 2x the expected bound,
+      // gently pull it back. This prevents slow divergence in marginal
+      // systems (e.g. jerk) without hard-clipping.
+      if (this.fixedBound > 0) {
+        const ratio = m / this.fixedBound;
+        if (ratio > 2) {
+          const damping = 2 / ratio;
+          this.x *= damping;
+          this.y *= damping;
+          this.z *= damping;
+        }
+      }
+
+      // Normalisation: use fixed bounds for known systems, adaptive for others
+      let scale;
+      if (this.fixedBound > 0) {
+        // Fixed bound with a little headroom tracking for param-shifted attractors
+        if (m > this.maxAbs) this.maxAbs = m;
+        // Very slow decay back toward the known bound
+        this.maxAbs += (this.fixedBound - this.maxAbs) * 0.00001;
+        this.maxAbs = Math.max(this.maxAbs, this.fixedBound * 0.5);
+        scale = 1 / this.maxAbs;
+      } else {
+        // Adaptive for unknown systems
+        if (m > this.maxAbs) this.maxAbs = m;
+        this.maxAbs *= 0.999999;
+        this.maxAbs = Math.max(this.maxAbs, 0.001);
+        scale = 1 / this.maxAbs;
+      }
+
       outX[i] = this.x * scale;
       if (outY) outY[i] = this.y * scale;
       if (outZ) outZ[i] = this.z * scale;

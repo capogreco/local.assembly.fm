@@ -1296,3 +1296,11 @@ Replaces the previous single `colour` audio inlet + `hue`/`saturation` number in
 
 Number inlets turn blue when an audio-rate cable is connected, showing they're receiving audio-rate modulation.
 
+### Chaos processor stability fixes (2026-04-03)
+
+**Sloth**: replaced hand-tuned coefficients with exact NLC circuit-derived values. y coupling was 1000× too small, z derivative 1000× too small. Now uses actual component values (C1=2µF, C2=1.42µF, C3=50µF, R1=1MΩ, etc.) with proper ±11.38V/-10.64V comparator switching. Produces double-scroll chaos at Torpor speed (~24s orbit).
+
+**General stability**: per-system `ATTRACTOR_BOUNDS` table eliminates adaptive normalisation jitter. On-attractor initial conditions (`ATTRACTOR_ICS`) avoid transient warm-up. Energy-based damping at 2× expected bound prevents slow divergence. System-specific blow-up thresholds with on-attractor reset.
+
+**Scope batched upload**: replaced per-vertex `bufferSubData` calls (2048 individual calls at density=1) with single batched upload. Eliminates frame rate drops at high density.
+

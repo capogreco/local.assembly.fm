@@ -199,6 +199,7 @@ async function createSignalWorklet(type, args) {
     const outZ = audioCtx.createGain(); splitter.connect(outZ, 2);
     const paramMap = {};
     for (const [name, param] of node.parameters) paramMap[name] = param;
+    node.port.onmessage = (e) => { if (e.data?.type === "debug") console.log(`[${type}] ${e.data.msg}`); };
     return { type, worklet: node, splitter, outputs: [outX, outY, outZ], paramMap };
   }
 

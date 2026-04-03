@@ -167,6 +167,7 @@ void main() { fragColor = vColor; }`;
       bufH: new Float32Array(analyserSamples),
       bufS: new Float32Array(analyserSamples),
       bufB: new Float32Array(analyserSamples),
+      batchBuf: new Float32Array(analyserSamples * FLOATS_PER_VERT),
       analyserX: inst.analyserX, analyserY: inst.analyserY, analyserZ: inst.analyserZ,
       analyserH: inst.analyserH || null, analyserS: inst.analyserS || null, analyserB: inst.analyserB || null,
       pointBuf: new Float32Array(FLOATS_PER_VERT),
@@ -287,22 +288,32 @@ void main() { fragColor = vColor; }`;
       d.maxX = Math.max(d.maxX, 0.001); d.maxY = Math.max(d.maxY, 0.001); d.maxZ = Math.max(d.maxZ, 0.001);
       const scX = 1.0 / d.maxX, scY = 1.0 / d.maxY, scZ = 1.0 / d.maxZ;
 
-      // Write samplesPerFrame vertices to ring buffer
-      gl.bindBuffer(gl.ARRAY_BUFFER, d.vbo);
-      const chunkStart = d.writePos;
+      // Build chunk in batch buffer, then upload once
       for (let j = 0; j < samplesPerFrame; j++) {
         const s = Math.min(Math.floor(j * step), d.analyserSamples - 1);
-        const px = d.bufX[s], py = d.bufY[s], pz = d.bufZ[s];
-        const h = d.analyserH ? Math.abs(d.bufH[s]) : 0.6;
-        const sat = d.analyserS ? Math.abs(d.bufS[s]) : 1.0;
-        const bri = d.analyserB ? Math.max(0.15, Math.abs(d.bufB[s])) : 1.0;
-        const point = d.pointBuf;
-        point[0] = px * scX; point[1] = py * scY; point[2] = pz * scZ;
-        point[3] = h; point[4] = sat; point[5] = bri; point[6] = 0;
-        gl.bufferSubData(gl.ARRAY_BUFFER, d.writePos * BYTES_PER_VERT, point);
-        d.writePos = (d.writePos + 1) % RING_CAPACITY;
-        d.totalWritten++;
+        const off = j * FLOATS_PER_VERT;
+        d.batchBuf[off]   = d.bufX[s] * scX;
+        d.batchBuf[off+1] = d.bufY[s] * scY;
+        d.batchBuf[off+2] = d.bufZ[s] * scZ;
+        d.batchBuf[off+3] = d.analyserH ? Math.abs(d.bufH[s]) : 0.6;
+        d.batchBuf[off+4] = d.analyserS ? Math.abs(d.bufS[s]) : 1.0;
+        d.batchBuf[off+5] = d.analyserB ? Math.max(0.15, Math.abs(d.bufB[s])) : 1.0;
+        d.batchBuf[off+6] = 0;
       }
+
+      // Upload batch to ring buffer (may wrap)
+      gl.bindBuffer(gl.ARRAY_BUFFER, d.vbo);
+      const chunkStart = d.writePos;
+      const spaceAtEnd = RING_CAPACITY - d.writePos;
+      const chunk = d.batchBuf.subarray(0, samplesPerFrame * FLOATS_PER_VERT);
+      if (samplesPerFrame <= spaceAtEnd) {
+        gl.bufferSubData(gl.ARRAY_BUFFER, d.writePos * BYTES_PER_VERT, chunk);
+      } else {
+        gl.bufferSubData(gl.ARRAY_BUFFER, d.writePos * BYTES_PER_VERT, d.batchBuf.subarray(0, spaceAtEnd * FLOATS_PER_VERT));
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, d.batchBuf.subarray(spaceAtEnd * FLOATS_PER_VERT, samplesPerFrame * FLOATS_PER_VERT));
+      }
+      d.writePos = (d.writePos + samplesPerFrame) % RING_CAPACITY;
+      d.totalWritten += samplesPerFrame;
 
       // Record this chunk
       d.chunks.push({ start: chunkStart, count: samplesPerFrame });
