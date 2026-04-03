@@ -1032,9 +1032,18 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
       // Ctrl-side audio box — forward param to ctrl client
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef?.type === "event") {
-        deferred.push(() => sendCtrl({ type: "ctrl-audio-event", boxId: cable.dstBox, inlet: cable.dstInlet }));
+        deferred.push(() => {
+          sendCtrl({ type: "ctrl-audio-event", boxId: cable.dstBox, inlet: cable.dstInlet });
+          ctrlAudioTrigger(cable.dstBox);
+        });
       } else {
         sendCtrl({ type: "ctrl-audio-param", boxId: cable.dstBox, inlet: cable.dstInlet, value });
+        // Store for cosmetic shadow state (ramp~ progress etc.)
+        if (typeof value === "number") {
+          let iv = inletValues.get(cable.dstBox);
+          if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
+          iv[cable.dstInlet] = value;
+        }
       }
     } else if (isWirelessSend(dst.text)) {
       // Wireless send: propagate to all matching receives
@@ -1176,6 +1185,44 @@ function initAllBoxState(): void {
   }
 }
 
+// --- Cosmetic animations for ctrl-side audio boxes ---
+// Shadow state for display only — the real signal runs in the ctrl client's worklet.
+
+const ctrlAudioAnims = new Map<number, { type: string; elapsed: number; duration: number; curve: number }>();
+
+function ctrlAudioTrigger(boxId: number): void {
+  const box = boxes.get(boxId);
+  if (!box) return;
+  const name = boxTypeName(box.text);
+
+  if (name === "trig~") {
+    // Brief flash
+    queueValueUpdate(boxId, 1);
+    setTimeout(() => queueValueUpdate(boxId, 0), 80);
+  } else if (name === "ramp~") {
+    // Shadow ramp for progress bar
+    const args = box.text.split(/\s+/).slice(1).map(Number);
+    const iv = inletValues.get(boxId) || [];
+    const duration = iv[3] || args[2] || 0.5;
+    const curve = iv[4] || args[3] || 1;
+    ctrlAudioAnims.set(boxId, { type: "ramp", elapsed: 0, duration, curve });
+  } else if (name === "ar~" || name === "sigmoid~" || name === "cosine~" || name === "step~") {
+    // Brief flash for other triggered envelopes
+    queueValueUpdate(boxId, 1);
+    setTimeout(() => queueValueUpdate(boxId, 0), 80);
+  }
+}
+
+function tickCtrlAudioAnims(dt: number): void {
+  for (const [id, anim] of ctrlAudioAnims) {
+    anim.elapsed += dt;
+    const t = Math.min(1, anim.elapsed / anim.duration);
+    const shaped = anim.curve === 1 ? t : Math.pow(t, anim.curve);
+    queueValueUpdate(id, shaped);
+    if (t >= 1) ctrlAudioAnims.delete(id);
+  }
+}
+
 const TICK_RATE = 60;
 const TICK_DT = 1 / TICK_RATE;
 
@@ -1213,6 +1260,7 @@ function tick(): void {
       }
     }
   }
+  tickCtrlAudioAnims(TICK_DT);
 }
 
 // handle number inlets on stateful boxes — returns true if handled

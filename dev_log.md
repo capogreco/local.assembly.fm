@@ -1418,3 +1418,10 @@ Events flowing through routers (sall, all, etc.) were being broadcast as `rv` (r
 - `ramp~` and `ramp` gained a `curve` parameter (1=linear, >1=exponential, <1=logarithmic)
 - Fixed control-rate `ramp` state init: `to=0` no longer overridden to 1 (falsy `||` default bug)
 
+**Cosmetic animations for ctrl-side audio boxes (server.ts):**
+Ctrl-side audio boxes (trig~, ramp~, ar~, etc.) run their signal in the ctrl client's worklet — no server-side state. For visual feedback, the server now maintains lightweight cosmetic shadow state:
+- `trig~`, `ar~`, `sigmoid~`, `cosine~`, `step~`: brief flash (80ms) on trigger
+- `ramp~`: progress bar that sweeps 0→1 over the duration with curve shaping, matching the worklet's behaviour
+
+Shadow state reads from `inletValues` (which now stores ctrl-audio-param values alongside forwarding to the worklet). This is explicitly cosmetic — the worklet remains the source of truth for the actual signal.
+
