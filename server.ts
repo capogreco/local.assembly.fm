@@ -154,7 +154,7 @@ function shuffleArray(arr: number[]): number[] {
   return arr;
 }
 
-function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue): void {
+function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, isEvent = false): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
   const routerType = boxTypeName(box.text);
@@ -206,15 +206,23 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue):
         setBoxValueAndNotify(recvId, value);
       }
     }
-    // broadcast to all synth clients
-    const msg = { type: "rv", r: routerBoxId, ch: 0, v: value } as Record<string, unknown>;
-    latestValues.set(routerBoxId + ":0", JSON.stringify(msg));
-    broadcastSynth(msg);
+    // broadcast to all synth clients — events get `re`, values get `rv`
+    if (isEvent) {
+      broadcastSynth({ type: "re", r: routerBoxId });
+    } else {
+      const msg = { type: "rv", r: routerBoxId, ch: 0, v: value } as Record<string, unknown>;
+      latestValues.set(routerBoxId + ":0", JSON.stringify(msg));
+      broadcastSynth(msg);
+    }
     return;
   }
 
   // all routers — send immediately
-  sendViaRouter(routerBoxId, inlet, value);
+  if (isEvent) {
+    routerDispatch(routerBoxId, { type: "re", r: routerBoxId }, { advanceSweep: true, storeLatest: false });
+  } else {
+    sendViaRouter(routerBoxId, inlet, value);
+  }
 }
 
 function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts: { advanceSweep: boolean; storeLatest: boolean }): void {
@@ -1003,6 +1011,11 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
   // regardless of cable creation order.
   const deferred: Array<() => void> = [];
 
+  // Check if source outlet is event-typed — routers need to know
+  const srcBox = boxes.get(boxId);
+  const srcDef = srcBox ? getBoxDef(srcBox.text) : null;
+  const isEventSource = srcDef?.outlets?.[outletIndex]?.type === "event";
+
   for (const cable of cablesFromOutlet(boxId, outletIndex)) {
     const dst = boxes.get(cable.dstBox);
     if (!dst) continue;
@@ -1011,9 +1024,9 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
     if (def.zone === "router") {
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef && inletDef.type === "event") {
-        deferred.push(() => handleRouterInlet(cable.dstBox, cable.dstInlet, value));
+        deferred.push(() => handleRouterInlet(cable.dstBox, cable.dstInlet, value, true));
       } else {
-        handleRouterInlet(cable.dstBox, cable.dstInlet, value);
+        handleRouterInlet(cable.dstBox, cable.dstInlet, value, isEventSource);
       }
     } else if (isAudioBox(dst.text) && isCtrlSide(dst)) {
       // Ctrl-side audio box — forward param to ctrl client
@@ -1045,7 +1058,13 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
       // ctrl-side boxes only receive numeric values (arrays flow to routers only)
       const numValue = typeof value === "number" ? value : 0;
       const inletDef = def.inlets[cable.dstInlet];
-      if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
+      // firesEvent inlets: store value AND defer event
+      if (inletDef?.firesEvent && boxState.has(cable.dstBox)) {
+        let iv = inletValues.get(cable.dstBox);
+        if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
+        iv[cable.dstInlet] = numValue;
+        deferred.push(() => handleEventBox(cable.dstBox, numValue));
+      } else if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
       } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValue)) {
         // handled by stateful box (phasor, etc.)
@@ -1053,11 +1072,15 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
         let iv = inletValues.get(cable.dstBox);
         if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
         iv[cable.dstInlet] = numValue;
-        const result = evaluateBox(dst, iv);
-        boxValues.set(cable.dstBox, result);
-        queueValueUpdate(cable.dstBox, result);
-        const outlets = def.outlets?.length || 1;
-        for (let i = 0; i < outlets; i++) propagateAndNotify(cable.dstBox, i, result);
+        // Hot/cold: only evaluate+propagate on hot inlets
+        const isHot = cable.dstInlet === 0 || inletDef?.hot === true;
+        if (isHot) {
+          const result = evaluateBox(dst, iv);
+          boxValues.set(cable.dstBox, result);
+          queueValueUpdate(cable.dstBox, result);
+          const outlets = def.outlets?.length || 1;
+          for (let i = 0; i < outlets; i++) propagateAndNotify(cable.dstBox, i, result);
+        }
       }
     }
   }
@@ -1173,10 +1196,14 @@ function tick(): void {
     const result = tickBox(name, state, iv, TICK_DT);
     if (!result) continue;
 
-    // metro: show progress bar but propagate on event
-    if (name === "metro") {
+    // event-typed outlet 0 (e.g. metro): show value for UI but only propagate events
+    const def = getBoxDef(box.text);
+    const outlet0Def = def?.outlets?.[0];
+    if (outlet0Def?.type === "event") {
       queueValueUpdate(id, result.value);
-      if (result.events.length > 0) propagateAndNotify(id, 0, 1);
+      for (const outlet of result.events) {
+        propagateAndNotify(id, outlet, 0);
+      }
     } else {
       boxValues.set(id, result.value);
       queueValueUpdate(id, result.value);
@@ -1251,12 +1278,14 @@ function handleEventBox(id: number, _value: number): void {
   const result = handleBoxEvent(name, state, iv);
   if (!result) return;
 
-  // Multi-outlet output (e.g. fan)
+  // Multi-outlet typed output (e.g. fan, trigger, select, swap)
   if (result.outputs) {
-    for (const { outlet, value } of result.outputs) {
-      boxValues.set(id, value);
-      queueValueUpdate(id, value);
-      propagateAndNotify(id, outlet, value);
+    for (const out of result.outputs) {
+      if (out.type !== "event") {
+        boxValues.set(id, out.value);
+        queueValueUpdate(id, out.value);
+      }
+      propagateAndNotify(id, out.outlet, out.type === "event" ? 0 : out.value);
     }
     return;
   }
@@ -1430,8 +1459,12 @@ function handleApply(msg: any): void {
   // deploy synth patch to clients
   deployPatch();
 
-  // confirm to ctrl
+  // confirm to ctrl — triggers audio rebuild on ctrl client
   sendCtrl({ type: "applied" });
+  // re-evaluate consts AFTER "applied" so ctrl-audio-param messages
+  // arrive after the ctrl client has rebuilt its audio graph
+  evaluateAllConsts();
+  evaluateAllDevices();
   status.applied = true;
   event("patch applied");
 }
@@ -1672,6 +1705,9 @@ function handleCtrlWs(req: Request): Response {
           state.value = msg.value;
           setBoxValueAndNotify(msg.id, state.value);
         }
+      } else if (msg.type === "ctrl-audio-ready") {
+        evaluateAllConsts();
+        evaluateAllDevices();
       } else if (msg.type === "event-click") {
         propagateAndNotify(msg.id, 0, 1);
         // Flash the event box briefly

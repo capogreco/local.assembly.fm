@@ -134,8 +134,10 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { value: 0, phase: "idle", elapsed: 0, a: parts[0] || 0.05, d: parts[1] || 0.1, s: parts[2] || 0.7, r: parts[3] || 0.3, gateOpen: false };
     }
     case "ramp": {
-      const parts = (args || "0 1 0.5").split(/\s+/).map(Number);
-      return { value: parts[0] || 0, from: parts[0] || 0, to: parts[1] || 1, duration: parts[2] || 0.5, phase: "idle", elapsed: 0 };
+      const parts = (args || "0 1 0.5 1").split(/\s+/).map(Number);
+      const from = parts[0] !== undefined && !isNaN(parts[0]) ? parts[0] : 0;
+      const to = parts[1] !== undefined && !isNaN(parts[1]) ? parts[1] : 1;
+      return { value: from, from, to, duration: parts[2] || 0.5, curve: parts[3] || 1, phase: "idle", elapsed: 0 };
     }
     case "delay":
       return { queue: [], time: parseFloat(args) || 0.5 };
@@ -170,6 +172,14 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
     }
     case "fan":
       return { values: (args || "0").split(/\s+/).map(Number) };
+    case "trigger": case "t":
+      return { types: (args || "b").split(/\s+/) };
+    case "select": case "sel":
+      return { matchValues: (args || "0").split(/\s+/).map(Number) };
+    case "swap":
+      return { defaultRight: parseFloat(args) || 0 };
+    case "spigot":
+      return {};
     default:
       return null;
   }
@@ -186,13 +196,14 @@ function evaluatePure(type, args, iv) {
     case "*": return a * (iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
     case "/": { const d = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return d !== 0 ? a / d : 0; }
     case "%": { const d = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return d !== 0 ? a % d : 0; }
-    case "**": return Math.pow(a, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
+    case "**": { const exp = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return Math.sign(a) * Math.pow(Math.abs(a), exp); }
     case "scale": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1, curve = parseFloat(args[2]) || 1; return Math.pow(Math.max(0, Math.min(1, a)), curve) * (max - min) + min; }
     case "clip": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1; return Math.max(min, Math.min(max, a)); }
-    case "pow": return Math.pow(a, iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1);
+    case "pow": { const exp = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return Math.sign(a) * Math.pow(Math.abs(a), exp); }
     case "mtof": return 440 * Math.pow(2, ((iv[0] || 69) - 69) / 12);
     case "const": return parseFloat(args[0]) || 0;
     case "gate": return (iv[1] || 0) > 0 ? a : 0;
+    case "spigot": return a; // gate check at propagation level
     case "quantize": { const d = parseFloat(args[0]) || 12; return Math.round(a * d) / d; }
     case "sine": return Math.sin(a * Math.PI * 2) * 0.5 + 0.5;
     case "tri": { const yaw = parseFloat(args[0]) || 0.5; return a < yaw ? (yaw > 0 ? a / yaw : 0) : (yaw < 1 ? (1 - a) / (1 - yaw) : 0); }
@@ -303,7 +314,33 @@ function handleBoxEvent(type, state, iv) {
       return { value: state.value, propagate: true };
     case "fan":
       // Output each stored value on its corresponding outlet
-      return { value: 0, propagate: false, outputs: state.values.map((v, i) => ({ outlet: i, value: v })) };
+      return { value: 0, propagate: false, outputs: state.values.map((v, i) => ({ outlet: i, value: v, type: "value" })) };
+    case "trigger": case "t": {
+      const types = state.types || ["b"];
+      const outputs = [];
+      for (let i = types.length - 1; i >= 0; i--) {  // right-to-left
+        if (types[i] === "b") outputs.push({ outlet: i, value: null, type: "event" });
+        else outputs.push({ outlet: i, value: typeof iv[0] === "number" ? iv[0] : 0, type: "value" });
+      }
+      return { value: 0, propagate: false, outputs };
+    }
+    case "select": case "sel": {
+      const vals = state.matchValues;
+      const outputs = [];
+      const matchIdx = vals.indexOf(iv[0]);
+      if (matchIdx >= 0) {
+        outputs.push({ outlet: matchIdx, value: null, type: "event" });
+      } else {
+        outputs.push({ outlet: vals.length, value: iv[0], type: "value" });
+      }
+      return { value: 0, propagate: false, outputs };
+    }
+    case "swap": {
+      return { value: 0, propagate: false, outputs: [
+        { outlet: 1, value: iv[0], type: "value" },  // right first
+        { outlet: 0, value: iv[1] !== undefined ? iv[1] : (state.defaultRight || 0), type: "value" }
+      ]};
+    }
     default:
       return null;
   }
@@ -383,7 +420,8 @@ function tickBox(type, state, iv, dt) {
       if (state.phase !== "running") return null;
       state.elapsed += dt;
       const t = Math.min(1, state.elapsed / state.duration);
-      state.value = state.from + (state.to - state.from) * t;
+      const shaped = state.curve === 1 ? t : Math.pow(t, state.curve);
+      state.value = state.from + (state.to - state.from) * shaped;
       const events = [];
       if (t >= 1) { state.phase = "idle"; events.push(1); }
       return { value: state.value, events };
@@ -445,12 +483,28 @@ function tickBox(type, state, iv, dt) {
   }
 }
 
-// --- Event trigger detection ---
+// --- Inlet/outlet type detection ---
+// Self-contained — no dependency on gpi-types.js (synth clients don't load it)
 
 function isEventTrigger(type, inlet) {
   if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan")) return true;
   if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
+}
+
+// Inlets where arriving values should ALSO fire handleEvent
+function firesEvent(type, inlet) {
+  return inlet === 0 && (type === "trigger" || type === "t" || type === "select" || type === "sel" || type === "swap");
+}
+
+// Hot inlets trigger evaluation; cold inlets just store
+function isHotInlet(type, inlet) {
+  return inlet === 0; // inlet 0 always hot, others cold
+}
+
+// Event-typed outlets: tick values are display-only, not propagated
+function isEventOutlet(type, outlet) {
+  return type === "metro" && outlet === 0;
 }
 
 // --- Exports (CJS for server, globals for browser) ---
@@ -459,5 +513,6 @@ if (typeof exports === "object") Object.assign(exports, {
   expandIntegerNotation, SIG_BEHAVIOURS, createSigState, advanceSig,
   sigmoidShape, cosineShape,
   createBoxState, evaluatePure, evaluateStateful,
-  handleBoxEvent, tickBox, isEventTrigger,
+  handleBoxEvent, tickBox,
+  isEventTrigger, firesEvent, isHotInlet, isEventOutlet, parseValues,
 });

@@ -102,7 +102,7 @@ const BOX_TYPES = {
                     outlets: [
                       { name: "value", type: "number", description: "Envelope output (0-1)" },
                       { name: "end", type: "event", description: "Null event at end of release" }] },
-  ramp:           { zone: "any", description: "Linear ramp between two values over duration.", args: "from to duration", example: "ramp 0 1 0.5",
+  ramp:           { zone: "any", description: "Ramp between two values over duration with curve shaping. curve=1 linear, >1 exponential (slow start), <1 logarithmic (fast start).", args: "from to duration [curve]", example: "ramp 0 1 0.5 2",
                     inlets: [{ name: "trigger", type: "event", description: "Start ramp" }],
                     outlets: [
                       { name: "value", type: "number", description: "Current ramp value" },
@@ -246,6 +246,30 @@ const BOX_TYPES = {
                     inlets: [{ name: "trigger", type: "event", description: "Fire all values" }],
                     outlets: [{ name: "out", type: "number", description: "Value" }] },
 
+  // --- message routing (Pd-style) ---
+  trigger:        { zone: "any", description: "Right-to-left outlet firing. Args: b (bang/event) or f (float/value) per outlet.", args: "types...", example: "trigger b f",
+                    dynamic: true,
+                    inlets: [{ name: "in", type: "passthrough", hot: true, firesEvent: true, description: "Input value or event" }],
+                    outlets: [{ name: "out", type: "passthrough", description: "Output" }] },
+  t:              { zone: "any", description: "Trigger (shorthand). Right-to-left outlet firing.", args: "types...", example: "t b f",
+                    dynamic: true,
+                    inlets: [{ name: "in", type: "passthrough", hot: true, firesEvent: true, description: "Input value or event" }],
+                    outlets: [{ name: "out", type: "passthrough", description: "Output" }] },
+  select:         { zone: "any", description: "Match and route. One event outlet per match value + reject outlet.", args: "values...", example: "select 0 1 2",
+                    dynamic: true,
+                    inlets: [{ name: "in", type: "number", hot: true, firesEvent: true, description: "Value to match" }],
+                    outlets: [{ name: "match", type: "event", description: "Event on match" }] },
+  sel:            { zone: "any", description: "Select (shorthand). Match and route.", args: "values...", example: "sel 0 1 2",
+                    dynamic: true,
+                    inlets: [{ name: "in", type: "number", hot: true, firesEvent: true, description: "Value to match" }],
+                    outlets: [{ name: "match", type: "event", description: "Event on match" }] },
+  spigot:         { zone: "any", description: "Conditional pass. Inlet 0 = signal, inlet 1 = gate (>0 = open).",
+                    inlets: [{ name: "in", type: "number", description: "Signal to pass" }, { name: "gate", type: "number", description: "0 = block, >0 = pass" }],
+                    outlets: [{ name: "out", type: "number", description: "Passed signal" }] },
+  swap:           { zone: "any", description: "Swap two values. Hot inlet 0, cold inlet 1. Fires right-to-left.", args: "[default]", example: "swap 0",
+                    inlets: [{ name: "a", type: "number", hot: true, firesEvent: true, description: "Left value (hot)" }, { name: "b", type: "number", description: "Right value (cold)" }],
+                    outlets: [{ name: "left", type: "number", description: "Former right value" }, { name: "right", type: "number", description: "Former left value" }] },
+
   // --- routers (snap to border) ---
   all:            { zone: "router", description: "Send to all connected phones. Arg: number of channels.", args: "channels", example: "all 4",
                     dynamic: true,
@@ -385,12 +409,13 @@ const BOX_TYPES = {
                       { name: "duty", type: "number", description: "Where peak falls (0-1)" },
                       { name: "curve", type: "number", description: "Peakedness" }],
                     outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
-  "ramp~":        { zone: "any", description: "Audio-rate linear ramp.", args: "from to duration", example: "ramp~ 0 1 0.5",
+  "ramp~":        { zone: "any", description: "Audio-rate ramp with curve shaping. curve=1 linear, >1 exponential (slow start), <1 logarithmic (fast start).", args: "from to duration [curve]", example: "ramp~ 0 1 0.5 2",
                     inlets: [
                       { name: "trigger", type: "event", description: "Start ramp" },
                       { name: "from", type: "number", description: "Start value" },
                       { name: "to", type: "number", description: "End value" },
-                      { name: "duration", type: "number", description: "Duration in seconds" }],
+                      { name: "duration", type: "number", description: "Duration in seconds" },
+                      { name: "curve", type: "number", description: "Shape: 1=linear, >1=exponential, <1=logarithmic" }],
                     outlets: [{ name: "out", type: "audio", description: "Ramp signal" }] },
   "trig~":        { zone: "any", description: "CV trigger pulse.", args: "amplitude samples", example: "trig~ 1 64",
                     inlets: [
@@ -547,6 +572,16 @@ function getBoxPorts(text) {
     if (name === "fan") {
       const n = Math.max(1, text.split(/\s+/).length - 1);
       return { inlets: 1, outlets: n };
+    }
+    if (name === "trigger" || name === "t") {
+      const types = text.split(/\s+/).slice(1);
+      const n = Math.max(1, types.length);
+      return { inlets: 1, outlets: n };
+    }
+    if (name === "select" || name === "sel") {
+      const vals = text.split(/\s+/).slice(1);
+      const n = Math.max(1, vals.length);
+      return { inlets: 1, outlets: n + 1 }; // one per match + reject
     }
     if (name === "group") {
       const n = parseInt(text.split(/\s+/)[1]) || 1;

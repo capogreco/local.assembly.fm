@@ -90,7 +90,7 @@ function buildGraph(patch) {
   for (const [id, node] of graph.boxes) {
     if (node.type === "const") {
       const val = parseFloat(node.args) || 0;
-      propagateInGraph(graph, id, 0, val);
+      propagateValue(graph, id, 0, val);
     }
   }
 
@@ -118,7 +118,7 @@ function evaluateNode(graph, boxId) {
 }
 
 // propagate a value from a box's outlet through the graph
-function propagateInGraph(graph, boxId, outletIndex, value, isEvent = false) {
+function propagateValue(graph, boxId, outletIndex, value) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
 
@@ -133,13 +133,13 @@ function propagateInGraph(graph, boxId, outletIndex, value, isEvent = false) {
 
     dstNode.inletValues[cable.dstInlet] = value;
 
-    // Wireless send/throw: propagate to matching receives/catches
+    // Wireless send/throw: forward as value
     if (dstNode.type === "send" || dstNode.type === "s") {
       const name = dstNode.args.trim();
       const w = graph.wireless.get(name);
       if (w) {
         for (const recvId of w.receives) {
-          mergeUpdates(updates, propagateInGraph(graph, recvId, 0, value));
+          mergeUpdates(updates, propagateValue(graph, recvId, 0, value));
         }
       }
       continue;
@@ -152,7 +152,7 @@ function propagateInGraph(graph, boxId, outletIndex, value, isEvent = false) {
           const catchNode = graph.boxes.get(catchId);
           if (catchNode) {
             catchNode.inletValues[0] = (catchNode.inletValues[0] || 0) + value;
-            mergeUpdates(updates, propagateInGraph(graph, catchId, 0, catchNode.inletValues[0]));
+            mergeUpdates(updates, propagateValue(graph, catchId, 0, catchNode.inletValues[0]));
           }
         }
       }
@@ -163,63 +163,112 @@ function propagateInGraph(graph, boxId, outletIndex, value, isEvent = false) {
       const engine = graph.engines.get(cable.dstBox);
       const paramName = engine.paramNames[cable.dstInlet];
       if (paramName) {
-        // event params (trigger, gate) only fire when isEvent is set
-        if ((paramName === "trigger" || paramName === "gate") && !isEvent) continue;
+        // values never fire trigger/gate — only events do
+        if (paramName === "trigger" || paramName === "gate") continue;
         if (graphDebug) console.log(`  → engine box:${cable.dstBox} ${paramName}=${value}`);
         if (!updates[cable.dstBox]) updates[cable.dstBox] = {};
         updates[cable.dstBox][paramName] = value;
       }
     } else if (isEventTrigger(dstNode.type, cable.dstInlet)) {
       deferred.push(cable.dstBox);
-    } else if (dstNode.type === "phasor") {
-      // number inlets — store, don't propagate
-    } else if ((dstNode.type === "slew" || dstNode.type === "lag") && cable.dstInlet === 0) {
-      if (dstNode.state) {
-        if (graphDebug) console.log(`  ${dstNode.type} box:${cable.dstBox} target=${value} (was ${dstNode.state.target})`);
-        dstNode.state.target = value;
-      }
-    } else if (dstNode.type === "sample-hold" && cable.dstInlet === 0) {
-      // store for sampling
-    } else if (dstNode.type === "adsr" && cable.dstInlet === 0) {
-      // gate — store for tick
-    } else if (dstNode.type === "ar") {
-      if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
-      if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
-    } else if (dstNode.type === "seq" && cable.dstInlet >= 1) {
-      // behaviour/values inlets
-    } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
-      if (dstNode.state) {
-        if (cable.dstInlet === 1) dstNode.state.start = value;
-        if (cable.dstInlet === 2) dstNode.state.end = value;
-        if (cable.dstInlet === 3) dstNode.state.duration = Math.max(0.001, value);
-        if (cable.dstInlet === 4) dstNode.state.duty = value;
-        if (cable.dstInlet === 5) dstNode.state.curve = value;
-      }
-    } else if (dstNode.type === "cosine" && cable.dstInlet >= 1) {
-      if (dstNode.state) {
-        if (cable.dstInlet === 1) dstNode.state.amplitude = value;
-        if (cable.dstInlet === 2) dstNode.state.duration = Math.max(0.001, value);
-        if (cable.dstInlet === 3) dstNode.state.duty = value;
-        if (cable.dstInlet === 4) dstNode.state.curve = value;
-      }
+    } else if (firesEvent(dstNode.type, cable.dstInlet)) {
+      deferred.push(cable.dstBox);
     } else {
-      const result = evaluateNode(graph, cable.dstBox);
-      if (graphDebug) console.log(`  eval box:${cable.dstBox} type:${dstNode.type} inlet[${cable.dstInlet}]=${value} iv=[${dstNode.inletValues}] → ${result}`);
-      const further = propagateInGraph(graph, cable.dstBox, 0, result);
-      for (const [eid, params] of Object.entries(further)) {
-        if (!updates[eid]) updates[eid] = {};
-        Object.assign(updates[eid], params);
+      if (dstNode.type === "phasor") {
+        // number inlets — store, don't propagate
+      } else if ((dstNode.type === "slew" || dstNode.type === "lag") && cable.dstInlet === 0) {
+        if (dstNode.state) {
+          if (graphDebug) console.log(`  ${dstNode.type} box:${cable.dstBox} target=${value} (was ${dstNode.state.target})`);
+          dstNode.state.target = value;
+        }
+      } else if (dstNode.type === "sample-hold" && cable.dstInlet === 0) {
+        // store for sampling
+      } else if (dstNode.type === "adsr" && cable.dstInlet === 0) {
+        // gate — store for tick
+      } else if (dstNode.type === "ar") {
+        if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
+        if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
+      } else if (dstNode.type === "seq" && cable.dstInlet >= 1) {
+        // behaviour/values inlets
+      } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
+        if (dstNode.state) {
+          if (cable.dstInlet === 1) dstNode.state.start = value;
+          if (cable.dstInlet === 2) dstNode.state.end = value;
+          if (cable.dstInlet === 3) dstNode.state.duration = Math.max(0.001, value);
+          if (cable.dstInlet === 4) dstNode.state.duty = value;
+          if (cable.dstInlet === 5) dstNode.state.curve = value;
+        }
+      } else if (dstNode.type === "cosine" && cable.dstInlet >= 1) {
+        if (dstNode.state) {
+          if (cable.dstInlet === 1) dstNode.state.amplitude = value;
+          if (cable.dstInlet === 2) dstNode.state.duration = Math.max(0.001, value);
+          if (cable.dstInlet === 3) dstNode.state.duty = value;
+          if (cable.dstInlet === 4) dstNode.state.curve = value;
+        }
+      } else {
+        // Pure math / passthrough — hot/cold check
+        if (dstNode.type === "spigot" && (dstNode.inletValues[1] || 0) <= 0) continue;
+        if (!isHotInlet(dstNode.type, cable.dstInlet)) continue; // cold inlet: stored, no eval
+
+        const result = evaluateNode(graph, cable.dstBox);
+        if (graphDebug) console.log(`  eval box:${cable.dstBox} type:${dstNode.type} inlet[${cable.dstInlet}]=${value} iv=[${dstNode.inletValues}] → ${result}`);
+        mergeUpdates(updates, propagateValue(graph, cable.dstBox, 0, result));
       }
     }
   }
 
-  // Phase 2: fire deferred event triggers
+  // fire deferred event triggers
   for (const dstBoxId of deferred) {
-    const further = handleEvent(graph, dstBoxId);
-    for (const [eid, params] of Object.entries(further)) {
-      if (!updates[eid]) updates[eid] = {};
-      Object.assign(updates[eid], params);
+    mergeUpdates(updates, handleEvent(graph, dstBoxId));
+  }
+
+  return updates;
+}
+
+// propagate an event (bang) from a box's outlet through the graph
+function propagateEvent(graph, boxId, outletIndex) {
+  const node = graph.boxes.get(boxId);
+  if (!node) return {};
+
+  const updates = {};
+
+  for (const cable of node.outletCables) {
+    if (cable.outlet !== outletIndex) continue;
+
+    const dstNode = graph.boxes.get(cable.dstBox);
+    if (!dstNode) continue;
+
+    // Wireless send: forward as event
+    if (dstNode.type === "send" || dstNode.type === "s") {
+      const name = dstNode.args.trim();
+      const w = graph.wireless.get(name);
+      if (w) {
+        for (const recvId of w.receives) {
+          mergeUpdates(updates, propagateEvent(graph, recvId, 0));
+        }
+      }
+      continue;
     }
+    if (dstNode.type === "throw") continue; // events don't sum
+
+    // Engine trigger/gate: send 1
+    if (graph.engines.has(cable.dstBox)) {
+      const engine = graph.engines.get(cable.dstBox);
+      const paramName = engine.paramNames[cable.dstInlet];
+      if (paramName && (paramName === "trigger" || paramName === "gate")) {
+        if (graphDebug) console.log(`  → engine event box:${cable.dstBox} ${paramName}=1`);
+        if (!updates[cable.dstBox]) updates[cable.dstBox] = {};
+        updates[cable.dstBox][paramName] = 1;
+      }
+      continue;
+    }
+
+    // Event-trigger inlets or firesEvent: fire handleEvent
+    if (isEventTrigger(dstNode.type, cable.dstInlet) || firesEvent(dstNode.type, cable.dstInlet)) {
+      mergeUpdates(updates, handleEvent(graph, cable.dstBox));
+      continue;
+    }
+    // Number-only inlets: ignored (type mismatch)
   }
 
   return updates;
@@ -237,17 +286,21 @@ function handleEvent(graph, boxId) {
 
   if (graphDebug) console.log(`  event box:${boxId} type:${node.type} → ${result.value}`);
 
-  // Multi-outlet output (e.g. fan)
+  // Multi-outlet typed output (e.g. fan, trigger, select, swap)
   if (result.outputs) {
     let allUpdates = {};
-    for (const { outlet, value } of result.outputs) {
-      mergeUpdates(allUpdates, propagateInGraph(graph, boxId, outlet, value, true));
+    for (const out of result.outputs) {
+      if (out.type === "event") {
+        mergeUpdates(allUpdates, propagateEvent(graph, boxId, out.outlet));
+      } else {
+        mergeUpdates(allUpdates, propagateValue(graph, boxId, out.outlet, out.value));
+      }
     }
     return allUpdates;
   }
 
   if (result.propagate) {
-    return propagateInGraph(graph, boxId, 0, result.value, true);
+    return propagateValue(graph, boxId, 0, result.value);
   }
   return {};
 }
@@ -261,9 +314,16 @@ function tickGraph(graph, dt) {
     const result = tickBox(node.type, node.state, node.inletValues, dt);
     if (!result) continue;
 
-    mergeUpdates(allUpdates, propagateInGraph(graph, id, 0, result.value));
-    for (const outlet of result.events) {
-      mergeUpdates(allUpdates, propagateInGraph(graph, id, outlet, 0, true));
+    // Event-typed outlet 0 (e.g. metro): tick value is display-only, only propagate events
+    if (isEventOutlet(node.type, 0)) {
+      for (const outlet of result.events) {
+        mergeUpdates(allUpdates, propagateEvent(graph, id, outlet));
+      }
+    } else {
+      mergeUpdates(allUpdates, propagateValue(graph, id, 0, result.value));
+      for (const outlet of result.events) {
+        mergeUpdates(allUpdates, propagateEvent(graph, id, outlet));
+      }
     }
   }
   return allUpdates;
@@ -291,44 +351,48 @@ function processRouterValue(graph, routerId, channel, value) {
       continue;
     } else if (isEventTrigger(node.type, entry.targetInlet)) {
       mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
-    } else if ((node.type === "range" || node.type === "drunk") && entry.targetInlet === 0) {
-      if (node.state) {
-        if (entry.targetInlet === 0) node.state.min = value;
-        if (entry.targetInlet === 1) node.state.max = value;
-      }
-      mergeUpdates(allUpdates, propagateInGraph(graph, entry.targetBox, 0, evaluateNode(graph, entry.targetBox)));
-    } else if (graph.engines.has(entry.targetBox)) {
-      const engine = graph.engines.get(entry.targetBox);
-      const paramName = engine.paramNames[entry.targetInlet];
-      if (paramName) {
-        if (!allUpdates[entry.targetBox]) allUpdates[entry.targetBox] = {};
-        allUpdates[entry.targetBox][paramName] = value;
-      }
-    } else if (node.type === "send" || node.type === "s") {
-      // Wireless send: forward to matching receives
-      const name = node.args.trim();
-      const w = graph.wireless.get(name);
-      if (w) {
-        for (const recvId of w.receives) {
-          mergeUpdates(allUpdates, propagateInGraph(graph, recvId, 0, value, true));
+    } else if (firesEvent(node.type, entry.targetInlet)) {
+      mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
+    } else {
+      if ((node.type === "range" || node.type === "drunk") && entry.targetInlet === 0) {
+        if (node.state) {
+          if (entry.targetInlet === 0) node.state.min = value;
+          if (entry.targetInlet === 1) node.state.max = value;
         }
-      }
-    } else if (node.type === "throw") {
-      const name = node.args.trim();
-      const w = graph.wireless.get(name);
-      if (w) {
-        for (const catchId of w.catches) {
-          const catchNode = graph.boxes.get(catchId);
-          if (catchNode) {
-            catchNode.inletValues[0] = (catchNode.inletValues[0] || 0) + value;
-            mergeUpdates(allUpdates, propagateInGraph(graph, catchId, 0, catchNode.inletValues[0]));
+        mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, evaluateNode(graph, entry.targetBox)));
+      } else if (graph.engines.has(entry.targetBox)) {
+        const engine = graph.engines.get(entry.targetBox);
+        const paramName = engine.paramNames[entry.targetInlet];
+        if (paramName) {
+          if (!allUpdates[entry.targetBox]) allUpdates[entry.targetBox] = {};
+          allUpdates[entry.targetBox][paramName] = value;
+        }
+      } else if (node.type === "send" || node.type === "s") {
+        const name = node.args.trim();
+        const w = graph.wireless.get(name);
+        if (w) {
+          for (const recvId of w.receives) {
+            mergeUpdates(allUpdates, propagateValue(graph, recvId, 0, value));
           }
         }
+      } else if (node.type === "throw") {
+        const name = node.args.trim();
+        const w = graph.wireless.get(name);
+        if (w) {
+          for (const catchId of w.catches) {
+            const catchNode = graph.boxes.get(catchId);
+            if (catchNode) {
+              catchNode.inletValues[0] = (catchNode.inletValues[0] || 0) + value;
+              mergeUpdates(allUpdates, propagateValue(graph, catchId, 0, catchNode.inletValues[0]));
+            }
+          }
+        }
+      } else {
+        if (node.type === "spigot" && (node.inletValues[1] || 0) <= 0) continue;
+        if (!isHotInlet(node.type, entry.targetInlet)) continue;
+        const result = evaluateNode(graph, entry.targetBox);
+        mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, result));
       }
-    } else {
-      const result = evaluateNode(graph, entry.targetBox);
-      const updates = propagateInGraph(graph, entry.targetBox, 0, result, true);
-      mergeUpdates(allUpdates, updates);
     }
   }
 
@@ -337,13 +401,21 @@ function processRouterValue(graph, routerId, channel, value) {
 
 // process a router event message
 function processRouterEvent(graph, routerId) {
-  const entries = graph.entries.get(routerId);
+  const key = routerId + ":0";
+  const entries = graph.entries.get(key);
   if (!entries) return {};
 
   let allUpdates = {};
   for (const entry of entries) {
-    const updates = handleEvent(graph, entry.targetBox);
-    mergeUpdates(allUpdates, updates);
+    const node = graph.boxes.get(entry.targetBox);
+    if (!node) continue;
+    if (node.state) {
+      // Stateful box: fire event handler
+      mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
+    } else {
+      // Stateless box (r/receive, passthrough): propagate event downstream
+      mergeUpdates(allUpdates, propagateEvent(graph, entry.targetBox, 0));
+    }
   }
   return allUpdates;
 }

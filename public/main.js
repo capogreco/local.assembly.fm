@@ -241,6 +241,7 @@ async function createSignalWorklet(type, args) {
     if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0);
     if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0);
     if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0);
+    if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0);
   } else if (type === "step~") {
     if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
     if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0);

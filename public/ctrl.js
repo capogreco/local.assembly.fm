@@ -177,7 +177,7 @@ async function createCtrlSignalWorklet(type, args) {
   else if (type === "adsr~") { if (tokens[0]) node.parameters.get("a")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("d")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("s")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("r")?.setValueAtTime(parseFloat(tokens[3]), 0); }
   else if (type === "sigmoid~") { if (tokens[0]) node.parameters.get("start")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("end")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[3]), 0); if (tokens[4]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[4]), 0); }
   else if (type === "cosine~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0); }
-  else if (type === "ramp~") { if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); }
+  else if (type === "ramp~") { if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0); }
   else if (type === "step~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0); }
   else if (type === "trig~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("samples")?.setValueAtTime(parseFloat(tokens[1]), 0); }
   else if (type === "slew~" && tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
@@ -2208,7 +2208,7 @@ function connectWS() {
       } else if (msg.type === "applied") {
         mainEditor.applied = true;
         mainEditor.dirty = false;
-        buildCtrlAudioTopology();
+        buildCtrlAudioTopology().then(() => send({ type: "ctrl-audio-ready" }));
         mainEditor.render();
       } else if (msg.type === "count") {
         connectedClients = msg.clients;

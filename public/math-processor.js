@@ -34,7 +34,7 @@ class MathProcessor extends AudioWorkletProcessor {
         case "*": out[i] = x * y; break;
         case "/": out[i] = y !== 0 ? x / y : 0; break;
         case "%": out[i] = y !== 0 ? x % y : 0; break;
-        case "**": case "pow": out[i] = Math.pow(x, y); break;
+        case "**": case "pow": out[i] = Math.sign(x) * Math.pow(Math.abs(x), y); break;
         case "scale": out[i] = x * (this.arg2 - this.arg) + this.arg; break;
         case "clip": out[i] = Math.max(this.arg, Math.min(this.arg2, x)); break;
         case "mtof": out[i] = 440 * Math.pow(2, (x - 69) / 12); break;

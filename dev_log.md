@@ -1385,3 +1385,36 @@ Audited our propagation model against Pure Data's. Identified core architectural
 3. Adopt hot/cold inlet semantics for pure math boxes
 4. Evaluate Pd convenience objects (`trigger`, `pack`/`unpack`, `select`, etc.) for managing execution order
 
+### Propagation refactor (2026-04-04)
+
+Implemented the planned refactor across all four critical files.
+
+**Phase 1 — Split propagation (graph.js, server.ts):**
+Replaced `propagateInGraph` with two functions: `propagateValue` (stores values, skips engine trigger/gate) and `propagateEvent` (fires bangs, sends trigger/gate=1). Removed the `isEvent` parameter entirely. Metro tick values no longer propagate — generalized to any box with event-typed outlet 0 via `isEventOutlet()`.
+
+**Phase 2 — Hot/cold inlets (graph-core.js, graph.js, server.ts):**
+Inlet 0 is hot (triggers evaluation), all others cold (store silently). `isHotInlet()` in graph-core.js. Math boxes (+, -, *, / etc.) no longer re-evaluate when inlet 1 changes.
+
+**Phase 3 — Typed outputs + Pd convenience objects (graph-core.js, gpi-types.js):**
+`handleBoxEvent` outputs now carry `type: "value"|"event"`. New boxes:
+- `trigger`/`t` — right-to-left outlet firing (b=bang, f=float)
+- `select`/`sel` — match→event on outlet N, reject→value on last outlet
+- `spigot` — conditional pass (gate on inlet 1)
+- `swap` — swap two stored values, fire right-to-left
+
+Added `firesEvent()` function: inlets where arriving values also trigger event handling (trigger, select, swap inlet 0).
+
+**Architecture fix — no BOX_TYPES in graph.js:**
+Initially referenced `BOX_TYPES` from gpi-types.js for inlet/outlet metadata, but synth clients (index.html, ensemble.html) don't load gpi-types.js. This caused `ReferenceError` on ensemble clients. Moved all metadata into self-contained functions in graph-core.js: `isEventTrigger`, `firesEvent`, `isHotInlet`, `isEventOutlet`. graph.js now has zero dependency on gpi-types.js.
+
+**Router event propagation (server.ts, graph.js):**
+Events flowing through routers (sall, all, etc.) were being broadcast as `rv` (router value), losing their event nature. Synth clients couldn't trigger ramp~/ar~/etc. via routed events. Fix: `propagateAndNotify` detects event-typed source outlets and passes `isEvent` to `handleRouterInlet`, which broadcasts `re` (router event) instead of `rv`. Fixed `processRouterEvent` key format and stateless `r` box passthrough.
+
+**Ctrl-side audio param timing (server.ts, ctrl.js):**
+`ctrl-audio-param` messages were sent before the ctrl client finished rebuilding its audio graph (async worklet loading). Params were silently dropped. Fix: ctrl client sends `ctrl-audio-ready` after `buildCtrlAudioTopology()` completes; server re-evaluates all consts/devices on receipt.
+
+**Other fixes:**
+- `**~` and `**`/`pow` now sign-preserving: `sign(x) * |x|^y` — no more NaN for negative bases, correct bipolar CV shaping
+- `ramp~` and `ramp` gained a `curve` parameter (1=linear, >1=exponential, <1=logarithmic)
+- Fixed control-rate `ramp` state init: `to=0` no longer overridden to 1 (falsy `||` default bug)
+

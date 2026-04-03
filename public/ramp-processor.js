@@ -1,5 +1,6 @@
 /**
- * Ramp — audio-rate linear interpolation from→to over duration.
+ * Ramp — audio-rate interpolation from→to over duration with curve shaping.
+ * curve=1 linear, curve>1 exponential (slow start), curve<1 logarithmic (fast start).
  * Numeric params via AudioParam, trigger via MessagePort.
  */
 
@@ -9,6 +10,7 @@ class RampProcessor extends AudioWorkletProcessor {
       { name: "from",     defaultValue: 0,   automationRate: "k-rate" },
       { name: "to",       defaultValue: 1,   automationRate: "k-rate" },
       { name: "duration", defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "curve",    defaultValue: 1,   automationRate: "k-rate" },
     ];
   }
 
@@ -40,6 +42,7 @@ class RampProcessor extends AudioWorkletProcessor {
     }
     const to = parameters.to[0];
     const duration = Math.max(0.001, parameters.duration[0]);
+    const curve = parameters.curve[0];
     const dt = 1 / sampleRate;
     let ended = false;
 
@@ -47,7 +50,8 @@ class RampProcessor extends AudioWorkletProcessor {
       if (this.phase === "running") {
         this.elapsed += dt;
         const t = Math.min(1, this.elapsed / duration);
-        this.value = this._from + (to - this._from) * t;
+        const shaped = curve === 1 ? t : Math.pow(t, curve);
+        this.value = this._from + (to - this._from) * shaped;
         if (t >= 1) { this.phase = "idle"; ended = true; }
       }
       out[i] = this.value;
