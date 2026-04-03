@@ -1304,3 +1304,5 @@ Number inlets turn blue when an audio-rate cable is connected, showing they're r
 
 **Scope batched upload**: replaced per-vertex `bufferSubData` calls (2048 individual calls at density=1) with single batched upload. Eliminates frame rate drops at high density.
 
+**Instance divergence**: increased IC jitter from ±0.005 to ±0.25, plus random Euler warm-up (50K-150K steps, ~1-2 orbits) to spread instances across the attractor. Each phone lands at a different orbital phase immediately — no waiting for butterfly effect.
+

@@ -56,24 +56,40 @@ class ChaosProcessor extends AudioWorkletProcessor {
     const opts = options.processorOptions || {};
     this.system = opts.system || "rossler";
 
-    // Use on-attractor ICs if available, otherwise small random offset
+    // Start on attractor with jitter + random warm-up (1-2 orbits via Euler)
     const ic = ATTRACTOR_ICS[this.system];
+    const jitter = () => (Math.random() - 0.5) * 0.5;
     if (ic) {
-      // Small perturbation so each instance diverges
-      const jitter = () => (Math.random() - 0.5) * 0.01;
       this.x = ic[0] + jitter();
       this.y = ic[1] + jitter();
       this.z = ic[2] + jitter();
     } else {
-      this.x = (Math.random() - 0.5) * 0.2;
-      this.y = (Math.random() - 0.5) * 0.2;
-      this.z = (Math.random() - 0.5) * 0.2;
+      this.x = (Math.random() - 0.5) * 2;
+      this.y = (Math.random() - 0.5) * 2;
+      this.z = (Math.random() - 0.5) * 2;
     }
 
-    // Fixed normalisation bound from known attractor size.
-    // Falls back to adaptive if system is unknown.
     this.fixedBound = ATTRACTOR_BOUNDS[this.system] || 0;
     this.maxAbs = this.fixedBound || 1;
+
+    // Random warm-up: advance 1-2 orbits via fast Euler to spread instances
+    // across the attractor. ~50k steps is ~1 orbit for most systems at dt=1/sr.
+    const warmupSteps = Math.floor(Math.random() * 100000) + 50000;
+    const warmupDt = 1 / sampleRate;
+    for (let i = 0; i < warmupSteps; i++) {
+      const [dx, dy, dz] = this.derivatives(this.x, this.y, this.z, 0);
+      this.x += dx * warmupDt;
+      this.y += dy * warmupDt;
+      this.z += dz * warmupDt;
+      // Clamp during warm-up to prevent escape
+      const bound = this.fixedBound || 50;
+      const m = Math.max(Math.abs(this.x), Math.abs(this.y), Math.abs(this.z));
+      if (m > bound * 3 || isNaN(m)) {
+        const ric = ATTRACTOR_ICS[this.system];
+        if (ric) { this.x = ric[0]; this.y = ric[1]; this.z = ric[2]; }
+        else { this.x = 0.1; this.y = 0; this.z = 0; }
+      }
+    }
   }
 
   derivatives(x, y, z, p) {
