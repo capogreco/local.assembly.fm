@@ -1345,3 +1345,13 @@ macOS CoreAudio applies surround speaker mapping (7.1 etc.) to multi-channel dev
 1. **Code:** Set `channelInterpretation = "discrete"` and `channelCount = maxChannelCount` on the AudioContext destination immediately at init, before any connections. Also set `channelCountMode = "explicit"` and `channelInterpretation = "discrete"` on the ChannelMerger.
 2. **macOS config:** Create an **Aggregate Device** wrapping the ES-8 in Audio MIDI Setup and set it as default output. Aggregate devices bypass CoreAudio's surround speaker mapping and present channels sequentially 1:1.
 
+### Sensible defaults audit (2026-04-03)
+
+Audited all audio worklet processors for silent-failure defaults. Several objects had `amplitude: 0` as default, meaning creating them with no args produced silence with no error.
+
+**Fixed amplitude defaults (0 → 0.5):** formant~, sine-osc~, noise-engine~, karplus-strong~, swarm~
+
+**Fixed swarm~ texture defaults:** transientMix (0 → 0.3), resonatorQ (0 → 5)
+
+**Fixed math operator defaults:** `/~` and `**~` with no args now default operand to 1 instead of 0 (avoids divide-by-zero / useless exponentiation).
+

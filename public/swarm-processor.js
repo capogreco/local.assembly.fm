@@ -17,9 +17,9 @@ class SwarmProcessor extends AudioWorkletProcessor {
       { name: "freqMax",      defaultValue: 3000, automationRate: "k-rate" },
       { name: "chirp",        defaultValue: 0,    automationRate: "k-rate" },
       { name: "decay",        defaultValue: 0.5,  automationRate: "k-rate" },
-      { name: "amplitude",    defaultValue: 0,    automationRate: "k-rate" },
-      { name: "transientMix", defaultValue: 0,    automationRate: "k-rate" },
-      { name: "resonatorQ",   defaultValue: 0,    automationRate: "k-rate" },
+      { name: "amplitude",    defaultValue: 0.5,  automationRate: "k-rate" },
+      { name: "transientMix", defaultValue: 0.3,  automationRate: "k-rate" },
+      { name: "resonatorQ",   defaultValue: 5,    automationRate: "k-rate" },
       { name: "density",      defaultValue: 1,    automationRate: "k-rate" },
       { name: "chaosSpeed",   defaultValue: 1,    automationRate: "k-rate" },
     ];

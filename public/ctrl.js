@@ -190,7 +190,7 @@ async function createCtrlMathNode(type, args) {
     await ctrlAudioCtx.audioWorklet.addModule("math-processor.js"); ctrlWorkletModulesLoaded.add("math-processor.js");
   }
   const tokens = (args || "").split(/\s+/).filter(Boolean);
-  const arg = parseFloat(tokens[0]) || (op === "*" ? 1 : 0);
+  const arg = parseFloat(tokens[0]) || (op === "*" || op === "/" || op === "**" ? 1 : 0);
   const node = new AudioWorkletNode(ctrlAudioCtx, "math-processor", {
     numberOfInputs: 2, processorOptions: { op, arg },
   });

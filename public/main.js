@@ -261,7 +261,7 @@ async function createMathNode(type, args) {
     workletModulesLoaded.add("math-processor.js");
   }
   const tokens = (args || "").split(/\s+/).filter(Boolean);
-  const arg = parseFloat(tokens[0]) || (op === "*" ? 1 : 0);
+  const arg = parseFloat(tokens[0]) || (op === "*" || op === "/" || op === "**" ? 1 : 0);
   const node = new AudioWorkletNode(audioCtx, "math-processor", {
     numberOfInputs: 2,
     processorOptions: { op, arg },

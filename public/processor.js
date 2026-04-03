@@ -15,7 +15,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
       { name: "zingAmount", defaultValue: 0.5, automationRate: "k-rate" },
       { name: "zingMorph",  defaultValue: 0.5, automationRate: "k-rate" },
       { name: "symmetry",   defaultValue: 0.5, automationRate: "k-rate" },
-      { name: "amplitude",  defaultValue: 0, automationRate: "k-rate" },
+      { name: "amplitude",  defaultValue: 0.5, automationRate: "k-rate" },
     ];
   }
 

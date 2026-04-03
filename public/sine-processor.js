@@ -7,7 +7,7 @@ class SineProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
       { name: "freq",      defaultValue: 220, automationRate: "k-rate" },
-      { name: "amplitude", defaultValue: 0,   automationRate: "k-rate" },
+      { name: "amplitude", defaultValue: 0.5, automationRate: "k-rate" },
     ];
   }
 

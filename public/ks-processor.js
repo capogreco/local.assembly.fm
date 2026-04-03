@@ -10,7 +10,7 @@ class KSProcessor extends AudioWorkletProcessor {
       { name: "frequency",  defaultValue: 220, automationRate: "k-rate" },
       { name: "damping",    defaultValue: 0.5, automationRate: "k-rate" },
       { name: "brightness", defaultValue: 0.8, automationRate: "k-rate" },
-      { name: "amplitude",  defaultValue: 0,   automationRate: "k-rate" },
+      { name: "amplitude",  defaultValue: 0.5, automationRate: "k-rate" },
     ];
   }
 

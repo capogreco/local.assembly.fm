@@ -8,7 +8,7 @@ class NoiseProcessor extends AudioWorkletProcessor {
     return [
       { name: "cutoff",    defaultValue: 5000, automationRate: "k-rate" },
       { name: "resonance", defaultValue: 0,    automationRate: "k-rate" },
-      { name: "amplitude", defaultValue: 0,    automationRate: "k-rate" },
+      { name: "amplitude", defaultValue: 0.5,  automationRate: "k-rate" },
     ];
   }
 
