@@ -6,9 +6,8 @@
 
 set -e
 
-# Configuration
-MAC_IP="192.168.178.24"
-ETHERNET_IF="en5"
+# Fixed config
+SUBNET="192.168.178"
 PROJECT_DIR="/Users/capo_greco/Documents/local.assembly.fm"
 DNSMASQ_BIN="/opt/homebrew/opt/dnsmasq/sbin/dnsmasq"
 DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
@@ -31,6 +30,91 @@ echo_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# --- Auto-detect network interface and IP on the assembly subnet ---
+
+detect_network() {
+    local found_if=""
+    local found_ip=""
+
+    # scan all interfaces for one with an IP on the assembly subnet
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^([a-z0-9]+): ]]; then
+            current_if="${BASH_REMATCH[1]}"
+        fi
+        if [[ "$line" =~ inet\ ($SUBNET\.[0-9]+) ]]; then
+            found_if="$current_if"
+            found_ip="${BASH_REMATCH[1]}"
+            break
+        fi
+    done < <(ifconfig)
+
+    if [ -z "$found_if" ]; then
+        echo_error "No interface found on $SUBNET.x subnet"
+        echo_error "Is the ethernet cable connected to the network hardware?"
+        echo ""
+        echo "Available interfaces with IPs:"
+        ifconfig | grep -E "^[a-z]|inet " | grep -B1 "inet " | grep -v "^--$"
+        exit 1
+    fi
+
+    ETHERNET_IF="$found_if"
+    MAC_IP="$found_ip"
+    echo_info "Detected interface: $ETHERNET_IF ($MAC_IP)"
+}
+
+# --- Kill stale dnsmasq if running on wrong interface/IP ---
+
+ensure_clean_dnsmasq() {
+    if pgrep -f "dnsmasq" > /dev/null 2>&1; then
+        # check if current config matches what we need
+        local needs_restart=false
+
+        if [ -f "$DNSMASQ_CONF" ]; then
+            local conf_if=$(grep "^interface=" "$DNSMASQ_CONF" 2>/dev/null | cut -d= -f2)
+            local conf_ip=$(grep "^address=" "$DNSMASQ_CONF" 2>/dev/null | sed 's|address=/\#/||')
+            if [ "$conf_if" != "$ETHERNET_IF" ] || [ "$conf_ip" != "$MAC_IP" ]; then
+                needs_restart=true
+                echo_warn "Stale dnsmasq running (interface=$conf_if, ip=$conf_ip)"
+            fi
+        else
+            needs_restart=true
+        fi
+
+        if [ "$needs_restart" = true ]; then
+            echo_info "Killing stale dnsmasq..."
+            sudo pkill -f dnsmasq || true
+            sleep 1
+        else
+            echo_info "dnsmasq already running with correct config"
+        fi
+    fi
+}
+
+# --- Write dnsmasq config if needed ---
+
+ensure_dnsmasq_conf() {
+    local needs_update=false
+
+    if [ ! -f "$DNSMASQ_CONF" ]; then
+        needs_update=true
+    else
+        local conf_if=$(grep "^interface=" "$DNSMASQ_CONF" 2>/dev/null | cut -d= -f2)
+        local conf_ip=$(grep "^address=" "$DNSMASQ_CONF" 2>/dev/null | sed 's|address=/\#/||')
+        if [ "$conf_if" != "$ETHERNET_IF" ] || [ "$conf_ip" != "$MAC_IP" ]; then
+            needs_update=true
+            echo_warn "dnsmasq config out of date (was $conf_if/$conf_ip, now $ETHERNET_IF/$MAC_IP)"
+        fi
+    fi
+
+    if [ "$needs_update" = true ]; then
+        echo_info "Writing dnsmasq config..."
+        sudo mkdir -p "$(dirname "$DNSMASQ_CONF")"
+        echo "interface=$ETHERNET_IF
+address=/#/$MAC_IP" | sudo tee "$DNSMASQ_CONF" > /dev/null
+        echo_info "Updated $DNSMASQ_CONF"
+    fi
+}
+
 check_prerequisites() {
     echo_info "Checking prerequisites..."
 
@@ -49,34 +133,21 @@ check_prerequisites() {
     # Check if certificates exist
     if [ ! -f "$PROJECT_DIR/cert.pem" ] || [ ! -f "$PROJECT_DIR/key.pem" ]; then
         echo_error "TLS certificates not found. Generate with:"
-        echo "  brew install certbot"
-        echo "  sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm"
+        echo "  cd $PROJECT_DIR"
+        echo "  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \\"
+        echo "    -nodes -keyout key.pem -out cert.pem -days 365 \\"
+        echo "    -subj '/CN=local.assembly.fm'"
         exit 1
-    fi
-
-    # Check if dnsmasq config exists
-    if [ ! -f "$DNSMASQ_CONF" ]; then
-        echo_warn "dnsmasq config not found. Creating..."
-        sudo mkdir -p "$(dirname $DNSMASQ_CONF)"
-        echo "interface=$ETHERNET_IF
-address=/#/$MAC_IP" | sudo tee "$DNSMASQ_CONF" > /dev/null
-        echo_info "Created $DNSMASQ_CONF"
-    fi
-
-    # Check if ethernet interface has IP
-    if ! ifconfig "$ETHERNET_IF" | grep -q "inet $MAC_IP"; then
-        echo_warn "Ethernet interface $ETHERNET_IF doesn't have IP $MAC_IP"
-        echo_warn "Current IP: $(ifconfig $ETHERNET_IF | grep 'inet ' | awk '{print $2}')"
-        echo_warn "You may need to:"
-        echo_warn "  1. Verify ethernet cable is connected"
-        echo_warn "  2. Configure static IP in System Settings → Network"
-        echo_warn "  3. Or ensure FritzBox DHCP assigns $MAC_IP"
     fi
 }
 
 start_dns() {
+    detect_network
+    ensure_clean_dnsmasq
+    ensure_dnsmasq_conf
+
     echo_info "Starting dnsmasq DNS server..."
-    echo_info "This will resolve ALL DNS queries to $MAC_IP"
+    echo_info "Interface: $ETHERNET_IF → resolving all DNS to $MAC_IP"
     echo_info "Press Ctrl+C to stop"
     echo ""
 
@@ -87,6 +158,8 @@ start_dns() {
 }
 
 start_server() {
+    detect_network
+
     echo_info "Starting Deno server on ports 80 (HTTP) and 443 (HTTPS)..."
     echo_info "Captive portal: http://$MAC_IP (auto-redirects)"
     echo_info "Synth client: https://$MAC_IP"
@@ -99,6 +172,8 @@ start_server() {
 }
 
 show_status() {
+    detect_network
+
     echo_info "=== local.assembly.fm Status ==="
     echo ""
 
@@ -121,9 +196,8 @@ show_status() {
     # Check network
     echo ""
     echo_info "=== Network Status ==="
-    echo "Ethernet interface: $ETHERNET_IF"
-    echo "Expected IP: $MAC_IP"
-    echo "Current IP: $(ifconfig $ETHERNET_IF 2>/dev/null | grep 'inet ' | awk '{print $2}' || echo 'NOT FOUND')"
+    echo "Interface: $ETHERNET_IF"
+    echo "IP: $MAC_IP"
 
     # Check APs
     echo ""
@@ -161,20 +235,37 @@ case "${1:-}" in
     status)
         show_status
         ;;
+    start)
+        check_prerequisites
+        detect_network
+        ensure_clean_dnsmasq
+        ensure_dnsmasq_conf
+
+        echo_info "Starting dnsmasq in background..."
+        sudo "$DNSMASQ_BIN" \
+            --bind-interfaces \
+            --conf-file="$DNSMASQ_CONF"
+        echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
+
+        echo_info "Starting Deno server..."
+        echo_info "Captive portal: http://$MAC_IP"
+        echo_info "Ctrl+C to stop (will also kill dnsmasq)"
+        echo ""
+
+        # kill dnsmasq when the server exits
+        trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
+
+        cd "$PROJECT_DIR"
+        sudo HOST_IP="$MAC_IP" deno task start
+        ;;
     *)
         echo "local.assembly.fm macOS startup script"
         echo ""
         echo "Usage:"
-        echo "  ./start-macos.sh dns       Start DNS server (dnsmasq)"
-        echo "  ./start-macos.sh server    Start Deno server (synth + captive portal)"
+        echo "  ./start-macos.sh start     Start everything (dnsmasq + server)"
+        echo "  ./start-macos.sh dns       Start DNS server only"
+        echo "  ./start-macos.sh server    Start Deno server only"
         echo "  ./start-macos.sh status    Show system status"
-        echo ""
-        echo "For performance, run in two terminals:"
-        echo "  Terminal 1: ./start-macos.sh dns"
-        echo "  Terminal 2: ./start-macos.sh server"
-        echo ""
-        echo "Or check current status:"
-        echo "  ./start-macos.sh status"
         exit 1
         ;;
 esac

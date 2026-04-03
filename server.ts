@@ -1940,6 +1940,22 @@ function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pro
   return serveFile(url.pathname === "/" ? "/index.html" : url.pathname);
 }
 
+// --- Detect LAN IP ---
+
+function getLanIP(): string | null {
+  try {
+    const ifaces = Deno.networkInterfaces();
+    for (const iface of ifaces) {
+      if (iface.family === "IPv4" && !iface.address.startsWith("127.")) {
+        return iface.address;
+      }
+    }
+  } catch { /* permission denied or unavailable */ }
+  return null;
+}
+
+const lanIP = getLanIP();
+
 // --- Start ---
 
 const tlsAvailable = await hasCerts();
@@ -1947,13 +1963,11 @@ const tlsAvailable = await hasCerts();
 // Check if HOST_IP is configured (especially important on macOS)
 const isMacOS = Deno.build.os === "darwin";
 const isDefaultIP = HOST_IP === "192.168.178.10";
-const macIPExpected = "192.168.178.24";
 
 if (isMacOS && isDefaultIP) {
   console.log("\x1b[33m⚠️  WARNING: HOST_IP not set!\x1b[0m");
   console.log("\x1b[33mUsing default IP (192.168.178.10) but you're on macOS.\x1b[0m");
-  console.log("\x1b[33mFor macOS deployment, you should run:\x1b[0m");
-  console.log(`\x1b[33m  sudo HOST_IP=${macIPExpected} deno task start\x1b[0m`);
+  console.log("\x1b[33mUse ./start-macos.sh server to auto-detect.\x1b[0m");
   console.log("");
 }
 
@@ -1997,19 +2011,26 @@ if (isMacOS) {
   }
 }
 
+const lanLabel = lanIP && lanIP !== HOST_IP ? `\n  LAN IP:    ${lanIP}` : "";
+const lanUrls = lanIP && !tlsAvailable ? `
+  \x1b[90m— other devices on this network:\x1b[0m
+  synth:    http://${lanIP}:${HTTP_PORT}/
+  ctrl:     http://${lanIP}:${HTTP_PORT}/ctrl.html
+  ensemble: http://${lanIP}:${HTTP_PORT}/ensemble.html` : "";
+
 const banner = `
   \x1b[1mlocal.assembly.fm\x1b[0m
   ${tlsAvailable ? "HTTPS + HTTP portal" : "dev mode (HTTP only)"}
-  Server IP: ${HOST_IP}
+  Server IP: ${HOST_IP}${lanLabel}
   synth:    ${tlsAvailable ? `https://${HOST_DOMAIN}/` : `http://localhost:${HTTP_PORT}/`}
   ctrl:     ${tlsAvailable ? `https://${HOST_DOMAIN}/ctrl.html` : `http://localhost:${HTTP_PORT}/ctrl.html`}
-  ensemble: ${tlsAvailable ? `https://${HOST_DOMAIN}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}
+  ensemble: ${tlsAvailable ? `https://${HOST_DOMAIN}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}${lanUrls}
 `;
 console.log(banner);
 
 if (tlsAvailable) {
   Deno.serve({ port: HTTP_PORT, hostname: "0.0.0.0" }, (req, info) => portalHandler(req, info));
-  Deno.serve({ port: HTTPS_PORT, cert: await Deno.readTextFile(CERT_FILE), key: await Deno.readTextFile(KEY_FILE) }, (req, info) => httpsHandler(req, info));
+  Deno.serve({ port: HTTPS_PORT, hostname: "0.0.0.0", cert: await Deno.readTextFile(CERT_FILE), key: await Deno.readTextFile(KEY_FILE) }, (req, info) => httpsHandler(req, info));
 } else {
   Deno.serve({ port: HTTP_PORT, hostname: "0.0.0.0" }, (req, info) => httpsHandler(req, info));
 }
