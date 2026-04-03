@@ -1329,3 +1329,19 @@ Every time the hardware was set up at a new location, the ethernet interface nam
 ### Two-computer dev setup
 MBP (ES-8 for CV) + Mac Studio (Arturia 16Rig for audio monitoring). Mac Studio on "assembly" wifi connects via captive portal. MBP accesses ctrl at `https://localhost/ctrl.html` while connected to home wifi on a different interface.
 
+## 2026-04-03 — trig~ object, multi-channel output fix
+
+### trig~ — CV trigger pulse
+New audio-rate object for sending CV triggers via ES-8. Outputs amplitude for a fixed number of samples, then drops to 0. Duration in samples (default 64 ≈ 1.3ms at 48kHz) — appropriate for eurorack trigger signals.
+
+- **Inlets:** trigger (event), amplitude (number), samples (number)
+- **Outlets:** trigger signal (audio)
+- Registered in both synth-side (`main.js`) and ctrl-side (`ctrl.js`) worklet maps
+
+### Multi-channel dac~ output on macOS
+macOS CoreAudio applies surround speaker mapping (7.1 etc.) to multi-channel devices, reordering channels. `dac~ 8` was routing to physical output 4 instead of 8 on the ES-8.
+
+**Fix (two parts):**
+1. **Code:** Set `channelInterpretation = "discrete"` and `channelCount = maxChannelCount` on the AudioContext destination immediately at init, before any connections. Also set `channelCountMode = "explicit"` and `channelInterpretation = "discrete"` on the ChannelMerger.
+2. **macOS config:** Create an **Aggregate Device** wrapping the ES-8 in Audio MIDI Setup and set it as default output. Aggregate devices bypass CoreAudio's surround speaker mapping and present channels sequentially 1:1.
+

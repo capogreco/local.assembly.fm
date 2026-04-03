@@ -71,6 +71,7 @@ const CTRL_SIGNAL_WORKLETS = {
   "cosine~":  { module: "cosine-processor.js",  worklet: "cosine-processor" },
   "ramp~":    { module: "ramp-processor.js",    worklet: "ramp-processor" },
   "step~":    { module: "step-processor.js",    worklet: "step-processor" },
+  "trig~":    { module: "trig-processor.js",    worklet: "trig-processor" },
   "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
   "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
 };
@@ -81,6 +82,9 @@ async function initCtrlAudio() {
   if (ctrlAudioCtx) return;
   ctrlAudioCtx = new AudioContext({ sampleRate: 48000 });
   await ctrlAudioCtx.resume();
+  // Set multi-channel discrete output immediately
+  ctrlAudioCtx.destination.channelCount = ctrlAudioCtx.destination.maxChannelCount;
+  ctrlAudioCtx.destination.channelInterpretation = "discrete";
 }
 
 // Mirror of main.js createNativeNode but using ctrlAudioCtx
@@ -175,6 +179,7 @@ async function createCtrlSignalWorklet(type, args) {
   else if (type === "cosine~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0); }
   else if (type === "ramp~") { if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); }
   else if (type === "step~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0); }
+  else if (type === "trig~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("samples")?.setValueAtTime(parseFloat(tokens[1]), 0); }
   else if (type === "slew~" && tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
   return { type, node, worklet: node, paramMap };
 }
@@ -258,6 +263,8 @@ async function buildCtrlAudioTopology() {
   ctrlAudioCtx.destination.channelCount = maxChannel;
   ctrlAudioCtx.destination.channelInterpretation = "discrete";
   ctrlChannelMerger = ctrlAudioCtx.createChannelMerger(maxChannel);
+  ctrlChannelMerger.channelCountMode = "explicit";
+  ctrlChannelMerger.channelInterpretation = "discrete";
   ctrlChannelMerger.connect(ctrlAudioCtx.destination);
 
   // Create engines

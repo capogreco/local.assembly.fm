@@ -389,6 +389,12 @@ const BOX_TYPES = {
                       { name: "to", type: "number", description: "End value" },
                       { name: "duration", type: "number", description: "Duration in seconds" }],
                     outlets: [{ name: "out", type: "audio", description: "Ramp signal" }] },
+  "trig~":        { zone: "any", description: "CV trigger pulse.", args: "amplitude samples", example: "trig~ 1 64",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Fire" },
+                      { name: "amplitude", type: "number", description: "Peak amplitude" },
+                      { name: "samples", type: "number", description: "Pulse duration in samples (default 64)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Trigger signal" }] },
   "step~":        { zone: "any", description: "Audio-rate one-shot gate.", args: "amplitude length", example: "step~ 1 0.5",
                     inlets: [
                       { name: "trigger", type: "event", description: "Fire" },

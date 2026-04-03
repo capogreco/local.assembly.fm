@@ -99,6 +99,7 @@ const SIGNAL_WORKLETS = {
   "cosine~":  { module: "cosine-processor.js",  worklet: "cosine-processor" },
   "ramp~":    { module: "ramp-processor.js",    worklet: "ramp-processor" },
   "step~":    { module: "step-processor.js",    worklet: "step-processor" },
+  "trig~":    { module: "trig-processor.js",    worklet: "trig-processor" },
   "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
   "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
 };
@@ -243,6 +244,9 @@ async function createSignalWorklet(type, args) {
   } else if (type === "step~") {
     if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
     if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0);
+  } else if (type === "trig~") {
+    if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    if (tokens[1]) node.parameters.get("samples")?.setValueAtTime(parseFloat(tokens[1]), 0);
   } else if (type === "slew~") {
     if (tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
   }
