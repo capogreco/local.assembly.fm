@@ -1447,6 +1447,19 @@ Graph evaluation collects uplink messages in `graph.uplinkQueue` during propagat
 ### Multi-name sall extension
 `sall` now supports multiple named buses: `sall freq vowelX` = 2 inlets, each broadcasting to its own named bus. `processRouterEvent` updated to accept channel parameter.
 
-### Next: gel stack visual paradigm
-The touch box currently bundles sensing + visuals. Plan is to separate into composable full-screen layers: `screen` (colored rectangle), `text` (centered text), `touch` (pure sensor). Phone screen = stack of theatrical gels, each controlled by patch inlets.
+### Gel stack visual paradigm
+Separated synth-side visuals into composable full-screen layers (theatrical gel stack metaphor):
+
+- **`screen [z]`** — colored rectangle. Inlets: r, g, b, a (all 0-1). Alpha controls visibility.
+- **`text [z] content...`** — centered text. Content from args (first arg is z if numeric, rest is text). Inlets: size, a.
+- **`touch`** — stripped to pure sensor. No visuals. Pointer capture on invisible full-screen surface.
+- **`scope~`** — removed bgH/bgS/bgB inlets. Canvas now clears to transparent. Background comes from `screen` layers behind it.
+
+Layer manager in main.js creates/destroys DOM elements on patch load. Each layer is a `position: fixed; inset: 0` div with z-index from args. System layers (overlay, status bar) at reserved z-levels.
+
+### Toggle fix
+Toggle was broken — inlet 0 was typed as `number` ("set") but toggle is stateful and needs event-driven flip. Added `handleBoxEvent` case for toggle (flips state.value 0↔1) and registered inlet 0 as event trigger in `isEventTrigger`.
+
+### Display layer initial render fix
+`setupLayers()` was called after `initialValues` were applied but `updateDisplayLayers()` wasn't called after setup, so initial layer state was never rendered. Added `updateDisplayLayers(voice)` call right after `setupLayers(voice)` in `loadPatchForVoice`.
 

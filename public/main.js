@@ -510,7 +510,8 @@ async function loadPatchForVoice(voice, patch) {
   for (const msg of voice.pendingMessages) voiceOnMessage(voice, msg);
   voice.pendingMessages = [];
 
-  setupTouch(voice);
+  setupLayers(voice);
+  updateDisplayLayers(voice);
   setupScope();
 }
 
@@ -538,6 +539,7 @@ function voiceOnMessage(voice, msg) {
     }
     drainUplinks(voice);
     checkTouchGate(voice);
+    updateDisplayLayers(voice);
     updateParamDisplay();
   }
   if (msg.type === "rv-env" && voice.graph) {
@@ -561,6 +563,9 @@ function voiceOnMessage(voice, msg) {
 // --- Tear down ---
 
 function tearDown() {
+  clearLayers();
+  touchBoxId = null;
+  if (touchCaptureEl) touchCaptureEl.classList.add("hidden");
   for (const voice of voices) {
     for (const e of voice.engines.values()) {
       e.worklet?.disconnect();
@@ -651,61 +656,62 @@ function setupScope() {
   else scopeSetOrbit = null;
 }
 
-// --- Touch overlay ---
+// --- Gel stack: layer manager for synth-side display boxes ---
+
+const layers = new Map();       // boxId -> { el, type, z }
+const layerContainer = document.getElementById("gel-stack");
+
+function clearLayers() {
+  for (const layer of layers.values()) layer.el.remove();
+  layers.clear();
+}
+
+function registerLayer(boxId, type, z, content) {
+  if (!layerContainer) return;
+  const el = document.createElement("div");
+  el.className = "gel-layer";
+  el.style.zIndex = z;
+  if (type === "text") {
+    el.style.display = "flex";
+    el.style.alignItems = "center";
+    el.style.justifyContent = "center";
+    el.style.textAlign = "center";
+    el.style.padding = "2rem";
+    el.style.fontSize = "1.4rem";
+    el.style.letterSpacing = "0.15em";
+    el.style.color = "#fff";
+    el.textContent = content || "";
+  }
+  el.style.opacity = "0"; // default hidden (alpha=0)
+  layerContainer.appendChild(el);
+  layers.set(boxId, { el, type, z });
+}
+
+function updateLayer(boxId, node) {
+  const layer = layers.get(boxId);
+  if (!layer) return;
+  const iv = node.inletValues;
+  if (layer.type === "screen") {
+    const r = Math.round((iv[0] || 0) * 255);
+    const g = Math.round((iv[1] || 0) * 255);
+    const b = Math.round((iv[2] || 0) * 255);
+    const a = iv[3] !== undefined ? iv[3] : 0;
+    layer.el.style.background = `rgb(${r},${g},${b})`;
+    layer.el.style.opacity = a;
+  } else if (layer.type === "text") {
+    const size = iv[0] !== undefined ? iv[0] : 0.5;
+    const a = iv[1] !== undefined ? iv[1] : 0;
+    layer.el.style.fontSize = (0.8 + size * 2.4) + "rem"; // 0.8rem to 3.2rem
+    layer.el.style.opacity = a;
+  }
+}
+
+// --- Touch sensor (pure, no visuals) ---
 
 let touchBoxId = null;
-let touchPrompt = "";
 let touchGated = false;
 let touchThrottle = 0;
-let touchOverlayVisible = false;
-const touchEl = document.getElementById("touch-overlay");
-
-function setupTouch(voice) {
-  touchBoxId = null;
-  if (!voice.graph) return;
-  for (const [id, node] of voice.graph.boxes) {
-    if (node.type === "touch") {
-      touchBoxId = id;
-      touchPrompt = node.args || "";
-      // gated if any cable targets this box's inlet 0
-      touchGated = false;
-      for (const [, other] of voice.graph.boxes) {
-        for (const cable of other.outletCables) {
-          if (cable.dstBox === id && cable.dstInlet === 0) { touchGated = true; break; }
-        }
-        if (touchGated) break;
-      }
-      break;
-    }
-  }
-  if (!touchBoxId) {
-    hideTouchOverlay();
-    return;
-  }
-  if (!touchGated) showTouchOverlay();
-}
-
-function showTouchOverlay() {
-  if (!touchEl) return;
-  touchEl.textContent = touchPrompt;
-  touchEl.classList.remove("hidden");
-  touchOverlayVisible = true;
-}
-
-function hideTouchOverlay() {
-  if (!touchEl) return;
-  touchEl.classList.add("hidden");
-  touchOverlayVisible = false;
-}
-
-function checkTouchGate(voice) {
-  if (!touchGated || touchBoxId === null || !voice.graph) return;
-  const node = voice.graph.boxes.get(touchBoxId);
-  if (!node) return;
-  const gate = node.inletValues[0] || 0;
-  if (gate > 0 && !touchOverlayVisible) showTouchOverlay();
-  else if (gate <= 0 && touchOverlayVisible) hideTouchOverlay();
-}
+const touchCaptureEl = document.getElementById("touch-capture");
 
 function sendTouchValues(e, gate) {
   const x = e.clientX / window.innerWidth;
@@ -723,24 +729,75 @@ function sendTouchValues(e, gate) {
   }
 }
 
-if (touchEl) {
-  touchEl.addEventListener("pointerdown", (e) => {
-    touchEl.setPointerCapture(e.pointerId);
+if (touchCaptureEl) {
+  touchCaptureEl.addEventListener("pointerdown", (e) => {
+    touchCaptureEl.setPointerCapture(e.pointerId);
     touchThrottle = 0;
     sendTouchValues(e, 1);
   });
-  touchEl.addEventListener("pointermove", (e) => {
+  touchCaptureEl.addEventListener("pointermove", (e) => {
     if (touchThrottle++ % 2 !== 0) return; // ~30fps throttle
     sendTouchValues(e, 1);
   });
-  touchEl.addEventListener("pointerup", (e) => {
+  touchCaptureEl.addEventListener("pointerup", (e) => {
     sendTouchValues(e, 0);
-    if (touchGated) hideTouchOverlay();
   });
-  touchEl.addEventListener("pointercancel", (e) => {
+  touchCaptureEl.addEventListener("pointercancel", (e) => {
     sendTouchValues(e, 0);
-    if (touchGated) hideTouchOverlay();
   });
+}
+
+// --- Setup display layers + touch from patch ---
+
+function setupLayers(voice) {
+  clearLayers();
+  touchBoxId = null;
+  if (!voice.graph) return;
+
+  for (const [id, node] of voice.graph.boxes) {
+    if (node.type === "screen") {
+      const z = parseInt(node.args) || 1;
+      registerLayer(id, "screen", z);
+    } else if (node.type === "text") {
+      const tokens = (node.args || "").split(/\s+/);
+      const firstIsZ = tokens.length > 0 && !isNaN(Number(tokens[0]));
+      const z = firstIsZ ? parseInt(tokens[0]) : 2;
+      const content = firstIsZ ? tokens.slice(1).join(" ") : node.args;
+      registerLayer(id, "text", z, content);
+    } else if (node.type === "touch") {
+      touchBoxId = id;
+      // gated if any cable targets inlet 0
+      touchGated = false;
+      for (const [, other] of voice.graph.boxes) {
+        for (const cable of other.outletCables) {
+          if (cable.dstBox === id && cable.dstInlet === 0) { touchGated = true; break; }
+        }
+        if (touchGated) break;
+      }
+      // show capture surface (always active if ungated, or wait for gate)
+      if (touchCaptureEl) {
+        if (!touchGated) touchCaptureEl.classList.remove("hidden");
+        else touchCaptureEl.classList.add("hidden");
+      }
+    }
+  }
+}
+
+function checkTouchGate(voice) {
+  if (!touchCaptureEl || !touchGated || touchBoxId === null || !voice.graph) return;
+  const node = voice.graph.boxes.get(touchBoxId);
+  if (!node) return;
+  const gate = node.inletValues[0] || 0;
+  if (gate > 0) touchCaptureEl.classList.remove("hidden");
+  else touchCaptureEl.classList.add("hidden");
+}
+
+function updateDisplayLayers(voice) {
+  if (!voice.graph) return;
+  for (const [boxId, layer] of layers) {
+    const node = voice.graph.boxes.get(boxId);
+    if (node) updateLayer(boxId, node);
+  }
 }
 
 // --- Client-side tick for synth-side time boxes ---

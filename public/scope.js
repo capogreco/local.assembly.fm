@@ -73,7 +73,7 @@ let _scopeCleanup = null;
 
 const _scopeParams = {
   persistence: 0.5, zoom: 3, spin: 0.1,
-  density: 0, bgH: 0, bgS: 0, bgB: 0,
+  density: 0,
 };
 
 function setScopeParams(params) {
@@ -86,7 +86,7 @@ function initScope(canvas, instances) {
   if (_scopeCleanup) { _scopeCleanup(); _scopeCleanup = null; }
 
   const N = instances.length;
-  const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: "low-power" });
+  const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false, antialias: false, depth: false, stencil: false, powerPreference: "low-power" });
   if (!gl) { console.warn("WebGL2 not available"); return; }
 
   const RING_CAPACITY = 256 * 1024;
@@ -240,17 +240,7 @@ void main() { fragColor = vColor; }`;
     const model = quatToMat4(orientation);
     const view = mat4Translate(0, 0, -Math.max(0.5, p.zoom));
 
-    // Background: HSB → RGB
-    const bgH = p.bgH, bgS = p.bgS, bgBr = p.bgB;
-    const bgRgb = [0,0,0];
-    { // inline HSB→RGB for background
-      const h6 = bgH * 6;
-      const c = bgBr * bgS, x = c * (1 - Math.abs(h6 % 2 - 1)), m = bgBr - c;
-      const i = Math.floor(h6) % 6;
-      const r = [c,x,0,0,x,c][i]+m, g = [x,c,c,x,0,0][i]+m, b = [0,0,x,c,c,x][i]+m;
-      bgRgb[0]=r; bgRgb[1]=g; bgRgb[2]=b;
-    }
-    gl.clearColor(bgRgb[0], bgRgb[1], bgRgb[2], 1.0);
+    gl.clearColor(0, 0, 0, 0);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(program);

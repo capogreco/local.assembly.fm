@@ -278,6 +278,9 @@ function handleBoxEvent(type, state, iv) {
     case "delay":
       state.queue.push({ value: 1, remaining: state.time });
       return { value: 0, propagate: false };
+    case "toggle":
+      state.value = state.value > 0 ? 0 : 1;
+      return { value: state.value, propagate: true };
     case "sample-hold":
       state.value = iv[0] || 0;
       return { value: state.value, propagate: true };
@@ -487,7 +490,7 @@ function tickBox(type, state, iv, dt) {
 // Self-contained — no dependency on gpi-types.js (synth clients don't load it)
 
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan")) return true;
+  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle")) return true;
   if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
   return false;
 }

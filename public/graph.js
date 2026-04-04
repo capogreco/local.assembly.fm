@@ -166,6 +166,10 @@ function propagateValue(graph, boxId, outletIndex, value) {
       if (chName) graph.uplinkQueue.push({ ch: chName, v: value });
       continue;
     }
+    // Display/sensor sinks: store value, handled by layer manager
+    if (dstNode.type === "screen" || dstNode.type === "text" || dstNode.type === "touch") {
+      continue;
+    }
 
     if (graph.engines.has(cable.dstBox)) {
       const engine = graph.engines.get(cable.dstBox);
@@ -400,8 +404,8 @@ function processRouterValue(graph, routerId, channel, value) {
         const names = node.args.split(/\s+/).filter(Boolean);
         const chName = names[entry.targetInlet];
         if (chName) graph.uplinkQueue.push({ ch: chName, v: value });
-      } else if (node.type === "touch") {
-        // gate stored in inletValues[0], handled by touch overlay manager
+      } else if (node.type === "touch" || node.type === "screen" || node.type === "text") {
+        // display/sensor boxes: values stored in inletValues, handled by layer manager
       } else {
         if (node.type === "spigot" && (node.inletValues[1] || 0) <= 0) continue;
         if (!isHotInlet(node.type, entry.targetInlet)) continue;
