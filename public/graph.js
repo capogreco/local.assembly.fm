@@ -31,6 +31,7 @@ function buildGraph(patch) {
     engines: new Map(),
     envelopes: new Map(),
     wireless: new Map(),    // name -> { sends: [boxId], receives: [boxId], throws: [boxId], catches: [boxId] }
+    uplinkQueue: [],        // collected { ch, v } messages for sendup → server
   };
 
   for (const box of patch.boxes) {
@@ -158,6 +159,13 @@ function propagateValue(graph, boxId, outletIndex, value) {
       }
       continue;
     }
+    // Uplink send: queue value for server
+    if (dstNode.type === "sendup") {
+      const names = dstNode.args.split(/\s+/).filter(Boolean);
+      const chName = names[cable.dstInlet];
+      if (chName) graph.uplinkQueue.push({ ch: chName, v: value });
+      continue;
+    }
 
     if (graph.engines.has(cable.dstBox)) {
       const engine = graph.engines.get(cable.dstBox);
@@ -250,6 +258,7 @@ function propagateEvent(graph, boxId, outletIndex) {
       continue;
     }
     if (dstNode.type === "throw") continue; // events don't sum
+    if (dstNode.type === "sendup") continue; // events not forwarded via uplink
 
     // Engine trigger/gate: send 1
     if (graph.engines.has(cable.dstBox)) {
@@ -387,6 +396,12 @@ function processRouterValue(graph, routerId, channel, value) {
             }
           }
         }
+      } else if (node.type === "sendup") {
+        const names = node.args.split(/\s+/).filter(Boolean);
+        const chName = names[entry.targetInlet];
+        if (chName) graph.uplinkQueue.push({ ch: chName, v: value });
+      } else if (node.type === "touch") {
+        // gate stored in inletValues[0], handled by touch overlay manager
       } else {
         if (node.type === "spigot" && (node.inletValues[1] || 0) <= 0) continue;
         if (!isHotInlet(node.type, entry.targetInlet)) continue;
@@ -400,8 +415,8 @@ function processRouterValue(graph, routerId, channel, value) {
 }
 
 // process a router event message
-function processRouterEvent(graph, routerId) {
-  const key = routerId + ":0";
+function processRouterEvent(graph, routerId, channel) {
+  const key = routerId + ":" + (channel || 0);
   const entries = graph.entries.get(key);
   if (!entries) return {};
 

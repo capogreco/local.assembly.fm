@@ -196,9 +196,10 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     return;
   }
 
-  // sall — wireless send + broadcast to all synth clients
+  // sall — wireless send + broadcast to all synth clients (multi-name: each inlet maps to a named bus)
   if (routerType === "sall") {
-    const name = box.text.split(/\s+/).slice(1).join(" ");
+    const names = box.text.split(/\s+/).slice(1);
+    const name = names[inlet];
     if (!name) return;
     // ctrl-side wireless: propagate to matching r/receive boxes
     for (const [recvId, recvBox] of boxes) {
@@ -208,10 +209,10 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     }
     // broadcast to all synth clients — events get `re`, values get `rv`
     if (isEvent) {
-      broadcastSynth({ type: "re", r: routerBoxId });
+      broadcastSynth({ type: "re", r: routerBoxId, ch: inlet });
     } else {
-      const msg = { type: "rv", r: routerBoxId, ch: 0, v: value } as Record<string, unknown>;
-      latestValues.set(routerBoxId + ":0", JSON.stringify(msg));
+      const msg = { type: "rv", r: routerBoxId, ch: inlet, v: value } as Record<string, unknown>;
+      latestValues.set(routerBoxId + ":" + inlet, JSON.stringify(msg));
       broadcastSynth(msg);
     }
     return;
@@ -945,6 +946,7 @@ let synthBorderY = 400;
 // deno-lint-ignore no-explicit-any
 let deployedPatch: Record<string, any> | null = null;
 const latestValues = new Map<string, string>();
+const uplinkIndex = new Map<string, Array<{boxId: number, outletIndex: number}>>();
 
 // --- Evaluation engine ---
 
@@ -1634,14 +1636,17 @@ function serializeSynthPatch(): Record<string, unknown> {
     const def = getBoxDef(box.text);
     if (!def || def.zone !== "router") continue;
     if (boxTypeName(box.text) === "sall") {
-      // sall: match synth-side r/receive boxes by name
-      const name = box.text.split(/\s+/).slice(1).join(" ");
-      if (!name) continue;
-      for (const [recvId, recvBox] of boxes) {
-        if (!synthIds.has(recvId)) continue;
-        const recvType = boxTypeName(recvBox.text);
-        if ((recvType === "r" || recvType === "receive") && recvBox.text.split(/\s+/).slice(1).join(" ") === name) {
-          entries.push({ routerId: id, routerOutlet: 0, targetBox: recvId, targetInlet: 0 });
+      // sall: match synth-side r/receive boxes by name (multi-name: each name maps to a channel)
+      const names = box.text.split(/\s+/).slice(1);
+      for (let ch = 0; ch < names.length; ch++) {
+        const name = names[ch];
+        if (!name) continue;
+        for (const [recvId, recvBox] of boxes) {
+          if (!synthIds.has(recvId)) continue;
+          const recvType = boxTypeName(recvBox.text);
+          if ((recvType === "r" || recvType === "receive") && recvBox.text.split(/\s+/).slice(1).join(" ") === name) {
+            entries.push({ routerId: id, routerOutlet: ch, targetBox: recvId, targetInlet: 0 });
+          }
         }
       }
       continue;
@@ -1673,6 +1678,17 @@ function serializeSynthPatch(): Record<string, unknown> {
 function deployPatch(): void {
   deployedPatch = serializeSynthPatch();
   latestValues.clear();
+  // rebuild uplink channel index
+  uplinkIndex.clear();
+  for (const [id, box] of boxes) {
+    if (boxTypeName(box.text) !== "uplink") continue;
+    const names = box.text.split(/\s+/).slice(1);
+    for (let i = 0; i < names.length; i++) {
+      const ch = names[i];
+      if (!uplinkIndex.has(ch)) uplinkIndex.set(ch, []);
+      uplinkIndex.get(ch)!.push({ boxId: id, outletIndex: i });
+    }
+  }
   broadcastSynth(deployedPatch);
   event("patch deployed to " + totalSynthClients() + " clients");
   sendCtrl({ type: "deployed" });
@@ -1800,6 +1816,15 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
       const msg = JSON.parse(e.data);
       if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
+      } else if (msg.type === "up" && typeof msg.ch === "string") {
+        const targets = uplinkIndex.get(msg.ch);
+        if (targets) {
+          for (const { boxId, outletIndex } of targets) {
+            boxValues.set(boxId, msg.v);
+            queueValueUpdate(boxId, msg.v);
+            propagateAndNotify(boxId, outletIndex, msg.v);
+          }
+        }
       }
     } catch (err) { console.error("WS error:", err); }
   });

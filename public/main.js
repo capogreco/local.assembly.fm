@@ -510,7 +510,17 @@ async function loadPatchForVoice(voice, patch) {
   for (const msg of voice.pendingMessages) voiceOnMessage(voice, msg);
   voice.pendingMessages = [];
 
+  setupTouch(voice);
   setupScope();
+}
+
+// --- Uplink drain ---
+function drainUplinks(voice) {
+  if (!voice.graph || !voice.graph.uplinkQueue.length) return;
+  for (const msg of voice.graph.uplinkQueue) {
+    voice.conn.send({ type: "up", ch: msg.ch, v: msg.v });
+  }
+  voice.graph.uplinkQueue.length = 0;
 }
 
 function voiceOnMessage(voice, msg) {
@@ -526,6 +536,8 @@ function voiceOnMessage(voice, msg) {
     for (const [id, params] of Object.entries(updates)) {
       voiceSendParams(voice, Number(id), params);
     }
+    drainUplinks(voice);
+    checkTouchGate(voice);
     updateParamDisplay();
   }
   if (msg.type === "rv-env" && voice.graph) {
@@ -537,10 +549,11 @@ function voiceOnMessage(voice, msg) {
     // slew/lag values are ticked in clientTick via tickEnvelopes
   }
   if (msg.type === "re" && voice.graph) {
-    const updates = processRouterEvent(voice.graph, msg.r);
+    const updates = processRouterEvent(voice.graph, msg.r, msg.ch);
     for (const [id, params] of Object.entries(updates)) {
       voiceSendParams(voice, Number(id), params);
     }
+    drainUplinks(voice);
     updateParamDisplay();
   }
 }
@@ -638,6 +651,98 @@ function setupScope() {
   else scopeSetOrbit = null;
 }
 
+// --- Touch overlay ---
+
+let touchBoxId = null;
+let touchPrompt = "";
+let touchGated = false;
+let touchThrottle = 0;
+let touchOverlayVisible = false;
+const touchEl = document.getElementById("touch-overlay");
+
+function setupTouch(voice) {
+  touchBoxId = null;
+  if (!voice.graph) return;
+  for (const [id, node] of voice.graph.boxes) {
+    if (node.type === "touch") {
+      touchBoxId = id;
+      touchPrompt = node.args || "";
+      // gated if any cable targets this box's inlet 0
+      touchGated = false;
+      for (const [, other] of voice.graph.boxes) {
+        for (const cable of other.outletCables) {
+          if (cable.dstBox === id && cable.dstInlet === 0) { touchGated = true; break; }
+        }
+        if (touchGated) break;
+      }
+      break;
+    }
+  }
+  if (!touchBoxId) {
+    hideTouchOverlay();
+    return;
+  }
+  if (!touchGated) showTouchOverlay();
+}
+
+function showTouchOverlay() {
+  if (!touchEl) return;
+  touchEl.textContent = touchPrompt;
+  touchEl.classList.remove("hidden");
+  touchOverlayVisible = true;
+}
+
+function hideTouchOverlay() {
+  if (!touchEl) return;
+  touchEl.classList.add("hidden");
+  touchOverlayVisible = false;
+}
+
+function checkTouchGate(voice) {
+  if (!touchGated || touchBoxId === null || !voice.graph) return;
+  const node = voice.graph.boxes.get(touchBoxId);
+  if (!node) return;
+  const gate = node.inletValues[0] || 0;
+  if (gate > 0 && !touchOverlayVisible) showTouchOverlay();
+  else if (gate <= 0 && touchOverlayVisible) hideTouchOverlay();
+}
+
+function sendTouchValues(e, gate) {
+  const x = e.clientX / window.innerWidth;
+  const y = e.clientY / window.innerHeight;
+  for (const voice of voices) {
+    if (!voice.graph || touchBoxId === null) continue;
+    const updates = {};
+    mergeUpdates(updates, propagateValue(voice.graph, touchBoxId, 0, x));
+    mergeUpdates(updates, propagateValue(voice.graph, touchBoxId, 1, y));
+    mergeUpdates(updates, propagateValue(voice.graph, touchBoxId, 2, gate));
+    for (const [id, params] of Object.entries(updates)) {
+      voiceSendParams(voice, Number(id), params);
+    }
+    drainUplinks(voice);
+  }
+}
+
+if (touchEl) {
+  touchEl.addEventListener("pointerdown", (e) => {
+    touchEl.setPointerCapture(e.pointerId);
+    touchThrottle = 0;
+    sendTouchValues(e, 1);
+  });
+  touchEl.addEventListener("pointermove", (e) => {
+    if (touchThrottle++ % 2 !== 0) return; // ~30fps throttle
+    sendTouchValues(e, 1);
+  });
+  touchEl.addEventListener("pointerup", (e) => {
+    sendTouchValues(e, 0);
+    if (touchGated) hideTouchOverlay();
+  });
+  touchEl.addEventListener("pointercancel", (e) => {
+    sendTouchValues(e, 0);
+    if (touchGated) hideTouchOverlay();
+  });
+}
+
 // --- Client-side tick for synth-side time boxes ---
 
 let lastTickTime = 0;
@@ -656,6 +761,7 @@ function clientTick(time) {
     for (const [id, params] of Object.entries(updates)) {
       voiceSendParams(voice, Number(id), params);
     }
+    drainUplinks(voice);
   }
 }
 

@@ -125,5 +125,7 @@ function connect(onMessage, statusEl, countEl, wsOnly, delay) {
     if (wsOnly) tryWebSocket(); else connectSSE();
   }
 
-  return { getClientId: () => clientId, close };
+  return { getClientId: () => clientId, close, send: (msg) => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }};
 }

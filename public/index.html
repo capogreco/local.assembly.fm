@@ -63,6 +63,22 @@
       font-family: "IBM Plex Mono", monospace; font-size: 11px;
       color: #666; white-space: pre; z-index: 5;
     }
+    #touch-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 8;
+      background: rgba(220, 100, 140, 0.85);
+      font-size: 1.4rem;
+      color: #fff;
+      letter-spacing: 0.15em;
+      text-align: center;
+      padding: 2rem;
+      touch-action: none;
+    }
+    #touch-overlay.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -70,6 +86,7 @@
   <div id="overlay">
     <span>tap to start</span>
   </div>
+  <div id="touch-overlay" class="hidden"></div>
   <div id="param-display"></div>
   <div id="status-bar" class="disconnected">
     <span id="conn-status">disconnected</span>

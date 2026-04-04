@@ -35,6 +35,9 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "state", type: "number", description: "Toggle state (0 or 1)" }] },
   "grid-array":   { zone: "ctrl", description: "Monome Grid integer array. Press to toggle values, hold+press for range fill/clear.", args: "x y w h", example: "grid-array 0 2 12 1",
                     inlets: [], outlets: [{ name: "array", type: "array", description: "Array of 1-indexed integers" }] },
+  uplink:         { zone: "ctrl", description: "Receive values from synth clients on named channels.", args: "name1 [name2 ...]", example: "uplink tx ty tg",
+                    dynamic: true,
+                    inlets: [], outlets: [{ name: "out", type: "number", description: "Value from synth" }] },
 
   // --- abstraction interface ---
   inlet:          { zone: "any", description: "Abstraction inlet. Index determines port order.", args: "index", example: "inlet 0",
@@ -285,7 +288,8 @@ const BOX_TYPES = {
   sweep:          { zone: "router", description: "Send sequentially across phones on each null event.", args: "steps", example: "sweep 16",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "trigger", type: "event", description: "Advance to next phone" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on current phone" }] },
-  sall:           { zone: "router", description: "Wireless send-all. Broadcasts to all phones, delivered to matching r boxes.", args: "name", example: "sall freq",
+  sall:           { zone: "router", description: "Wireless send-all. Broadcasts to all phones, delivered to matching r boxes.", args: "name1 [name2 ...]", example: "sall freq vowelX",
+                    dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value to broadcast" }],
                     outlets: [] },
 
@@ -308,6 +312,17 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "number", description: "Value to add" }], outlets: [] },
   catch:          { zone: "any", description: "Wireless catch. Sums all matching throws.", args: "name", example: "catch mix",
                     inlets: [], outlets: [{ name: "out", type: "number", description: "Summed value" }] },
+
+  // --- synth-side uplink ---
+  sendup:         { zone: "synth", description: "Send value from phone back to server on named channels.", args: "name1 [name2 ...]", example: "sendup tx ty tg",
+                    dynamic: true,
+                    inlets: [{ name: "in", type: "passthrough", description: "Value to send up" }], outlets: [] },
+  touch:          { zone: "synth", description: "Full-screen touch overlay. Shows prompt on gate=1. Outputs normalized x, y, gate.", args: "[prompt]", example: "touch drag here",
+                    inlets: [{ name: "gate", type: "number", description: "1=show overlay, 0=hide. No cable=always active" }],
+                    outlets: [
+                      { name: "x", type: "number", description: "Normalized X position (0-1)" },
+                      { name: "y", type: "number", description: "Normalized Y position (0-1)" },
+                      { name: "gate", type: "number", description: "1 while touching, 0 on release" }] },
 
   // --- wireless connections (audio-rate) ---
   "send~":        { zone: "any", description: "Wireless audio send. One-to-many.", args: "name", example: "send~ verb",
@@ -586,6 +601,14 @@ function getBoxPorts(text) {
     if (name === "group") {
       const n = parseInt(text.split(/\s+/)[1]) || 1;
       return { inlets: n + 1, outlets: 1 }; // N group inlets + 1 shuffle, 1 outlet
+    }
+    if (name === "sendup" || name === "sall") {
+      const n = Math.max(1, text.split(/\s+/).length - 1);
+      return { inlets: n, outlets: 0 };
+    }
+    if (name === "uplink") {
+      const n = Math.max(1, text.split(/\s+/).length - 1);
+      return { inlets: 0, outlets: n };
     }
     const n = parseInt(text.split(/\s+/)[1]) || 1;
     return { inlets: n, outlets: n };
