@@ -1425,3 +1425,28 @@ Ctrl-side audio boxes (trig~, ramp~, ar~, etc.) run their signal in the ctrl cli
 
 Shadow state reads from `inletValues` (which now stores ctrl-audio-param values alongside forwarding to the worklet). This is explicitly cosmetic — the worklet remains the source of truth for the actual signal.
 
+## 2026-04-04 — Bidirectional Comms: sendup/uplink + touch sensor
+
+### The problem
+Data flow was strictly one-directional: ctrl → server → synth clients. No way for a phone to send data back. This blocked **sortition** — selecting one audience member to control all phones via touch.
+
+### New box types
+
+**`sendup name1 [name2 ...]`** (zone: synth) — sends values from phone back to server on named channels. Dynamic ports: N inlets, one per name arg. Wire protocol: `{ type: "up", ch: "name", v: value }`. SSE-only clients silently drop (graceful degradation).
+
+**`uplink name1 [name2 ...]`** (zone: ctrl) — receives values from synth clients on named channels. Dynamic ports: N outlets. Server matches incoming `up` messages to uplink boxes and calls `propagateAndNotify()` — same injection pattern as `cc`, `key`, `arc`.
+
+**`touch [prompt]`** (zone: synth) — full-screen pointer capture. Inlet 0: gate (show/hide overlay). Outlets: x (0-1), y (0-1), gate (0/1). Pink overlay with prompt text. Pointer events throttled to ~30fps (every other pointermove). Auto-dismisses on finger-up when gated.
+
+### Architecture
+
+The `sendup`/`uplink` pair is general-purpose plumbing — the reverse of `sall`/`r`. Touch is just one sensor that uses it. Future sensors (accelerometer, mic level, buttons) follow the same pattern: synth-side source → `sendup` → server → `uplink` → ctrl graph.
+
+Graph evaluation collects uplink messages in `graph.uplinkQueue` during propagation. After each evaluation cycle (rv, re, tick), `drainUplinks()` sends them via WebSocket.
+
+### Multi-name sall extension
+`sall` now supports multiple named buses: `sall freq vowelX` = 2 inlets, each broadcasting to its own named bus. `processRouterEvent` updated to accept channel parameter.
+
+### Next: gel stack visual paradigm
+The touch box currently bundles sensing + visuals. Plan is to separate into composable full-screen layers: `screen` (colored rectangle), `text` (centered text), `touch` (pure sensor). Phone screen = stack of theatrical gels, each controlled by patch inlets.
+
