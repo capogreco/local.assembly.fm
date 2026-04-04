@@ -195,11 +195,24 @@ function propagateValue(graph, boxId, outletIndex, value) {
         }
       } else if (dstNode.type === "sample-hold" && cable.dstInlet === 0) {
         // store for sampling
-      } else if (dstNode.type === "adsr" && cable.dstInlet === 0) {
-        // gate — store for tick
+      } else if (dstNode.type === "adsr") {
+        // gate (0) stored for tick; params (1-4) update state
+        if (dstNode.state && cable.dstInlet >= 1) {
+          if (cable.dstInlet === 1) dstNode.state.a = Math.max(0.001, value);
+          if (cable.dstInlet === 2) dstNode.state.d = Math.max(0.001, value);
+          if (cable.dstInlet === 3) dstNode.state.s = Math.max(0, Math.min(1, value));
+          if (cable.dstInlet === 4) dstNode.state.r = Math.max(0.001, value);
+        }
       } else if (dstNode.type === "ar") {
         if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
         if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
+      } else if (dstNode.type === "ramp" && cable.dstInlet >= 1) {
+        if (dstNode.state) {
+          if (cable.dstInlet === 1) dstNode.state.from = value;
+          if (cable.dstInlet === 2) dstNode.state.to = value;
+          if (cable.dstInlet === 3) dstNode.state.duration = Math.max(0.001, value);
+          if (cable.dstInlet === 4) dstNode.state.curve = value;
+        }
       } else if (dstNode.type === "seq" && cable.dstInlet >= 1) {
         // behaviour/values inlets
       } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
@@ -358,7 +371,7 @@ function processRouterValue(graph, routerId, channel, value) {
     node.inletValues[entry.targetInlet] = value;
 
     if (node.type === "phasor") {
-      if (entry.targetInlet === 1 && node.state) {
+      if (entry.targetInlet === 0 && node.state) {
         mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
       }
       continue;

@@ -64,11 +64,11 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "event", description: "Null event on click" }] },
 
   // --- time ---
-  phasor:         { zone: "any", description: "Sawtooth ramp 0-1 over period. 'once' = one-shot (no loop). Command-based through routers.", args: "period [once]", example: "phasor 4",
+  phasor:         { zone: "any", description: "Sawtooth ramp 0-1 over period. 'once' = one-shot (no loop).", args: "period [once]", example: "phasor 4",
                     inlets: [
-                      { name: "pause", type: "number", description: "0 = run, >0 = pause" },
                       { name: "reset", type: "event", description: "Reset phase to 0" },
-                      { name: "period", type: "number", description: "Cycle period in seconds" }],
+                      { name: "period", type: "number", description: "Cycle period in seconds" },
+                      { name: "pause", type: "number", description: "0 = run, >0 = pause" }],
                     outlets: [
                       { name: "phase", type: "number", description: "Ramp (0-1)" },
                       { name: "eoc", type: "event", description: "Null event at end of cycle" }] },
@@ -101,12 +101,21 @@ const BOX_TYPES = {
                       { name: "end", type: "event", description: "Null event at end of release" }] },
   adsr:           { zone: "any", description: "ADSR envelope. Gate-driven: >0 opens, 0 releases.", args: "a d s r", example: "adsr 0.05 0.1 0.7 0.3",
                     inlets: [
-                      { name: "gate", type: "number", description: "Gate signal (>0 = open)" }],
+                      { name: "gate", type: "number", description: "Gate signal (>0 = open)" },
+                      { name: "a", type: "number", description: "Attack time in seconds" },
+                      { name: "d", type: "number", description: "Decay time in seconds" },
+                      { name: "s", type: "number", description: "Sustain level (0-1)" },
+                      { name: "r", type: "number", description: "Release time in seconds" }],
                     outlets: [
                       { name: "value", type: "number", description: "Envelope output (0-1)" },
                       { name: "end", type: "event", description: "Null event at end of release" }] },
   ramp:           { zone: "any", description: "Ramp between two values over duration with curve shaping. curve=1 linear, >1 exponential (slow start), <1 logarithmic (fast start).", args: "from to duration [curve]", example: "ramp 0 1 0.5 2",
-                    inlets: [{ name: "trigger", type: "event", description: "Start ramp" }],
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Start ramp" },
+                      { name: "from", type: "number", description: "Start value" },
+                      { name: "to", type: "number", description: "End value" },
+                      { name: "duration", type: "number", description: "Duration in seconds" },
+                      { name: "curve", type: "number", description: "Curve shape (1=linear)" }],
                     outlets: [
                       { name: "value", type: "number", description: "Current ramp value" },
                       { name: "end", type: "event", description: "Null event at end of ramp" }] },
@@ -195,9 +204,6 @@ const BOX_TYPES = {
   clip:           { zone: "any", description: "Clamp value to range.", args: "min max", example: "clip 0 1",
                     inlets: [{ name: "in", type: "number", description: "Input value" }],
                     outlets: [{ name: "out", type: "number", description: "Clamped output" }] },
-  pow:            { zone: "any", description: "Raise to power.", args: "exponent", example: "pow 2",
-                    inlets: [{ name: "in", type: "number", description: "Base" }],
-                    outlets: [{ name: "out", type: "number", description: "Result" }] },
   quantize:       { zone: "any", description: "Snap to N equal divisions of 0-1.", args: "divisions", example: "quantize 12",
                     inlets: [{ name: "in", type: "number", description: "Input (0-1)" }],
                     outlets: [{ name: "out", type: "number", description: "Quantized output" }] },
@@ -210,7 +216,7 @@ const BOX_TYPES = {
   mtof:           { zone: "any", description: "MIDI note number to frequency.",
                     inlets: [{ name: "note", type: "number", description: "MIDI note (0-127)" }],
                     outlets: [{ name: "freq", type: "number", description: "Frequency in Hz" }] },
-  gate:           { zone: "any", description: "Pass or block signal.",
+  gate:           { zone: "any", description: "Pass or zero signal. Outputs 0 when closed (cf. spigot which blocks propagation).",
                     inlets: [{ name: "in", type: "number", description: "Signal" }, { name: "gate", type: "number", description: "0 = block, >0 = pass" }],
                     outlets: [{ name: "out", type: "number", description: "Gated signal" }] },
   switch:         { zone: "any", description: "Route input to selected outlet.", args: "count", example: "switch 3",
@@ -266,7 +272,7 @@ const BOX_TYPES = {
                     dynamic: true,
                     inlets: [{ name: "in", type: "number", hot: true, firesEvent: true, description: "Value to match" }],
                     outlets: [{ name: "match", type: "event", description: "Event on match" }] },
-  spigot:         { zone: "any", description: "Conditional pass. Inlet 0 = signal, inlet 1 = gate (>0 = open).",
+  spigot:         { zone: "any", description: "Block propagation. When closed, nothing passes downstream (cf. gate which outputs 0).",
                     inlets: [{ name: "in", type: "number", description: "Signal to pass" }, { name: "gate", type: "number", description: "0 = block, >0 = pass" }],
                     outlets: [{ name: "out", type: "number", description: "Passed signal" }] },
   swap:           { zone: "any", description: "Swap two values. Hot inlet 0, cold inlet 1. Fires right-to-left.", args: "[default]", example: "swap 0",
@@ -353,7 +359,7 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "audio", description: "Summed audio" }] },
 
   // --- audio-rate objects (~) — any box with audio ports ---
-  "scope~":       { zone: "any", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z. Knot colour via audio-rate HSB.",
+  "scope~":       { zone: "synth", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z. Knot colour via audio-rate HSB.", args: "[z]", example: "scope~ 5",
                     inlets: [
                       { name: "x", type: "audio", description: "X axis signal" },
                       { name: "y", type: "audio", description: "Y axis signal" },
@@ -364,7 +370,8 @@ const BOX_TYPES = {
                       { name: "persistence", type: "number", description: "Trail length (0-1)" },
                       { name: "zoom", type: "number", description: "Camera distance (0.5-20)" },
                       { name: "spin", type: "number", description: "Auto-rotation speed (0-1)" },
-                      { name: "density", type: "number", description: "Points per frame (0=1pt, 1=full)" }],
+                      { name: "density", type: "number", description: "Points per frame (0=1pt, 1=full)" },
+                      { name: "a", type: "number", description: "Alpha (0-1)" }],
                     outlets: [] },
   "adc~":         { zone: "any", description: "Audio input. Channel arg selects input channel from audio interface.", args: "[channel]", example: "adc~ 1",
                     inlets: [],

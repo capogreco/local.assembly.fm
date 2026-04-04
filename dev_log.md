@@ -1463,3 +1463,27 @@ Toggle was broken — inlet 0 was typed as `number` ("set") but toggle is statef
 ### Display layer initial render fix
 `setupLayers()` was called after `initialValues` were applied but `updateDisplayLayers()` wasn't called after setup, so initial layer state was never rendered. Added `updateDisplayLayers(voice)` call right after `setupLayers(voice)` in `loadPatchForVoice`.
 
+## 2026-04-05 — GPI Audit: Inlet Regime, Scope Gel Stack, Cleanup
+
+Full audit of box type consistency across zones, inlet/outlet ordering, args, and naming.
+
+### Inlet regime fixes
+Established convention: inlet 0 = primary action (trigger/gate), subsequent = params by importance.
+
+- **`phasor`**: reordered from pause(0)/reset(1)/period(2) to reset(0)/period(1)/pause(2). Updated `isEventTrigger`, `tickBox`, `handleStatefulInlet`, and synth-side `processRouterValue`.
+- **`ramp`**: added from(1)/to(2)/duration(3)/curve(4) inlets after trigger. Previously params were args-only with no runtime override. Now matches `ramp~`.
+- **`adsr`**: added a(1)/d(2)/s(3)/r(4) inlets after gate. Previously params were args-only. Now matches `adsr~`.
+
+### scope~ gel stack integration
+- Zone: `"any"` → `"synth"` (only makes sense on phones)
+- Added z-index arg: `scope~ 5` sets layer z-order
+- Added alpha inlet (position 10): composable with screen/text layers
+- Removed hardcoded `<canvas id="scope">` from index.html and ensemble.html
+- Canvas now dynamically created by layer manager on patch load
+- Alpha applied via `sendParams` → layer opacity (separate from scope.js params)
+
+### Cleanup
+- Deleted `pow` box (redundant with `**`)
+- Clarified `gate` vs `spigot` descriptions (gate zeros output; spigot blocks propagation)
+- Removed dead `handleStatefulInlet` toggle code (toggle now uses event path)
+

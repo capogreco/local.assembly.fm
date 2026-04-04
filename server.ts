@@ -1277,8 +1277,20 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     if (inlet === 0) { state.period = Math.max(0.001, value); return true; }
   }
   if (name === "phasor") {
-    if (inlet === 0) { state.paused = value > 0; return true; }
-    if (inlet === 2) { state.period = Math.max(0.001, value); return true; }
+    if (inlet === 1) { state.period = Math.max(0.001, value); return true; }
+    if (inlet === 2) { state.paused = value > 0; return true; }
+  }
+  if (name === "adsr" && inlet >= 1) {
+    if (inlet === 1) { state.a = Math.max(0.001, value); return true; }
+    if (inlet === 2) { state.d = Math.max(0.001, value); return true; }
+    if (inlet === 3) { state.s = Math.max(0, Math.min(1, value)); return true; }
+    if (inlet === 4) { state.r = Math.max(0.001, value); return true; }
+  }
+  if (name === "ramp") {
+    if (inlet === 1) { state.from = value; return true; }
+    if (inlet === 2) { state.to = value; return true; }
+    if (inlet === 3) { state.duration = Math.max(0.001, value); return true; }
+    if (inlet === 4) { state.curve = value; return true; }
   }
   if (name === "metro") {
     if (inlet === 0) { state.paused = !(value > 0); return true; }
@@ -1289,11 +1301,6 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     let iv = inletValues.get(id);
     if (!iv) { iv = []; inletValues.set(id, iv); }
     iv[inlet] = value;
-    return true;
-  }
-  if (name === "toggle" && inlet === 0) {
-    state.value = value > 0 ? 1 : 0;
-    setBoxValueAndNotify(id, state.value);
     return true;
   }
   // slew/lag: inlet 0 sets target, tick does the smoothing

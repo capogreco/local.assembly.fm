@@ -397,8 +397,13 @@ function sendParams(engine, params) {
   Object.assign(engine.currentParams, params);
   // scope~ params go to the scope renderer, not AudioParams
   if (engine.type === "scope~" && typeof setScopeParams === "function") {
-    console.log("sendParams scope~:", params);
     setScopeParams(params);
+    // alpha controls scope layer opacity via gel stack
+    if (params.a !== undefined) {
+      for (const layer of layers.values()) {
+        if (layer.type === "scope") { layer.el.style.opacity = params.a; break; }
+      }
+    }
     return;
   }
   if (params.portamento !== undefined) engine.portaTime = params.portamento;
@@ -630,7 +635,11 @@ function buildVoices() {
 }
 
 function setupScope() {
-  const scopeCanvas = document.getElementById("scope");
+  // Find the scope canvas from the gel stack layers
+  let scopeCanvas = null;
+  for (const layer of layers.values()) {
+    if (layer.type === "scope") { scopeCanvas = layer.el; break; }
+  }
   if (!scopeCanvas || typeof window.initScope !== "function" || voices.length === 0) return;
   // Collect scope~ instances from all voices
   const scopeInstances = [];
@@ -668,7 +677,8 @@ function clearLayers() {
 
 function registerLayer(boxId, type, z, content) {
   if (!layerContainer) return;
-  const el = document.createElement("div");
+  const isCanvas = type === "scope";
+  const el = document.createElement(isCanvas ? "canvas" : "div");
   el.className = "gel-layer";
   el.style.zIndex = z;
   if (type === "text") {
@@ -682,7 +692,13 @@ function registerLayer(boxId, type, z, content) {
     el.style.color = "#fff";
     el.textContent = content || "";
   }
-  el.style.opacity = "0"; // default hidden (alpha=0)
+  if (isCanvas) {
+    el.style.width = "100%";
+    el.style.height = "100%";
+    el.style.opacity = "1"; // scope visible by default
+  } else {
+    el.style.opacity = "0"; // screen/text hidden by default (alpha=0)
+  }
   layerContainer.appendChild(el);
   layers.set(boxId, { el, type, z });
 }
@@ -764,6 +780,9 @@ function setupLayers(voice) {
       const z = firstIsZ ? parseInt(tokens[0]) : 2;
       const content = firstIsZ ? tokens.slice(1).join(" ") : node.args;
       registerLayer(id, "text", z, content);
+    } else if (node.type === "scope~") {
+      const z = parseInt(node.args) || 0;
+      registerLayer(id, "scope", z);
     } else if (node.type === "touch") {
       touchBoxId = id;
       // gated if any cable targets inlet 0

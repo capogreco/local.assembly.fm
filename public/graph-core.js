@@ -199,7 +199,6 @@ function evaluatePure(type, args, iv) {
     case "**": { const exp = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return Math.sign(a) * Math.pow(Math.abs(a), exp); }
     case "scale": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1, curve = parseFloat(args[2]) || 1; return Math.pow(Math.max(0, Math.min(1, a)), curve) * (max - min) + min; }
     case "clip": { const min = parseFloat(args[0]) || 0, max = parseFloat(args[1]) || 1; return Math.max(min, Math.min(max, a)); }
-    case "pow": { const exp = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 1; return Math.sign(a) * Math.pow(Math.abs(a), exp); }
     case "mtof": return 440 * Math.pow(2, ((iv[0] || 69) - 69) / 12);
     case "const": return parseFloat(args[0]) || 0;
     case "gate": return (iv[1] || 0) > 0 ? a : 0;
@@ -272,6 +271,11 @@ function handleBoxEvent(type, state, iv) {
       state.elapsed = 0;
       return { value: state.value, propagate: false };
     case "ramp":
+      if (iv[1] !== undefined) state.from = iv[1];
+      if (iv[2] !== undefined) state.to = iv[2];
+      if (iv[3] !== undefined) state.duration = Math.max(0.001, iv[3]);
+      if (iv[4] !== undefined) state.curve = iv[4];
+      state.value = state.from;
       state.phase = "running";
       state.elapsed = 0;
       return { value: state.value, propagate: false };
@@ -363,8 +367,8 @@ function tickBox(type, state, iv, dt) {
     }
     case "phasor": {
       if (state.paused) return null;
-      if (iv[0] > 0) return null; // pause inlet
-      const period = iv[2] > 0 ? iv[2] : state.period;
+      if (iv[2] > 0) return null; // pause inlet (2)
+      const period = iv[1] > 0 ? iv[1] : state.period;
       state.phase += dt / period;
       const events = [];
       if (state.phase >= 1) {
@@ -491,7 +495,8 @@ function tickBox(type, state, iv, dt) {
 
 function isEventTrigger(type, inlet) {
   if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle")) return true;
-  if (inlet === 1 && (type === "phasor" || type === "sample-hold")) return true;
+  if (inlet === 0 && type === "phasor") return true;
+  if (inlet === 1 && type === "sample-hold") return true;
   return false;
 }
 
