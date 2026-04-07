@@ -1084,7 +1084,8 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
         if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
         iv[cable.dstInlet] = numValue;
         // Hot/cold: only evaluate+propagate on hot inlets
-        const isHot = cable.dstInlet === 0 || inletDef?.hot === true;
+        const hasHotArg = /\bhot\b/.test(dst.text);
+        const isHot = cable.dstInlet === 0 || inletDef?.hot === true || hasHotArg;
         if (isHot) {
           const result = evaluateBox(dst, iv);
           boxValues.set(cable.dstBox, result);
@@ -1902,7 +1903,7 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
       return new Response("<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", { headers: { "content-type": "text/html" } });
     }
     event(`CNA redirect ${clientIP}`);
-    return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}`, 302);
+    return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}/portal.html`, 302);
   }
 
   if (url.pathname === "/auth") { authenticatedIPs.add(clientIP); return new Response("ok"); }

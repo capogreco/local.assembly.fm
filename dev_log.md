@@ -1508,3 +1508,29 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Events through routers updated graph state correctly but display/touch layers never re-read the values
 - `"rv"` (router value) handler had both calls, so only event-based routing was broken
 
+### "hot" modifier for math boxes
+- Math boxes (`+`, `-`, `*`, `/`, `**`, etc.) now accept `hot` arg: e.g. `** hot`, `* hot`
+- Makes all inlets hot — any inlet receiving a value triggers evaluation
+- Solves cold-inlet problem where changing values on inlet 1 were stored but never triggered re-evaluation
+- Implemented in `isHotInlet()` (graph-core.js) and server-side propagation (server.ts)
+
+### CNA portal escape for Android
+- Captive portal redirect now goes to `/portal.html` landing page instead of directly to synth client
+- Android: uses intent URI to escape CNA webview into default browser, with 500ms fallback to direct navigation
+- iOS: direct link (Safari handles CNA links natively)
+- Needs multi-device testing (flagged in memory)
+
+### cute-sine~ inlet reorder + amplitude convention
+- Reordered cute-sine~ inlets: freq, bright, amplitude (was freq, amplitude, bright)
+- Matches convention across other engines: amplitude is always the rightmost inlet
+- Changed amplitude defaultValue from 0.5 to 0 in processor
+
+### Touch y-axis inversion
+- Touch y output is now 1 at top, 0 at bottom (was inverted)
+
+### --watch fix for non-imported files
+- `gpi-types.js` and `graph-core.js` are loaded via `readTextFile` + `importCjs`, not Deno imports
+- Deno's `--watch` didn't track them — changes required manual server restart
+- Fixed by adding explicit `--watch=server.ts,public/gpi-types.js,public/graph-core.js`
+- Root cause of a confusing bug: inlet reorder in gpi-types wasn't picked up, stale paramNames sent wrong values to engine params
+

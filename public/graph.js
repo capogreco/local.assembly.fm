@@ -233,7 +233,7 @@ function propagateValue(graph, boxId, outletIndex, value) {
       } else {
         // Pure math / passthrough — hot/cold check
         if (dstNode.type === "spigot" && (dstNode.inletValues[1] || 0) <= 0) continue;
-        if (!isHotInlet(dstNode.type, cable.dstInlet)) continue; // cold inlet: stored, no eval
+        if (!isHotInlet(dstNode.type, cable.dstInlet, dstNode.args)) continue; // cold inlet: stored, no eval
 
         const result = evaluateNode(graph, cable.dstBox);
         if (graphDebug) console.log(`  eval box:${cable.dstBox} type:${dstNode.type} inlet[${cable.dstInlet}]=${value} iv=[${dstNode.inletValues}] → ${result}`);
@@ -421,7 +421,7 @@ function processRouterValue(graph, routerId, channel, value) {
         // display/sensor boxes: values stored in inletValues, handled by layer manager
       } else {
         if (node.type === "spigot" && (node.inletValues[1] || 0) <= 0) continue;
-        if (!isHotInlet(node.type, entry.targetInlet)) continue;
+        if (!isHotInlet(node.type, entry.targetInlet, node.args)) continue;
         const result = evaluateNode(graph, entry.targetBox);
         mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, result));
       }

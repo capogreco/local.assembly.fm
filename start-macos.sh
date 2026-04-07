@@ -200,7 +200,7 @@ start_dev() {
     echo ""
 
     cd "$PROJECT_DIR"
-    sudo $(which deno) run -A --unstable-net --watch server.ts
+    sudo $(which deno) run -A --unstable-net --watch=server.ts,public/gpi-types.js,public/graph-core.js server.ts
 }
 
 show_status() {
@@ -286,7 +286,7 @@ case "${1:-}" in
         trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
 
         cd "$PROJECT_DIR"
-        sudo $(which deno) run -A --unstable-net --watch server.ts
+        sudo $(which deno) run -A --unstable-net --watch=server.ts,public/gpi-types.js,public/graph-core.js server.ts
         ;;
     status)
         show_status

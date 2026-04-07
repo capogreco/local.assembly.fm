@@ -734,7 +734,7 @@ const touchCaptureEl = document.getElementById("touch-capture");
 
 function sendTouchValues(e, gate) {
   const x = e.clientX / window.innerWidth;
-  const y = e.clientY / window.innerHeight;
+  const y = 1 - (e.clientY / window.innerHeight);
   for (const voice of voices) {
     if (!voice.graph || touchBoxId === null) continue;
     const updates = {};

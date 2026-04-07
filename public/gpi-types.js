@@ -538,8 +538,8 @@ const BOX_TYPES = {
   "cute-sine~":   { zone: "any", description: "Additive sine oscillator with brightness. 6 harmonics crossfaded by bright param.",
                     inlets: [
                       { name: "freq", type: "number", description: "Frequency in Hz" },
-                      { name: "amplitude", type: "number", description: "Output level (0-1)" },
-                      { name: "bright", type: "number", description: "Brightness (0=fundamental only, 1=all 6 harmonics)" }],
+                      { name: "bright", type: "number", description: "Brightness (0=fundamental only, 1=all 6 harmonics)" },
+                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
   "noise-engine~": { zone: "any", description: "Filtered noise generator.",
                     inlets: [

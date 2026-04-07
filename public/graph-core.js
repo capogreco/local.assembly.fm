@@ -188,6 +188,7 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
 // --- Pure evaluation (stateless math boxes) ---
 
 function evaluatePure(type, args, iv) {
+  args = args.filter(a => a !== "hot");
   const a = iv[0] || 0;
   const b = iv[1] !== undefined ? iv[1] : parseFloat(args[0]) || 0;
   switch (type) {
@@ -506,8 +507,11 @@ function firesEvent(type, inlet) {
 }
 
 // Hot inlets trigger evaluation; cold inlets just store
-function isHotInlet(type, inlet) {
-  return inlet === 0; // inlet 0 always hot, others cold
+// Pass args string to check for "hot" modifier (e.g. "** hot", "* hot")
+function isHotInlet(type, inlet, args) {
+  if (inlet === 0) return true;
+  if (args && /\bhot\b/.test(args)) return true;
+  return false;
 }
 
 // Event-typed outlets: tick values are display-only, not propagated
