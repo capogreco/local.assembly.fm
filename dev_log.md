@@ -1582,3 +1582,7 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Fixed by adding explicit `--watch=server.ts,public/gpi-types.js,public/graph-core.js`
 - Root cause of a confusing bug: inlet reorder in gpi-types wasn't picked up, stale paramNames sent wrong values to engine params
 
+### Next up (planned, not started)
+- **server.ts split** into server.ts (~600 lines), eval-engine.ts (~800 lines), hardware.ts (~500 lines). Plan exists at `.claude/plans/gleaming-singing-eagle.md`. Boundaries are clean (no circular deps), but the extraction is mechanically risky due to deeply intertwined state Maps. Tackle fresh with incremental testing.
+- **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
+- **CNA portal escape** needs multi-device testing (Chrome Android, Samsung, iOS)
