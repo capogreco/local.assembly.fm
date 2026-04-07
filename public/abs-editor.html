@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>abstraction editor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a1a; color: #e0e0e0;
+      font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      height: 100dvh; overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; cursor: default; }
+    #tooltip {
+      position: fixed; background: #333; color: #ccc;
+      font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      font-size: 11px; padding: 6px 8px; max-width: 280px; line-height: 1.4;
+      pointer-events: none; display: none; z-index: 20;
+    }
+    #tooltip .tt-name { color: #e0e0e0; }
+    #tooltip .tt-type { color: #888; }
+    #box-input {
+      position: fixed; background: transparent; border: none; outline: none;
+      color: #e0e0e0; font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      font-size: 12px; padding: 0; display: none; z-index: 10;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <input id="box-input" type="text" autocomplete="off" spellcheck="false">
+  <div id="tooltip"></div>
+  <script type="module" src="abs-editor.js"></script>
+</body>
+</html>

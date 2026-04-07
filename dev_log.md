@@ -1550,6 +1550,17 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Reject outlet (last) was incorrectly typed as "event" due to `getOutletDef` repeating the single dynamic outlet definition
 - Fixed: match outlets are events, reject outlet is number
 
+### PatchEditor extraction + abstraction editor
+- Extracted PatchEditor class (~1500 lines) from ctrl.js into `patch-editor.js` as reusable ES module
+- ctrl.js slimmed from ~2400 to ~800 lines — imports PatchEditor + constants + helpers
+- Three coupling points resolved via constructor options: `onSend`, `onOpenAbstraction`, `tooltipEl`
+- New standalone `abs-editor.html` + `abs-editor.js` — opens in separate browser window via Shift+N or double-click on abstraction instance
+- Clean import graph: `gpi-types.js ← patch-editor.js ← ctrl.js / abs-editor.js`
+- Cross-window clipboard via localStorage (copy in ctrl, paste in abs-editor)
+- Abstraction editor: no synth/ctrl membrane, own keyboard shortcuts, Cmd+S saves, beforeunload dirty prompt
+- Server: iterative abstraction expansion (nesting up to 16 levels), $0/$1/$2 argument substitution, zone inheritance (cloned boxes get Y of instance), error reporting to ctrl client, synthBorderY stripped on save
+- Server: `.html` added to static file extension whitelist
+
 ### --watch fix for non-imported files
 - `gpi-types.js` and `graph-core.js` are loaded via `readTextFile` + `importCjs`, not Deno imports
 - Deno's `--watch` didn't track them — changes required manual server restart

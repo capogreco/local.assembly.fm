@@ -1417,119 +1417,135 @@ function removeCablesForBox(boxId: number): void {
 
 // --- Abstraction expansion ---
 
-function expandAbstractions(): number {
-  let idOffset = 100000;
+function expandAbstractions(): string[] {
+  const errors: string[] = [];
+  const MAX_DEPTH = 16;
+  let globalIdCounter = 100000;
   let nextCableId = patchNextId + 50000;
 
-  for (const [boxId, box] of [...boxes]) {
-    const absName = boxTypeName(box.text);
-    const absDef = loadedAbstractions.get(absName);
-    if (!absDef) continue;
+  for (let depth = 0; depth < MAX_DEPTH; depth++) {
+    let expanded = 0;
 
-    // Build inlet/outlet index → internal box mapping
-    const inletMap = new Map<number, number>();   // inlet index → local box id
-    const outletMap = new Map<number, number>();  // outlet index → local box id
+    for (const [boxId, box] of [...boxes]) {
+      const absName = boxTypeName(box.text);
+      const absDef = loadedAbstractions.get(absName);
+      if (!absDef) continue;
 
-    for (const [localId, intBox] of absDef.boxes) {
-      const type = boxTypeName(intBox.text);
-      const idx = parseInt(intBox.text.split(/\s+/)[1]) || 0;
-      if (type === "inlet") inletMap.set(idx, localId);
-      if (type === "outlet") outletMap.set(idx, localId);
-    }
+      // Parse arguments: "scale-note 48 7" → args = ["48", "7"]
+      const args = box.text.split(/\s+/).slice(1);
+      const instanceId = String(globalIdCounter);  // $0
 
-    // Clone internal boxes (excluding inlet/outlet boxes)
-    const localToGlobal = new Map<number, number>();
-    for (const [localId, intBox] of absDef.boxes) {
-      const type = boxTypeName(intBox.text);
-      if (type === "inlet" || type === "outlet") continue;
+      // Build inlet/outlet index → internal box mapping
+      const inletMap = new Map<number, number>();
+      const outletMap = new Map<number, number>();
 
-      const globalId = localId + idOffset;
-      localToGlobal.set(localId, globalId);
-      // Clone box with position offset from abstraction instance
-      const clonedBox = { ...intBox, x: intBox.x, y: intBox.y };
-      const p = getBoxPorts(clonedBox.text);
-      clonedBox.inlets = p.inlets;
-      clonedBox.outlets = p.outlets;
-      boxes.set(globalId, clonedBox);
-    }
-
-    // Clone internal cables (skip those touching inlet/outlet)
-    for (const [, cable] of absDef.cables) {
-      const srcBox = absDef.boxes.get(cable.srcBox);
-      const dstBox = absDef.boxes.get(cable.dstBox);
-      const srcType = srcBox ? boxTypeName(srcBox.text) : "";
-      const dstType = dstBox ? boxTypeName(dstBox.text) : "";
-
-      if (srcType === "inlet" || dstType === "outlet") continue;
-
-      const srcGlobal = localToGlobal.get(cable.srcBox);
-      const dstGlobal = localToGlobal.get(cable.dstBox);
-      if (srcGlobal === undefined || dstGlobal === undefined) continue;
-
-      cables.set(nextCableId++, {
-        srcBox: srcGlobal,
-        srcOutlet: cable.srcOutlet,
-        dstBox: dstGlobal,
-        dstInlet: cable.dstInlet,
-      });
-    }
-
-    // Rewire external cables through inlet/outlet
-    for (const [cableId, cable] of [...cables]) {
-      if (cable.dstBox === boxId) {
-        // Cable INTO abstraction: find what inlet N connects to
-        const inletLocalId = inletMap.get(cable.dstInlet);
-        if (inletLocalId === undefined) {
-          cables.delete(cableId);
-          continue;
-        }
-        // Find cables from inlet box to internal boxes
-        for (const [, intCable] of absDef.cables) {
-          if (intCable.srcBox === inletLocalId) {
-            const targetGlobal = localToGlobal.get(intCable.dstBox);
-            if (targetGlobal !== undefined) {
-              cables.set(nextCableId++, {
-                srcBox: cable.srcBox,
-                srcOutlet: cable.srcOutlet,
-                dstBox: targetGlobal,
-                dstInlet: intCable.dstInlet,
-              });
-            }
-          }
-        }
-        cables.delete(cableId);
+      for (const [localId, intBox] of absDef.boxes) {
+        const type = boxTypeName(intBox.text);
+        const idx = parseInt(intBox.text.split(/\s+/)[1]) || 0;
+        if (type === "inlet") inletMap.set(idx, localId);
+        if (type === "outlet") outletMap.set(idx, localId);
       }
 
-      if (cable.srcBox === boxId) {
-        // Cable FROM abstraction: find what connects to outlet N
-        const outletLocalId = outletMap.get(cable.srcOutlet);
-        if (outletLocalId === undefined) {
-          cables.delete(cableId);
-          continue;
+      // Clone internal boxes (excluding inlet/outlet boxes)
+      const localToGlobal = new Map<number, number>();
+      for (const [localId, intBox] of absDef.boxes) {
+        const type = boxTypeName(intBox.text);
+        if (type === "inlet" || type === "outlet") continue;
+
+        const globalId = globalIdCounter++;
+        localToGlobal.set(localId, globalId);
+
+        // Argument substitution: $0=instanceId, $1=args[0], $2=args[1], ...
+        let text = intBox.text;
+        text = text.replace(/\$0/g, instanceId);
+        for (let i = 0; i < args.length; i++) {
+          text = text.replace(new RegExp("\\$" + (i + 1), "g"), args[i]);
         }
-        for (const [, intCable] of absDef.cables) {
-          if (intCable.dstBox === outletLocalId) {
-            const sourceGlobal = localToGlobal.get(intCable.srcBox);
-            if (sourceGlobal !== undefined) {
-              cables.set(nextCableId++, {
-                srcBox: sourceGlobal,
-                srcOutlet: intCable.srcOutlet,
-                dstBox: cable.dstBox,
-                dstInlet: cable.dstInlet,
-              });
+
+        // Zone inheritance: cloned boxes get Y of instance box
+        const clonedBox = { ...intBox, text, x: intBox.x, y: box.y };
+        const p = getBoxPorts(clonedBox.text);
+        clonedBox.inlets = p.inlets;
+        clonedBox.outlets = p.outlets;
+        boxes.set(globalId, clonedBox);
+      }
+
+      // Clone internal cables (skip those touching inlet/outlet)
+      for (const [, cable] of absDef.cables) {
+        const srcBox = absDef.boxes.get(cable.srcBox);
+        const dstBox = absDef.boxes.get(cable.dstBox);
+        const srcType = srcBox ? boxTypeName(srcBox.text) : "";
+        const dstType = dstBox ? boxTypeName(dstBox.text) : "";
+        if (srcType === "inlet" || dstType === "outlet") continue;
+
+        const srcGlobal = localToGlobal.get(cable.srcBox);
+        const dstGlobal = localToGlobal.get(cable.dstBox);
+        if (srcGlobal === undefined || dstGlobal === undefined) continue;
+
+        cables.set(nextCableId++, {
+          srcBox: srcGlobal, srcOutlet: cable.srcOutlet,
+          dstBox: dstGlobal, dstInlet: cable.dstInlet,
+        });
+      }
+
+      // Rewire external cables through inlet/outlet
+      for (const [cableId, cable] of [...cables]) {
+        if (cable.dstBox === boxId) {
+          const inletLocalId = inletMap.get(cable.dstInlet);
+          if (inletLocalId === undefined) {
+            errors.push(`${absName}: cable targets inlet ${cable.dstInlet}, but only inlets 0-${inletMap.size - 1} exist`);
+            cables.delete(cableId);
+            continue;
+          }
+          for (const [, intCable] of absDef.cables) {
+            if (intCable.srcBox === inletLocalId) {
+              const targetGlobal = localToGlobal.get(intCable.dstBox);
+              if (targetGlobal !== undefined) {
+                cables.set(nextCableId++, {
+                  srcBox: cable.srcBox, srcOutlet: cable.srcOutlet,
+                  dstBox: targetGlobal, dstInlet: intCable.dstInlet,
+                });
+              }
             }
           }
+          cables.delete(cableId);
         }
-        cables.delete(cableId);
+
+        if (cable.srcBox === boxId) {
+          const outletLocalId = outletMap.get(cable.srcOutlet);
+          if (outletLocalId === undefined) {
+            errors.push(`${absName}: cable from outlet ${cable.srcOutlet}, but only outlets 0-${outletMap.size - 1} exist`);
+            cables.delete(cableId);
+            continue;
+          }
+          for (const [, intCable] of absDef.cables) {
+            if (intCable.dstBox === outletLocalId) {
+              const sourceGlobal = localToGlobal.get(intCable.srcBox);
+              if (sourceGlobal !== undefined) {
+                cables.set(nextCableId++, {
+                  srcBox: sourceGlobal, srcOutlet: intCable.srcOutlet,
+                  dstBox: cable.dstBox, dstInlet: cable.dstInlet,
+                });
+              }
+            }
+          }
+          cables.delete(cableId);
+        }
       }
+
+      boxes.delete(boxId);
+      expanded++;
     }
 
-    // Remove the abstraction instance box
-    boxes.delete(boxId);
-    idOffset += 10000;
+    if (expanded === 0) break;
+
+    // Cycle detection: check if any remaining abstraction was just expanded
+    if (depth === MAX_DEPTH - 1) {
+      errors.push("Abstraction nesting limit reached (16 levels) — possible circular reference");
+    }
   }
 
-  return nextCableId;
+  return errors;
 }
 
 // --- Apply (replaces entire graph state from ctrl) ---
@@ -1551,7 +1567,11 @@ function handleApply(msg: any): void {
   if (msg.synthBorderY !== undefined) synthBorderY = msg.synthBorderY;
 
   // expand abstractions inline
-  expandAbstractions();
+  const absErrors = expandAbstractions();
+  if (absErrors.length > 0) {
+    for (const err of absErrors) console.log(`\x1b[33m⚠ ${err}\x1b[0m`);
+    sendCtrl({ type: "errors", errors: absErrors });
+  }
 
   // rebuild ctrl evaluation
   initAllBoxState();
@@ -1959,7 +1979,7 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
     return handleSynthWs(req, info);
   }
   const ext = url.pathname.split(".").pop()?.toLowerCase();
-  if (ext && ["js", "css", "json", "png", "ico"].includes(ext)) return serveFile(url.pathname);
+  if (ext && ["html", "js", "css", "json", "png", "ico"].includes(ext)) return serveFile(url.pathname);
   return serveFile("/index.html");
 }
 
@@ -2092,8 +2112,9 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
   if (req.method === "PUT" && url.pathname.startsWith("/abstractions/")) {
     const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
     if (!name) return new Response("Invalid name", { status: 400 });
-    const data = await req.text();
-    await Deno.writeTextFile(`${ABSTRACTIONS_DIR}/${name}.json`, data);
+    const raw = JSON.parse(await req.text());
+    delete raw.synthBorderY;
+    await Deno.writeTextFile(`${ABSTRACTIONS_DIR}/${name}.json`, JSON.stringify(raw));
     event(`saved abstraction: ${name}`);
     await loadAbstractions();  // Reload registry
     return new Response(JSON.stringify({ ok: true, name }), { headers });
