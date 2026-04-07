@@ -1550,6 +1550,14 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Reject outlet (last) was incorrectly typed as "event" due to `getOutletDef` repeating the single dynamic outlet definition
 - Fixed: match outlets are events, reject outlet is number
 
+### Engine factory extraction
+- Extracted shared engine creation code into `engine-factory.js` (~255 lines)
+- Eliminates ~400 lines of duplication between ctrl.js and main.js
+- ENGINES, SIGNAL_WORKLETS, MATH_OPS, createNativeNode, createSignalWorklet, createMathNode, createEngine, getEngineOutput — all defined once
+- Caller-specific nodes (adc~ for ctrl, scope~ for synth) handled via specialHandler callback
+- IIFE wrapper avoids global scope pollution; access via window._engineFactory
+- Adding a new engine type is now a single-file change
+
 ### PatchEditor extraction + abstraction editor
 - Extracted PatchEditor class (~1500 lines) from ctrl.js into `patch-editor.js` as reusable ES module
 - ctrl.js slimmed from ~2400 to ~800 lines — imports PatchEditor + constants + helpers

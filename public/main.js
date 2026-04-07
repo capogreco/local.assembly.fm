@@ -30,246 +30,34 @@ let N = countDisplay
   ? parseInt(new URLSearchParams(location.search).get("n")) || parseInt(countDisplay.textContent) || 6
   : 1;
 
-const ENGINES = {
-  "formant~":          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
-  "karplus-strong~":   { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
-  "sine-osc~":         { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
-  "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
-  "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
-  "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
-  "cute-sine~":        { module: "cute-sine-processor.js", worklet: "cute-sine-processor", channels: 1 },
-};
+// Engine factory loaded via engine-factory-global.js script tag before main.js
+// Provides: window._engineFactory with ENGINES, BASE_NATIVE_NODES, MATH_OPS, createEngine, getEngineOutput
+const { ENGINES, BASE_NATIVE_NODES, MATH_OPS, createEngine: _createEngine, getEngineOutput } = window._engineFactory;
+
+const NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "scope~"]);
+
+// scope~ special handler — creates per-inlet analyser nodes for visualization
+async function scopeHandler(ctx, type, args) {
+  if (type !== "scope~") return null;
+  const makeAnalyser = () => { const a = ctx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0; return a; };
+  const analyserX = makeAnalyser(), analyserY = makeAnalyser(), analyserZ = makeAnalyser();
+  const analyserH = makeAnalyser(), analyserS = makeAnalyser(), analyserB = makeAnalyser();
+  const dummy = ctx.createGain();
+  dummy.gain.value = 0;
+  analyserX.connect(dummy); analyserY.connect(dummy); analyserZ.connect(dummy);
+  analyserH.connect(dummy); analyserS.connect(dummy); analyserB.connect(dummy);
+  dummy.connect(ctx.destination);
+  return { type, node: dummy, paramMap: {},
+           audioInputs: [analyserX, analyserY, analyserZ, analyserH, analyserS, analyserB],
+           scopeAnalysers: { analyserX, analyserY, analyserZ, analyserH, analyserS, analyserB } };
+}
 
 async function createEngine(type, args) {
-  // Native Web Audio nodes (oscillatorNode, gainNode, etc. + sig~, osc~, noise~)
-  if (NATIVE_NODES.has(type)) return await createNativeNode(type, args);
-  // Signal worklets (lfo~, phasor~, ar~, slew~)
-  if (SIGNAL_WORKLETS[type]) return await createSignalWorklet(type, args);
-  // Audio-rate math (+~, *~, -~, /~, scale~, clip~, mtof~)
-  if (MATH_OPS.has(type)) return await createMathNode(type, args);
-
-  const def = ENGINES[type];
-  if (!def) return null;
-  if (!workletModulesLoaded.has(def.module)) {
-    await audioCtx.audioWorklet.addModule(def.module);
-    workletModulesLoaded.add(def.module);
-  }
-  const opts = def.channels > 1 ? { outputChannelCount: [def.channels] } : {};
-  const worklet = new AudioWorkletNode(audioCtx, def.worklet, opts);
-  if (def.channels > 1) {
-    const splitter = audioCtx.createChannelSplitter(def.channels);
-    worklet.connect(splitter);
-    const out = audioCtx.createGain();
-    splitter.connect(out, 0);
-    // DO NOT connect to destination — audio topology wires this
-    const engine = { type, worklet, splitter, out };
-    if (type === "formant~") {
-      // Create GainNodes for F1/F2/F3 channels as routable outputs
-      const outF1 = audioCtx.createGain(); splitter.connect(outF1, 1);
-      const outF2 = audioCtx.createGain(); splitter.connect(outF2, 2);
-      const outF3 = audioCtx.createGain(); splitter.connect(outF3, 3);
-      engine.outputs = [out, outF1, outF2, outF3];
-    }
-    return engine;
-  }
-  // DO NOT connect to destination — audio topology wires this
-  worklet.port.onmessage = (e) => {
-    if (e.data?.type === "debug") console.log(`[${type}] debug:`, e.data);
-  };
-  return { type, worklet };
+  return _createEngine(audioCtx, workletModulesLoaded, NATIVE_NODES, type, args, scopeHandler);
 }
 
-function getEngineOutput(engine, outletIndex) {
-  if (engine.outputs && outletIndex !== undefined) return engine.outputs[outletIndex];
-  return engine.out || engine.node || engine.worklet;
-}
 
-const NATIVE_NODES = new Set([
-  "oscillatorNode~", "gainNode~", "biquadFilterNode~",
-  "const~", "sig~", "osc~", "noise~", "scope~",
-  "send~", "s~", "receive~", "r~", "throw~", "catch~",
-]);
 
-const SIGNAL_WORKLETS = {
-  "chaos~":   { module: "chaos-processor.js",   worklet: "chaos-processor" },
-  "lfo~":     { module: "lfo-processor.js",     worklet: "lfo-processor" },
-  "phasor~":  { module: "phasor-processor.js",  worklet: "phasor-processor" },
-  "ar~":      { module: "ar-processor.js",      worklet: "ar-processor" },
-  "adsr~":    { module: "adsr-processor.js",    worklet: "adsr-processor" },
-  "sigmoid~": { module: "sigmoid-processor.js", worklet: "sigmoid-processor" },
-  "cosine~":  { module: "cosine-processor.js",  worklet: "cosine-processor" },
-  "ramp~":    { module: "ramp-processor.js",    worklet: "ramp-processor" },
-  "step~":    { module: "step-processor.js",    worklet: "step-processor" },
-  "trig~":    { module: "trig-processor.js",    worklet: "trig-processor" },
-  "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
-  "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
-};
-
-const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~"]);
-
-async function createNativeNode(type, args) {
-  let node, paramMap = {};
-  const tokens = (args || "").split(/\s+/).filter(Boolean);
-
-  if (type === "oscillatorNode~") {
-    node = audioCtx.createOscillator();
-    node.type = tokens[0] || "sine";
-    node.start();
-    paramMap = { frequency: node.frequency, detune: node.detune };
-  } else if (type === "gainNode~") {
-    node = audioCtx.createGain();
-    node.gain.value = parseFloat(tokens[0]) || 1;
-    paramMap = { gain: node.gain };
-  } else if (type === "biquadFilterNode~") {
-    node = audioCtx.createBiquadFilter();
-    node.type = tokens[0] || "lowpass";
-    paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
-  } else if (type === "const~") {
-    node = audioCtx.createConstantSource();
-    node.offset.value = parseFloat(tokens[0]) || 0;
-    node.start();
-    return { type, node, paramMap: {} };
-  } else if (type === "sig~") {
-    node = audioCtx.createConstantSource();
-    node.offset.value = 0;
-    node.start();
-    const portaTime = parseFloat(tokens[0]) || 0;
-    paramMap = { value: node.offset };
-    return { type, node, paramMap, portaTime };
-  } else if (type === "osc~") {
-    node = audioCtx.createOscillator();
-    node.frequency.value = parseFloat(tokens[0]) || 1;
-    node.type = tokens[1] || "sine";
-    node.start();
-    paramMap = { frequency: node.frequency, detune: node.detune };
-  } else if (type === "scope~") {
-    // scope~ creates individual analyser nodes — one per audio inlet
-    // Each inlet gets its own AnalyserNode; audio cables connect directly to them
-    const makeAnalyser = () => { const a = audioCtx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0; return a; };
-    const analyserX = makeAnalyser(), analyserY = makeAnalyser(), analyserZ = makeAnalyser();
-    const analyserH = makeAnalyser(), analyserS = makeAnalyser(), analyserB = makeAnalyser();
-    // Silent connection to destination keeps the audio graph alive
-    // (Web Audio won't process nodes unless they connect to destination)
-    const dummy = audioCtx.createGain();
-    dummy.gain.value = 0;
-    analyserX.connect(dummy); analyserY.connect(dummy); analyserZ.connect(dummy);
-    analyserH.connect(dummy); analyserS.connect(dummy); analyserB.connect(dummy);
-    dummy.connect(audioCtx.destination);
-    return { type, node: dummy, paramMap: {},
-             audioInputs: [analyserX, analyserY, analyserZ, analyserH, analyserS, analyserB],
-             scopeAnalysers: { analyserX, analyserY, analyserZ, analyserH, analyserS, analyserB } };
-  } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
-          || type === "throw~" || type === "catch~") {
-    // Wireless audio: pass-through GainNode (unity gain)
-    node = audioCtx.createGain();
-    return { type, node, paramMap: {} };
-  } else if (type === "noise~") {
-    const def = SIGNAL_WORKLETS["noise~-worklet"];
-    if (!workletModulesLoaded.has(def.module)) {
-      await audioCtx.audioWorklet.addModule(def.module);
-      workletModulesLoaded.add(def.module);
-    }
-    node = new AudioWorkletNode(audioCtx, def.worklet);
-    return { type, node, worklet: node, paramMap: {} };
-  } else {
-    return null;
-  }
-
-  return { type, node, paramMap };
-}
-
-async function createSignalWorklet(type, args) {
-  const def = SIGNAL_WORKLETS[type];
-  if (!def) return null;
-  if (!workletModulesLoaded.has(def.module)) {
-    await audioCtx.audioWorklet.addModule(def.module);
-    workletModulesLoaded.add(def.module);
-  }
-  const tokens = (args || "").split(/\s+/).filter(Boolean);
-
-  // chaos~ needs 3-channel output + splitter
-  if (type === "chaos~") {
-    const system = tokens[0] || "rossler";
-    const node = new AudioWorkletNode(audioCtx, def.worklet, {
-      outputChannelCount: [3],
-      processorOptions: { system },
-    });
-    const splitter = audioCtx.createChannelSplitter(3);
-    node.connect(splitter);
-    const outX = audioCtx.createGain(); splitter.connect(outX, 0);
-    const outY = audioCtx.createGain(); splitter.connect(outY, 1);
-    const outZ = audioCtx.createGain(); splitter.connect(outZ, 2);
-    const paramMap = {};
-    for (const [name, param] of node.parameters) paramMap[name] = param;
-    node.port.onmessage = (e) => { if (e.data?.type === "debug") console.log(`[${type}] ${e.data.msg}`); };
-    return { type, worklet: node, splitter, outputs: [outX, outY, outZ], paramMap };
-  }
-
-  const node = new AudioWorkletNode(audioCtx, def.worklet);
-
-  const paramMap = {};
-  for (const [name, param] of node.parameters) paramMap[name] = param;
-
-  // Set initial values from args
-  if (type === "lfo~") {
-    if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
-  } else if (type === "phasor~") {
-    if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
-  } else if (type === "ar~") {
-    if (tokens[0]) node.parameters.get("attack")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("release")?.setValueAtTime(parseFloat(tokens[1]), 0);
-  } else if (type === "adsr~") {
-    if (tokens[0]) node.parameters.get("a")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("d")?.setValueAtTime(parseFloat(tokens[1]), 0);
-    if (tokens[2]) node.parameters.get("s")?.setValueAtTime(parseFloat(tokens[2]), 0);
-    if (tokens[3]) node.parameters.get("r")?.setValueAtTime(parseFloat(tokens[3]), 0);
-  } else if (type === "sigmoid~") {
-    if (tokens[0]) node.parameters.get("start")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("end")?.setValueAtTime(parseFloat(tokens[1]), 0);
-    if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0);
-    if (tokens[3]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[3]), 0);
-    if (tokens[4]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[4]), 0);
-    const modeToken = tokens.find(t => t === "interrupt" || t === "respect");
-    if (modeToken) node.port.postMessage({ mode: modeToken });
-  } else if (type === "cosine~") {
-    if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[1]), 0);
-    if (tokens[2]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[2]), 0);
-    if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0);
-    const modeToken = tokens.find(t => t === "interrupt" || t === "respect");
-    if (modeToken) node.port.postMessage({ mode: modeToken });
-  } else if (type === "ramp~") {
-    if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0);
-    if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0);
-    if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0);
-  } else if (type === "step~") {
-    if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0);
-  } else if (type === "trig~") {
-    if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0);
-    if (tokens[1]) node.parameters.get("samples")?.setValueAtTime(parseFloat(tokens[1]), 0);
-  } else if (type === "slew~") {
-    if (tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
-  }
-
-  return { type, node, worklet: node, paramMap };
-}
-
-async function createMathNode(type, args) {
-  const op = type.replace("~", "");
-  if (!workletModulesLoaded.has("math-processor.js")) {
-    await audioCtx.audioWorklet.addModule("math-processor.js");
-    workletModulesLoaded.add("math-processor.js");
-  }
-  const tokens = (args || "").split(/\s+/).filter(Boolean);
-  const arg = parseFloat(tokens[0]) || (op === "*" || op === "/" || op === "**" ? 1 : 0);
-  const node = new AudioWorkletNode(audioCtx, "math-processor", {
-    numberOfInputs: 2,
-    processorOptions: { op, arg },
-  });
-  return { type, node, worklet: node, paramMap: {} };
-}
 
 function buildAudioTopology(voice, patch) {
   const audioCables = patch.audioCables || [];

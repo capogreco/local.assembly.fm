@@ -8,6 +8,7 @@
 
 import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
 import { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef } from "./patch-editor.js";
+const { ENGINES, BASE_NATIVE_NODES, createEngine: _createEngine, getEngineOutput } = window._engineFactory;
 
 // DOM elements
 const canvas = document.getElementById("c");
@@ -30,38 +31,7 @@ let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
 
-const ENGINES = {
-  "formant~":          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
-  "karplus-strong~":   { module: "ks-processor.js",    worklet: "ks-processor",     channels: 1 },
-  "sine-osc~":         { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
-  "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
-  "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
-  "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
-  "cute-sine~":        { module: "cute-sine-processor.js", worklet: "cute-sine-processor", channels: 1 },
-};
-
-const CTRL_NATIVE_NODES = new Set([
-  "oscillatorNode~", "gainNode~", "biquadFilterNode~",
-  "const~", "sig~", "osc~", "noise~", "adc~",
-  "send~", "s~", "receive~", "r~", "throw~", "catch~",
-]);
-
-const CTRL_SIGNAL_WORKLETS = {
-  "chaos~":   { module: "chaos-processor.js",   worklet: "chaos-processor" },
-  "lfo~":     { module: "lfo-processor.js",     worklet: "lfo-processor" },
-  "phasor~":  { module: "phasor-processor.js",  worklet: "phasor-processor" },
-  "ar~":      { module: "ar-processor.js",      worklet: "ar-processor" },
-  "adsr~":    { module: "adsr-processor.js",    worklet: "adsr-processor" },
-  "sigmoid~": { module: "sigmoid-processor.js", worklet: "sigmoid-processor" },
-  "cosine~":  { module: "cosine-processor.js",  worklet: "cosine-processor" },
-  "ramp~":    { module: "ramp-processor.js",    worklet: "ramp-processor" },
-  "step~":    { module: "step-processor.js",    worklet: "step-processor" },
-  "trig~":    { module: "trig-processor.js",    worklet: "trig-processor" },
-  "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
-  "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
-};
-
-const CTRL_MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~"]);
+const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~"]);
 
 async function initCtrlAudio() {
   if (ctrlAudioCtx) return;
@@ -72,146 +42,32 @@ async function initCtrlAudio() {
   ctrlAudioCtx.destination.channelInterpretation = "discrete";
 }
 
-// Mirror of main.js createNativeNode but using ctrlAudioCtx
-async function createCtrlNativeNode(type, args) {
+// adc~ special handler — creates audio input from shared splitter
+async function adcHandler(ctx, type, args) {
+  if (type !== "adc~") return null;
   const tokens = (args || "").split(/\s+/).filter(Boolean);
-  let node, paramMap = {};
-  if (type === "oscillatorNode~") {
-    node = ctrlAudioCtx.createOscillator(); node.type = tokens[0] || "sine"; node.start();
-    paramMap = { frequency: node.frequency, detune: node.detune };
-  } else if (type === "gainNode~") {
-    node = ctrlAudioCtx.createGain(); node.gain.value = parseFloat(tokens[0]) || 1;
-    paramMap = { gain: node.gain };
-  } else if (type === "biquadFilterNode~") {
-    node = ctrlAudioCtx.createBiquadFilter(); node.type = tokens[0] || "lowpass";
-    paramMap = { frequency: node.frequency, Q: node.Q, gain: node.gain, detune: node.detune };
-  } else if (type === "const~") {
-    node = ctrlAudioCtx.createConstantSource(); node.offset.value = parseFloat(tokens[0]) || 0; node.start();
-    return { type, node, paramMap: {} };
-  } else if (type === "sig~") {
-    node = ctrlAudioCtx.createConstantSource(); node.offset.value = 0; node.start();
-    const portaTime = parseFloat(tokens[0]) || 0;
-    return { type, node, paramMap: { value: node.offset }, portaTime };
-  } else if (type === "osc~") {
-    node = ctrlAudioCtx.createOscillator(); node.frequency.value = parseFloat(tokens[0]) || 1;
-    node.type = tokens[1] || "sine"; node.start();
-    paramMap = { frequency: node.frequency, detune: node.detune };
-  } else if (type === "noise~") {
-    const def = CTRL_SIGNAL_WORKLETS["noise~-worklet"];
-    if (!ctrlWorkletModulesLoaded.has(def.module)) {
-      await ctrlAudioCtx.audioWorklet.addModule(def.module); ctrlWorkletModulesLoaded.add(def.module);
+  if (!ctrlInputSource) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: { ideal: 8 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+      ctrlInputSource = ctx.createMediaStreamSource(stream);
+      const channelCount = ctrlInputSource.channelCount || 2;
+      ctrlInputSplitter = ctx.createChannelSplitter(channelCount);
+      ctrlInputSource.connect(ctrlInputSplitter);
+    } catch (err) {
+      console.error("adc~ failed to get audio input:", err);
+      return null;
     }
-    node = new AudioWorkletNode(ctrlAudioCtx, def.worklet);
-    return { type, node, worklet: node, paramMap: {} };
-  } else if (type === "adc~") {
-    // Audio input — tap from shared input splitter
-    if (!ctrlInputSource) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: { ideal: 8 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-        });
-        ctrlInputSource = ctrlAudioCtx.createMediaStreamSource(stream);
-        const channelCount = ctrlInputSource.channelCount || 2;
-        ctrlInputSplitter = ctrlAudioCtx.createChannelSplitter(channelCount);
-        ctrlInputSource.connect(ctrlInputSplitter);
-      } catch (err) {
-        console.error("adc~ failed to get audio input:", err);
-        return null;
-      }
-    }
-    const ch = (parseInt(tokens[0]) || 1) - 1; // 1-indexed to 0-indexed
-    const node = ctrlAudioCtx.createGain();
-    try { ctrlInputSplitter.connect(node, ch); } catch { ctrlInputSplitter.connect(node, 0); }
-    return { type, node, paramMap: {} };
-  } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
-          || type === "throw~" || type === "catch~") {
-    node = ctrlAudioCtx.createGain();
-    return { type, node, paramMap: {} };
-  } else { return null; }
-  return { type, node, paramMap };
+  }
+  const ch = (parseInt(tokens[0]) || 1) - 1;
+  const node = ctx.createGain();
+  try { ctrlInputSplitter.connect(node, ch); } catch { ctrlInputSplitter.connect(node, 0); }
+  return { type, node, paramMap: {} };
 }
 
-async function createCtrlSignalWorklet(type, args) {
-  const def = CTRL_SIGNAL_WORKLETS[type];
-  if (!def) return null;
-  if (!ctrlWorkletModulesLoaded.has(def.module)) {
-    await ctrlAudioCtx.audioWorklet.addModule(def.module); ctrlWorkletModulesLoaded.add(def.module);
-  }
-  const tokens = (args || "").split(/\s+/).filter(Boolean);
-  if (type === "chaos~") {
-    const system = tokens[0] || "rossler";
-    const node = new AudioWorkletNode(ctrlAudioCtx, def.worklet, {
-      outputChannelCount: [3], processorOptions: { system },
-    });
-    const splitter = ctrlAudioCtx.createChannelSplitter(3);
-    node.connect(splitter);
-    const outX = ctrlAudioCtx.createGain(); splitter.connect(outX, 0);
-    const outY = ctrlAudioCtx.createGain(); splitter.connect(outY, 1);
-    const outZ = ctrlAudioCtx.createGain(); splitter.connect(outZ, 2);
-    const paramMap = {};
-    for (const [name, param] of node.parameters) paramMap[name] = param;
-    return { type, worklet: node, splitter, outputs: [outX, outY, outZ], paramMap };
-  }
-  const node = new AudioWorkletNode(ctrlAudioCtx, def.worklet);
-  const paramMap = {};
-  for (const [name, param] of node.parameters) paramMap[name] = param;
-  // Init from args (same as main.js)
-  if (type === "lfo~" && tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
-  else if (type === "phasor~" && tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
-  else if (type === "ar~") { if (tokens[0]) node.parameters.get("attack")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("release")?.setValueAtTime(parseFloat(tokens[1]), 0); }
-  else if (type === "adsr~") { if (tokens[0]) node.parameters.get("a")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("d")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("s")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("r")?.setValueAtTime(parseFloat(tokens[3]), 0); }
-  else if (type === "sigmoid~") { if (tokens[0]) node.parameters.get("start")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("end")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[3]), 0); if (tokens[4]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[4]), 0); }
-  else if (type === "cosine~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duty")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0); }
-  else if (type === "ramp~") { if (tokens[0]) node.parameters.get("from")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("to")?.setValueAtTime(parseFloat(tokens[1]), 0); if (tokens[2]) node.parameters.get("duration")?.setValueAtTime(parseFloat(tokens[2]), 0); if (tokens[3]) node.parameters.get("curve")?.setValueAtTime(parseFloat(tokens[3]), 0); }
-  else if (type === "step~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("length")?.setValueAtTime(parseFloat(tokens[1]), 0); }
-  else if (type === "trig~") { if (tokens[0]) node.parameters.get("amplitude")?.setValueAtTime(parseFloat(tokens[0]), 0); if (tokens[1]) node.parameters.get("samples")?.setValueAtTime(parseFloat(tokens[1]), 0); }
-  else if (type === "slew~" && tokens[0]) node.parameters.get("rate")?.setValueAtTime(parseFloat(tokens[0]), 0);
-  return { type, node, worklet: node, paramMap };
-}
-
-async function createCtrlMathNode(type, args) {
-  const op = type.replace("~", "");
-  if (!ctrlWorkletModulesLoaded.has("math-processor.js")) {
-    await ctrlAudioCtx.audioWorklet.addModule("math-processor.js"); ctrlWorkletModulesLoaded.add("math-processor.js");
-  }
-  const tokens = (args || "").split(/\s+/).filter(Boolean);
-  const arg = parseFloat(tokens[0]) || (op === "*" || op === "/" || op === "**" ? 1 : 0);
-  const node = new AudioWorkletNode(ctrlAudioCtx, "math-processor", {
-    numberOfInputs: 2, processorOptions: { op, arg },
-  });
-  return { type, node, worklet: node, paramMap: {} };
-}
-
-async function createCtrlEngineNew(type, args) {
-  if (CTRL_NATIVE_NODES.has(type)) return await createCtrlNativeNode(type, args);
-  if (CTRL_SIGNAL_WORKLETS[type]) return await createCtrlSignalWorklet(type, args);
-  if (CTRL_MATH_OPS.has(type)) return await createCtrlMathNode(type, args);
-  const def = ENGINES[type];
-  if (!def) return null;
-  if (!ctrlWorkletModulesLoaded.has(def.module)) {
-    await ctrlAudioCtx.audioWorklet.addModule(def.module); ctrlWorkletModulesLoaded.add(def.module);
-  }
-  const opts = def.channels > 1 ? { outputChannelCount: [def.channels] } : {};
-  const worklet = new AudioWorkletNode(ctrlAudioCtx, def.worklet, opts);
-  if (def.channels > 1) {
-    const splitter = ctrlAudioCtx.createChannelSplitter(def.channels);
-    worklet.connect(splitter);
-    const out = ctrlAudioCtx.createGain(); splitter.connect(out, 0);
-    const engine = { type, worklet, splitter, out };
-    if (type === "formant~") {
-      for (const [ch, key] of [[1, "analyserF1"], [2, "analyserF2"], [3, "analyserF3"]]) {
-        const a = ctrlAudioCtx.createAnalyser(); a.fftSize = 512; a.smoothingTimeConstant = 0;
-        splitter.connect(a, ch); engine[key] = a;
-      }
-    }
-    return engine;
-  }
-  return { type, worklet };
-}
-
-function getCtrlEngineOutput(engine, outletIndex) {
-  if (engine.outputs && outletIndex !== undefined) return engine.outputs[outletIndex];
-  return engine.out || engine.node || engine.worklet;
+async function createCtrlEngine(type, args) {
+  return _createEngine(ctrlAudioCtx, ctrlWorkletModulesLoaded, CTRL_NATIVE_NODES, type, args, adcHandler);
 }
 
 async function buildCtrlAudioTopology() {
@@ -257,7 +113,7 @@ async function buildCtrlAudioTopology() {
     const type = boxTypeName(box.text);
     if (type === "dac~") continue;
     const args = box.text.split(/\s+/).slice(1).join(" ");
-    const engine = await createCtrlEngineNew(type, args);
+    const engine = await createCtrlEngine(type, args);
     if (engine) ctrlEngines.set(id, engine);
   }
 
@@ -275,7 +131,7 @@ async function buildCtrlAudioTopology() {
   for (const cable of audioCables) {
     const srcEng = ctrlEngines.get(cable.srcBox);
     if (!srcEng) continue;
-    const srcNode = getCtrlEngineOutput(srcEng, cable.srcOutlet);
+    const srcNode = getEngineOutput(srcEng, cable.srcOutlet);
 
     // dac~
     const dstBox = mainEditor.boxes.get(cable.dstBox);
