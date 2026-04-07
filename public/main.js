@@ -37,6 +37,7 @@ const ENGINES = {
   "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
   "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
   "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
+  "cute-sine~":        { module: "cute-sine-processor.js", worklet: "cute-sine-processor", channels: 1 },
 };
 
 async function createEngine(type, args) {
@@ -561,6 +562,8 @@ function voiceOnMessage(voice, msg) {
       voiceSendParams(voice, Number(id), params);
     }
     drainUplinks(voice);
+    checkTouchGate(voice);
+    updateDisplayLayers(voice);
     updateParamDisplay();
   }
 }
@@ -746,19 +749,24 @@ function sendTouchValues(e, gate) {
 }
 
 if (touchCaptureEl) {
+  let touchDown = false;
   touchCaptureEl.addEventListener("pointerdown", (e) => {
     touchCaptureEl.setPointerCapture(e.pointerId);
+    touchDown = true;
     touchThrottle = 0;
     sendTouchValues(e, 1);
   });
   touchCaptureEl.addEventListener("pointermove", (e) => {
+    if (!touchDown) return;
     if (touchThrottle++ % 2 !== 0) return; // ~30fps throttle
     sendTouchValues(e, 1);
   });
   touchCaptureEl.addEventListener("pointerup", (e) => {
+    touchDown = false;
     sendTouchValues(e, 0);
   });
   touchCaptureEl.addEventListener("pointercancel", (e) => {
+    touchDown = false;
     sendTouchValues(e, 0);
   });
 }

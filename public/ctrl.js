@@ -53,6 +53,7 @@ const ENGINES = {
   "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
   "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
   "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
+  "cute-sine~":        { module: "cute-sine-processor.js", worklet: "cute-sine-processor", channels: 1 },
 };
 
 const CTRL_NATIVE_NODES = new Set([

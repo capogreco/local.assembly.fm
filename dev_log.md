@@ -1487,3 +1487,24 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Clarified `gate` vs `spigot` descriptions (gate zeros output; spigot blocks propagation)
 - Removed dead `handleStatefulInlet` toggle code (toggle now uses event path)
 
+## 2026-04-07 — cute-sine~ engine, touch mouse gating, dev mode, router event fix
+
+### cute-sine~ engine
+- New additive sine oscillator with 6 harmonics and brightness crossfade
+- Ported from lcld.xyz/240326_infinite_appreciation
+- Inlets: freq, amplitude, bright (0=fundamental only, 1=all harmonics)
+- All params a-rate for audio-rate modulation
+
+### Touch mouse gating
+- Touch capture element now only sends x/y/gate when mouse button is held down
+- Previously `pointermove` fired regardless of button state, sending data with gate=1 even when not clicking
+
+### start-macos.sh dev mode
+- `./start-macos.sh dev` runs Deno with `--watch` for auto-reload on file changes
+- Manages dnsmasq lifecycle same as default mode (was missing, causing DNS resolution failures)
+
+### Router event display fix
+- `"re"` (router event) handler in synth client was missing `checkTouchGate()` and `updateDisplayLayers()` calls
+- Events through routers updated graph state correctly but display/touch layers never re-read the values
+- `"rv"` (router value) handler had both calls, so only event-based routing was broken
+

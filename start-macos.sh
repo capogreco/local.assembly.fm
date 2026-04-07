@@ -1,8 +1,11 @@
 #!/bin/bash
 # Startup script for local.assembly.fm on macOS
-# Run this script in two terminals:
-# Terminal 1: ./start-macos.sh dns
-# Terminal 2: ./start-macos.sh server
+# Usage:
+#   ./start-macos.sh            Start everything (dnsmasq + server)
+#   ./start-macos.sh dns        Start DNS server only
+#   ./start-macos.sh server     Start Deno server only
+#   ./start-macos.sh dev        Start with auto-reload on file changes
+#   ./start-macos.sh status     Show system status
 
 set -e
 
@@ -186,6 +189,20 @@ start_server() {
     sudo $(which deno) run -A --unstable-net server.ts
 }
 
+start_dev() {
+    detect_network
+
+    echo_info "Starting Deno server in dev mode (auto-reload on file changes)..."
+    echo_info "Captive portal: http://$MAC_IP (auto-redirects)"
+    echo_info "Synth client: https://$MAC_IP"
+    echo_info "Control interface: https://$MAC_IP/ctrl.html"
+    echo_info "Press Ctrl+C to stop"
+    echo ""
+
+    cd "$PROJECT_DIR"
+    sudo $(which deno) run -A --unstable-net --watch server.ts
+}
+
 show_status() {
     detect_network
 
@@ -247,10 +264,34 @@ case "${1:-}" in
         check_prerequisites
         start_server
         ;;
+    dev)
+        check_prerequisites
+        detect_network
+        ensure_clean_dnsmasq
+        ensure_dnsmasq_conf
+
+        if [ "$DNSMASQ_ALREADY_OK" = false ]; then
+            echo_info "Starting dnsmasq in background..."
+            sudo "$DNSMASQ_BIN" \
+                --bind-interfaces \
+                --conf-file="$DNSMASQ_CONF"
+            echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
+        fi
+
+        echo_info "Starting Deno server in dev mode (auto-reload on file changes)..."
+        echo_info "Captive portal: http://$MAC_IP"
+        echo_info "Ctrl+C to stop (will also kill dnsmasq)"
+        echo ""
+
+        trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
+
+        cd "$PROJECT_DIR"
+        sudo $(which deno) run -A --unstable-net --watch server.ts
+        ;;
     status)
         show_status
         ;;
-    start)
+    *)
         check_prerequisites
         detect_network
         ensure_clean_dnsmasq
@@ -274,15 +315,5 @@ case "${1:-}" in
 
         cd "$PROJECT_DIR"
         sudo $(which deno) run -A --unstable-net server.ts
-        ;;
-    *)
-        echo "local.assembly.fm macOS startup script"
-        echo ""
-        echo "Usage:"
-        echo "  ./start-macos.sh start     Start everything (dnsmasq + server)"
-        echo "  ./start-macos.sh dns       Start DNS server only"
-        echo "  ./start-macos.sh server    Start Deno server only"
-        echo "  ./start-macos.sh status    Show system status"
-        exit 1
         ;;
 esac
