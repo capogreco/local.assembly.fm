@@ -1079,6 +1079,24 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
       } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValue)) {
         // handled by stateful box (phasor, etc.)
+      } else if (boxTypeName(dst.text) === "length") {
+        const result = Array.isArray(value) ? value.length : 1;
+        boxValues.set(cable.dstBox, result);
+        queueValueUpdate(cable.dstBox, result);
+        propagateAndNotify(cable.dstBox, 0, result);
+      } else if (boxTypeName(dst.text) === "map") {
+        const state = boxState.get(cable.dstBox);
+        if (state) {
+          if (cable.dstInlet === 1 && Array.isArray(value)) {
+            state.table = value as number[];
+          } else if (cable.dstInlet === 0) {
+            const idx = Math.max(0, Math.min(state.table.length - 1, Math.floor(numValue)));
+            const result = state.table[idx] !== undefined ? state.table[idx] : 0;
+            boxValues.set(cable.dstBox, result);
+            queueValueUpdate(cable.dstBox, result);
+            propagateAndNotify(cable.dstBox, 0, result);
+          }
+        }
       } else if (boxTypeName(dst.text) === "change") {
         const state = boxState.get(cable.dstBox);
         if (state && numValue !== state.prev) {
@@ -1328,6 +1346,12 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   if (name === "ar") {
     if (inlet === 1) { state.attack = Math.max(0.001, value); return true; }
     if (inlet === 2) { state.release = Math.max(0.001, value); return true; }
+  }
+  // map: inlet 1 sets table (array)
+  if (name === "map" && inlet === 1) {
+    const arr = inletValues.get(id)?.[1];
+    if (Array.isArray(arr)) state.table = arr;
+    return true;
   }
   // toggle: inlet 1 sets value directly (only propagate on change)
   if (name === "toggle" && inlet === 1) {

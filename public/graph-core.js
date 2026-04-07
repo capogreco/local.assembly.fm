@@ -121,6 +121,8 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { elapsed: 0, interval: parseFloat(args) || 1, paused: false };
     case "const":
       return { value: parseFloat(args) || 0 };
+    case "map":
+      return { table: (args || "0").split(/\s+/).map(Number) };
     case "change":
       return { prev: undefined };
     case "toggle":
@@ -209,6 +211,10 @@ function evaluatePure(type, args, iv) {
     case "gate": return (iv[1] || 0) > 0 ? a : 0;
     case "spigot": return a; // gate check at propagation level
     case "quantize": { const d = parseFloat(args[0]) || 12; return Math.round(a * d) / d; }
+    case "length": return Array.isArray(iv[0]) ? iv[0].length : 1;
+    case "floor": return Math.floor(a);
+    case "ceil": return Math.ceil(a);
+    case "round": return Math.round(a);
     case "sine": return Math.sin(a * Math.PI * 2) * 0.5 + 0.5;
     case "tri": { const yaw = parseFloat(args[0]) || 0.5; return a < yaw ? (yaw > 0 ? a / yaw : 0) : (yaw < 1 ? (1 - a) / (1 - yaw) : 0); }
     case "jitter": { const amount = parseFloat(args[0]) || 0.01; return a + (Math.random() * 2 - 1) * amount; }

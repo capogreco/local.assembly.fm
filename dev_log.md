@@ -1535,6 +1535,21 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - **change**: new box — only passes value through when it differs from previous
 - **select/sel**: fixed outlet typing — reject outlet (last) now correctly typed as number, not event
 
+### New boxes: floor, ceil, round, map, length
+- `floor`, `ceil`, `round` — integer rounding primitives
+- `map 0 4 7 11` — index lookup into arg values (clamped). Inlet 1 accepts array to replace table dynamically (e.g. from grid-array)
+- `length` — outputs array length (returns 1 for non-array values)
+- Server-side `propagateAndNotify` coerces non-numbers to 0 for ctrl-side boxes — `length` and `map` needed special handling to receive raw arrays
+
+### Synth-side initial value propagation fix
+- `buildGraph` init pass was only propagating `const` boxes
+- Generalized to propagate all boxes with `state.value !== undefined` (const, toggle, range, drunk, random, spread)
+- Fixes chains like `const 220 → * hot` where the const value never reached the math box
+
+### select/sel outlet type fix
+- Reject outlet (last) was incorrectly typed as "event" due to `getOutletDef` repeating the single dynamic outlet definition
+- Fixed: match outlets are events, reject outlet is number
+
 ### --watch fix for non-imported files
 - `gpi-types.js` and `graph-core.js` are loaded via `readTextFile` + `importCjs`, not Deno imports
 - Deno's `--watch` didn't track them — changes required manual server restart

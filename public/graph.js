@@ -87,11 +87,10 @@ function buildGraph(patch) {
     graph.wireless.get(name)[role].push(id);
   }
 
-  // propagate const values through the full graph (including wireless)
+  // propagate initial values from all boxes with deterministic state
   for (const [id, node] of graph.boxes) {
-    if (node.type === "const") {
-      const val = parseFloat(node.args) || 0;
-      propagateValue(graph, id, 0, val);
+    if (node.state && node.state.value !== undefined) {
+      propagateValue(graph, id, 0, node.state.value);
     }
   }
 
@@ -237,6 +236,16 @@ function propagateValue(graph, boxId, outletIndex, value) {
           if (cable.dstInlet === 2) dstNode.state.duration = Math.max(0.001, value);
           if (cable.dstInlet === 3) dstNode.state.duty = value;
           if (cable.dstInlet === 4) dstNode.state.curve = value;
+        }
+      } else if (dstNode.type === "map") {
+        if (dstNode.state) {
+          if (cable.dstInlet === 1 && Array.isArray(value)) {
+            dstNode.state.table = value;
+          } else if (cable.dstInlet === 0) {
+            const t = dstNode.state.table;
+            const idx = Math.max(0, Math.min(t.length - 1, Math.floor(value)));
+            mergeUpdates(updates, propagateValue(graph, cable.dstBox, 0, t[idx] !== undefined ? t[idx] : 0));
+          }
         }
       } else if (dstNode.type === "change") {
         if (dstNode.state && value !== dstNode.state.prev) {
@@ -438,6 +447,16 @@ function processRouterValue(graph, routerId, channel, value) {
         const names = node.args.split(/\s+/).filter(Boolean);
         const chName = names[entry.targetInlet];
         if (chName) graph.uplinkQueue.push({ ch: chName, v: value });
+      } else if (node.type === "map") {
+        if (node.state) {
+          if (entry.targetInlet === 1 && Array.isArray(value)) {
+            node.state.table = value;
+          } else if (entry.targetInlet === 0) {
+            const t = node.state.table;
+            const idx = Math.max(0, Math.min(t.length - 1, Math.floor(value)));
+            mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, t[idx] !== undefined ? t[idx] : 0));
+          }
+        }
       } else if (node.type === "change") {
         if (node.state && value !== node.state.prev) {
           node.state.prev = value;
