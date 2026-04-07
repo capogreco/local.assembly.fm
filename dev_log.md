@@ -1528,6 +1528,13 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 ### Touch y-axis inversion
 - Touch y output is now 1 at top, 0 at bottom (was inverted)
 
+### New/updated box types
+- **const**: added event inlet 0 — re-propagates stored value on bang
+- **toggle**: added set inlet 1 — sets to 0 (on 0) or 1 (on >0), only propagates on change
+- **event**: added trigger inlet 0 — receiving an event fires the event (same as clicking)
+- **change**: new box — only passes value through when it differs from previous
+- **select/sel**: fixed outlet typing — reject outlet (last) now correctly typed as number, not event
+
 ### --watch fix for non-imported files
 - `gpi-types.js` and `graph-core.js` are loaded via `readTextFile` + `importCjs`, not Deno imports
 - Deno's `--watch` didn't track them — changes required manual server restart

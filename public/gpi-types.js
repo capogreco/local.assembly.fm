@@ -50,18 +50,24 @@ const BOX_TYPES = {
                     inlets: [], outlets: [] },
 
   // --- values ---
-  const:          { zone: "any", description: "Constant value.", args: "value", example: "const 220",
-                    inlets: [], outlets: [{ name: "value", type: "number", description: "Constant output" }] },
+  const:          { zone: "any", description: "Constant value. Event inlet re-propagates.", args: "value", example: "const 220",
+                    inlets: [{ name: "bang", type: "event", description: "Re-propagate value" }],
+                    outlets: [{ name: "value", type: "number", description: "Constant output" }] },
   knob:           { zone: "any", description: "Interactive knob. Scroll wheel to change value. Args: init [min] [max] [curve].", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Current value" }] },
-  toggle:         { zone: "any", description: "On/off switch. Click or event to flip.",
-                    inlets: [{ name: "trigger", type: "event", description: "Flip state" }],
+  toggle:         { zone: "any", description: "On/off switch. Click or event to flip. Inlet 1 sets value directly.",
+                    inlets: [{ name: "trigger", type: "event", description: "Flip state" },
+                             { name: "set", type: "number", description: "Set to 0 (on 0) or 1 (on >0)" }],
                     outlets: [{ name: "value", type: "number", description: "0 or 1" }] },
+  change:         { zone: "any", description: "Only pass value when it differs from previous.",
+                    inlets: [{ name: "in", type: "number", description: "Input value" }],
+                    outlets: [{ name: "out", type: "number", description: "Value (only on change)" }] },
   print:          { zone: "any", description: "Display incoming value on the box.",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to display" }],
                     outlets: [] },
   event:          { zone: "any", description: "Manual null event. Click in performance mode.",
-                    inlets: [], outlets: [{ name: "out", type: "event", description: "Null event on click" }] },
+                    inlets: [{ name: "trigger", type: "event", description: "Fire event" }],
+                    outlets: [{ name: "out", type: "event", description: "Null event on click" }] },
 
   // --- time ---
   phasor:         { zone: "any", description: "Sawtooth ramp 0-1 over period. 'once' = one-shot (no loop).", args: "period [once]", example: "phasor 4",
@@ -666,8 +672,15 @@ function getInletDef(text, index) {
 }
 
 function getOutletDef(text, index) {
-  const def = BOX_TYPES[boxTypeName(text)];
+  const name = boxTypeName(text);
+  const def = BOX_TYPES[name];
   if (!def) return null;
+  // select/sel: match outlets are events, last outlet (reject) is number
+  if (name === "select" || name === "sel") {
+    const nMatch = Math.max(1, text.split(/\s+/).length - 1);
+    if (index < nMatch) return { name: "match", type: "event", description: "Event on match" };
+    return { name: "reject", type: "number", description: "Non-matching value" };
+  }
   if (def.dynamic && def.outlets.length === 1) return def.outlets[0];
   return def.outlets?.[index] || null;
 }

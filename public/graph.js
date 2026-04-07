@@ -223,12 +223,25 @@ function propagateValue(graph, boxId, outletIndex, value) {
           if (cable.dstInlet === 4) dstNode.state.duty = value;
           if (cable.dstInlet === 5) dstNode.state.curve = value;
         }
+      } else if (dstNode.type === "toggle" && cable.dstInlet === 1) {
+        if (dstNode.state) {
+          const newVal = value > 0 ? 1 : 0;
+          if (newVal !== dstNode.state.value) {
+            dstNode.state.value = newVal;
+            mergeUpdates(updates, propagateValue(graph, cable.dstBox, 0, dstNode.state.value));
+          }
+        }
       } else if (dstNode.type === "cosine" && cable.dstInlet >= 1) {
         if (dstNode.state) {
           if (cable.dstInlet === 1) dstNode.state.amplitude = value;
           if (cable.dstInlet === 2) dstNode.state.duration = Math.max(0.001, value);
           if (cable.dstInlet === 3) dstNode.state.duty = value;
           if (cable.dstInlet === 4) dstNode.state.curve = value;
+        }
+      } else if (dstNode.type === "change") {
+        if (dstNode.state && value !== dstNode.state.prev) {
+          dstNode.state.prev = value;
+          mergeUpdates(updates, propagateValue(graph, cable.dstBox, 0, value));
         }
       } else {
         // Pure math / passthrough — hot/cold check
@@ -413,10 +426,23 @@ function processRouterValue(graph, routerId, channel, value) {
             }
           }
         }
+      } else if (node.type === "toggle" && entry.targetInlet === 1) {
+        if (node.state) {
+          const newVal = value > 0 ? 1 : 0;
+          if (newVal !== node.state.value) {
+            node.state.value = newVal;
+            mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, node.state.value));
+          }
+        }
       } else if (node.type === "sendup") {
         const names = node.args.split(/\s+/).filter(Boolean);
         const chName = names[entry.targetInlet];
         if (chName) graph.uplinkQueue.push({ ch: chName, v: value });
+      } else if (node.type === "change") {
+        if (node.state && value !== node.state.prev) {
+          node.state.prev = value;
+          mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, value));
+        }
       } else if (node.type === "touch" || node.type === "screen" || node.type === "text") {
         // display/sensor boxes: values stored in inletValues, handled by layer manager
       } else {

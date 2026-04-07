@@ -1079,6 +1079,14 @@ function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue)
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
       } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValue)) {
         // handled by stateful box (phasor, etc.)
+      } else if (boxTypeName(dst.text) === "change") {
+        const state = boxState.get(cable.dstBox);
+        if (state && numValue !== state.prev) {
+          state.prev = numValue;
+          boxValues.set(cable.dstBox, numValue);
+          queueValueUpdate(cable.dstBox, numValue);
+          propagateAndNotify(cable.dstBox, 0, numValue);
+        }
       } else {
         let iv = inletValues.get(cable.dstBox);
         if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
@@ -1321,6 +1329,15 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     if (inlet === 1) { state.attack = Math.max(0.001, value); return true; }
     if (inlet === 2) { state.release = Math.max(0.001, value); return true; }
   }
+  // toggle: inlet 1 sets value directly (only propagate on change)
+  if (name === "toggle" && inlet === 1) {
+    const newVal = value > 0 ? 1 : 0;
+    if (newVal !== state.value) {
+      state.value = newVal;
+      setBoxValueAndNotify(id, state.value);
+    }
+    return true;
+  }
   // ramp: not triggered by number inlets, just stores
   return false;
 }
@@ -1330,7 +1347,11 @@ function handleEventBox(id: number, _value: number): void {
   if (!box) return;
   const name = boxTypeName(box.text);
   const state = boxState.get(id);
-  if (!state) return;
+  if (!state) {
+    // Stateless event passthrough (e.g. event box): propagate event from outlet 0
+    propagateAndNotify(id, 0, 1);
+    return;
+  }
 
   const iv = inletValues.get(id) || [];
   const result = handleBoxEvent(name, state, iv);

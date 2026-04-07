@@ -119,6 +119,10 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
     }
     case "metro":
       return { elapsed: 0, interval: parseFloat(args) || 1, paused: false };
+    case "const":
+      return { value: parseFloat(args) || 0 };
+    case "change":
+      return { prev: undefined };
     case "toggle":
       return { value: parseFloat(args) > 0 ? 1 : 0 };
     case "counter": {
@@ -283,6 +287,8 @@ function handleBoxEvent(type, state, iv) {
     case "delay":
       state.queue.push({ value: 1, remaining: state.time });
       return { value: 0, propagate: false };
+    case "const":
+      return { value: state.value, propagate: true };
     case "toggle":
       state.value = state.value > 0 ? 0 : 1;
       return { value: state.value, propagate: true };
@@ -495,7 +501,7 @@ function tickBox(type, state, iv, dt) {
 // Self-contained — no dependency on gpi-types.js (synth clients don't load it)
 
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle")) return true;
+  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle" || type === "const")) return true;
   if (inlet === 0 && type === "phasor") return true;
   if (inlet === 1 && type === "sample-hold") return true;
   return false;
