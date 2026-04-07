@@ -187,41 +187,14 @@ function propagateValue(graph, boxId, outletIndex, value) {
     } else {
       if (dstNode.type === "phasor") {
         // number inlets — store, don't propagate
-      } else if ((dstNode.type === "slew" || dstNode.type === "lag") && cable.dstInlet === 0) {
-        if (dstNode.state) {
-          if (graphDebug) console.log(`  ${dstNode.type} box:${cable.dstBox} target=${value} (was ${dstNode.state.target})`);
-          dstNode.state.target = value;
-        }
       } else if (dstNode.type === "sample-hold" && cable.dstInlet === 0) {
         // store for sampling
-      } else if (dstNode.type === "adsr") {
-        // gate (0) stored for tick; params (1-4) update state
-        if (dstNode.state && cable.dstInlet >= 1) {
-          if (cable.dstInlet === 1) dstNode.state.a = Math.max(0.001, value);
-          if (cable.dstInlet === 2) dstNode.state.d = Math.max(0.001, value);
-          if (cable.dstInlet === 3) dstNode.state.s = Math.max(0, Math.min(1, value));
-          if (cable.dstInlet === 4) dstNode.state.r = Math.max(0.001, value);
-        }
-      } else if (dstNode.type === "ar") {
-        if (cable.dstInlet === 1 && dstNode.state) dstNode.state.attack = Math.max(0.001, value);
-        if (cable.dstInlet === 2 && dstNode.state) dstNode.state.release = Math.max(0.001, value);
-      } else if (dstNode.type === "ramp" && cable.dstInlet >= 1) {
-        if (dstNode.state) {
-          if (cable.dstInlet === 1) dstNode.state.from = value;
-          if (cable.dstInlet === 2) dstNode.state.to = value;
-          if (cable.dstInlet === 3) dstNode.state.duration = Math.max(0.001, value);
-          if (cable.dstInlet === 4) dstNode.state.curve = value;
-        }
+      } else if (dstNode.type === "adsr" && cable.dstInlet === 0) {
+        // gate stored for tick loop
       } else if (dstNode.type === "seq" && cable.dstInlet >= 1) {
-        // behaviour/values inlets
-      } else if (dstNode.type === "sigmoid" && cable.dstInlet >= 1) {
-        if (dstNode.state) {
-          if (cable.dstInlet === 1) dstNode.state.start = value;
-          if (cable.dstInlet === 2) dstNode.state.end = value;
-          if (cable.dstInlet === 3) dstNode.state.duration = Math.max(0.001, value);
-          if (cable.dstInlet === 4) dstNode.state.duty = value;
-          if (cable.dstInlet === 5) dstNode.state.curve = value;
-        }
+        // behaviour/values inlets — store only
+      } else if (dstNode.state && applyInletToState(dstNode.type, dstNode.state, cable.dstInlet, value)) {
+        // handled by data-driven inlet map
       } else if (dstNode.type === "toggle" && cable.dstInlet === 1) {
         if (dstNode.state) {
           const newVal = value > 0 ? 1 : 0;
@@ -229,13 +202,6 @@ function propagateValue(graph, boxId, outletIndex, value) {
             dstNode.state.value = newVal;
             mergeUpdates(updates, propagateValue(graph, cable.dstBox, 0, dstNode.state.value));
           }
-        }
-      } else if (dstNode.type === "cosine" && cable.dstInlet >= 1) {
-        if (dstNode.state) {
-          if (cable.dstInlet === 1) dstNode.state.amplitude = value;
-          if (cable.dstInlet === 2) dstNode.state.duration = Math.max(0.001, value);
-          if (cable.dstInlet === 3) dstNode.state.duty = value;
-          if (cable.dstInlet === 4) dstNode.state.curve = value;
         }
       } else if (dstNode.type === "map") {
         if (dstNode.state) {
@@ -462,6 +428,8 @@ function processRouterValue(graph, routerId, channel, value) {
           node.state.prev = value;
           mergeUpdates(allUpdates, propagateValue(graph, entry.targetBox, 0, value));
         }
+      } else if (node.state && applyInletToState(node.type, node.state, entry.targetInlet, value)) {
+        // handled by data-driven inlet map
       } else if (node.type === "touch" || node.type === "screen" || node.type === "text") {
         // display/sensor boxes: values stored in inletValues, handled by layer manager
       } else {

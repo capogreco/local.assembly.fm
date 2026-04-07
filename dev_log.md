@@ -1550,6 +1550,13 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Reject outlet (last) was incorrectly typed as "event" due to `getOutletDef` repeating the single dynamic outlet definition
 - Fixed: match outlets are events, reject outlet is number
 
+### Data-driven inlet routing
+- Added `INLET_MAPS` and `applyInletToState()` to graph-core.js
+- Maps inlet index → state field with optional min/max clamping for 11 box types
+- Collapsed ~80 lines of per-type if/else branches across graph.js and server.ts into single generic calls
+- Special cases preserved: toggle (change-sensitive), map (array/lookup), change (dedup), phasor (event), metro (boolean inversion)
+- Adding a new box type with stateful inlets is now one line in INLET_MAPS
+
 ### Engine factory extraction
 - Extracted shared engine creation code into `engine-factory.js` (~255 lines)
 - Eliminates ~400 lines of duplication between ctrl.js and main.js

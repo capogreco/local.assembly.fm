@@ -60,7 +60,7 @@ const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
 const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, isAudioBox, isDac } = boxTypes;
 
 const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
-const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation } = graphCore;
+const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation, applyInletToState } = graphCore;
 
 // --- TLS cert check ---
 
@@ -1300,60 +1300,25 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
   const state = boxState.get(id);
   if (!state) return false;
 
-  if (name === "lfo") {
-    if (inlet === 0) { state.period = Math.max(0.001, value); return true; }
-  }
-  if (name === "phasor") {
-    if (inlet === 1) { state.period = Math.max(0.001, value); return true; }
-    if (inlet === 2) { state.paused = value > 0; return true; }
-  }
-  if (name === "adsr" && inlet >= 1) {
-    if (inlet === 1) { state.a = Math.max(0.001, value); return true; }
-    if (inlet === 2) { state.d = Math.max(0.001, value); return true; }
-    if (inlet === 3) { state.s = Math.max(0, Math.min(1, value)); return true; }
-    if (inlet === 4) { state.r = Math.max(0.001, value); return true; }
-  }
-  if (name === "ramp") {
-    if (inlet === 1) { state.from = value; return true; }
-    if (inlet === 2) { state.to = value; return true; }
-    if (inlet === 3) { state.duration = Math.max(0.001, value); return true; }
-    if (inlet === 4) { state.curve = value; return true; }
-  }
-  if (name === "metro") {
-    if (inlet === 0) { state.paused = !(value > 0); return true; }
-    if (inlet === 1) { state.interval = Math.max(0.001, value); return true; }
-  }
+  // Data-driven inlet routing (covers adsr, ar, ramp, sigmoid, cosine, lfo, phasor, metro, slew, lag, step)
+  if (applyInletToState(name, state, inlet, value)) return true;
+
+  // Special cases that don't fit the simple inlet→field pattern
+  if (name === "phasor" && inlet === 2) { state.paused = value > 0; return true; }
+  if (name === "metro" && inlet === 0) { state.paused = !(value > 0); return true; }
+  if (name === "adsr" && inlet === 0) return true; // gate stored for tick loop
+  if (name === "sample-hold" && inlet === 0) return true; // stored in inletValues
   if (name === "seq" && (inlet === 1 || inlet === 2)) {
-    // store behaviour/values for next trigger — don't propagate
     let iv = inletValues.get(id);
     if (!iv) { iv = []; inletValues.set(id, iv); }
     iv[inlet] = value;
     return true;
   }
-  // slew/lag: inlet 0 sets target, tick does the smoothing
-  if (name === "slew" || name === "lag") {
-    if (inlet === 0) { state.target = value; return true; }
-  }
-  // sample-hold: inlet 0 is the value to sample (stored in inletValues), inlet 1 is trigger (handled by handleEventBox)
-  if (name === "sample-hold" && inlet === 0) {
-    return true;
-  }
-  // adsr: inlet 0 is gate — store for tick loop
-  if (name === "adsr" && inlet === 0) {
-    return true;
-  }
-  // ar: inlets 1,2 are attack/release time overrides — store for tick
-  if (name === "ar") {
-    if (inlet === 1) { state.attack = Math.max(0.001, value); return true; }
-    if (inlet === 2) { state.release = Math.max(0.001, value); return true; }
-  }
-  // map: inlet 1 sets table (array)
   if (name === "map" && inlet === 1) {
     const arr = inletValues.get(id)?.[1];
     if (Array.isArray(arr)) state.table = arr;
     return true;
   }
-  // toggle: inlet 1 sets value directly (only propagate on change)
   if (name === "toggle" && inlet === 1) {
     const newVal = value > 0 ? 1 : 0;
     if (newVal !== state.value) {
@@ -1362,7 +1327,6 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     }
     return true;
   }
-  // ramp: not triggered by number inlets, just stores
   return false;
 }
 

@@ -531,6 +531,40 @@ function isEventOutlet(type, outlet) {
   return type === "metro" && outlet === 0;
 }
 
+// --- Data-driven inlet routing ---
+// Maps inlet index → state field for stateful boxes.
+// String = field name (no clamping). Object = { field, min?, max? }.
+
+const INLET_MAPS = {
+  adsr:    { 1: { field: "a", min: 0.001 }, 2: { field: "d", min: 0.001 }, 3: { field: "s", min: 0, max: 1 }, 4: { field: "r", min: 0.001 } },
+  ar:      { 1: { field: "attack", min: 0.001 }, 2: { field: "release", min: 0.001 } },
+  ramp:    { 1: "from", 2: "to", 3: { field: "duration", min: 0.001 }, 4: "curve" },
+  sigmoid: { 1: "start", 2: "end", 3: { field: "duration", min: 0.001 }, 4: "duty", 5: "curve" },
+  cosine:  { 1: "amplitude", 2: { field: "duration", min: 0.001 }, 3: "duty", 4: "curve" },
+  lfo:     { 0: { field: "period", min: 0.001 } },
+  phasor:  { 1: { field: "period", min: 0.001 } },
+  metro:   { 1: { field: "interval", min: 0.001 } },
+  slew:    { 0: "target" },
+  lag:     { 0: "target" },
+  step:    { 1: "amplitude", 2: "length" },
+};
+
+// Apply an inlet value to box state using the inlet map.
+// Returns true if handled, false if no mapping exists.
+function applyInletToState(type, state, inlet, value) {
+  const map = INLET_MAPS[type];
+  if (!map || !map[inlet]) return false;
+  const entry = map[inlet];
+  const field = typeof entry === "string" ? entry : entry.field;
+  let v = value;
+  if (typeof entry !== "string") {
+    if (entry.min !== undefined) v = Math.max(entry.min, v);
+    if (entry.max !== undefined) v = Math.min(entry.max, v);
+  }
+  state[field] = v;
+  return true;
+}
+
 // --- Exports (CJS for server, globals for browser) ---
 
 if (typeof exports === "object") Object.assign(exports, {
@@ -539,4 +573,5 @@ if (typeof exports === "object") Object.assign(exports, {
   createBoxState, evaluatePure, evaluateStateful,
   handleBoxEvent, tickBox,
   isEventTrigger, firesEvent, isHotInlet, isEventOutlet, parseValues,
+  INLET_MAPS, applyInletToState,
 });
