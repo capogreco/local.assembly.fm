@@ -1603,7 +1603,24 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - server.ts: 2185 → 1618 lines (-567)
 - Tested with sendup_test patch
 
+### eval-engine.ts extraction (step 3 of server.ts split — complete)
+- Extracted propagation, routing, evaluation, tick loop, and animations into `eval-engine.ts` (636 lines)
+- Moved: router state functions (`buildGroups`, `handleRouterInlet`, `routerDispatch`, `sendViaRouter`, `sendCommandViaRouter`, `traceToRouters`, `sendEnvCommand`), evaluation core (`evaluateBox`, `setBoxValueAndNotify`, `propagateAndNotify`, `evaluateAllConsts`, `evaluateAllDevices`), box state management (`initBoxState`, `shouldServerEval`, `initAllBoxState`), tick loop (`tick`, `handleStatefulInlet`, `handleEventBox`, `ctrlAudioTrigger`, `tickCtrlAudioAnims`), wireless helpers, value batching (`queueValueUpdate`, `pendingValueUpdates`, flush interval), MIDI CC mapping
+- Dependency injection via `initEvalEngine()` — server passes `broadcastSynth`, `sendToClient`, `getSynthClientIds`, `sendCtrl`, `event`, plus gpi-types/graph-core functions (`boxTypeName`, `getBoxDef`, `getBoxZone`, `isAudioBox`, `evaluatePure`, `createBoxState`, `tickBox`, `handleBoxEvent`, `applyInletToState`)
+- `expandAbstractions` + `loadedAbstractions` stayed in server.ts — patch transformation, not evaluation
+- server.ts: 1618 → 1037 lines (-581)
+- Tested with sendup_test patch
+
+### server.ts split — final structure
+| File | Lines | Role |
+|------|-------|------|
+| server.ts | 1037 | HTTP/WS/SSE, client tracking, edit/apply dispatch, deploy, storage API |
+| eval-engine.ts | 636 | Propagation, routing, evaluation, tick loop, animations |
+| hardware.ts | 561 | Monome grid, arc, OSC/serialosc |
+| patch-state.ts | 77 | Shared Maps, scalars, pure helpers |
+
+All modules use dependency injection (`initX()` callbacks) to avoid circular imports. Import graph: `patch-state.ts ← eval-engine.ts / hardware.ts ← server.ts`. No module imports from server.ts.
+
 ### Next up
-- **eval-engine.ts extraction** — shared state is now a separate import, making this split straightforward. server.ts is 1618 lines, target ~600 for server + ~800 for eval-engine
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal escape** needs multi-device testing (Chrome Android, Samsung, iOS)
