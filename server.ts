@@ -1,3 +1,13 @@
+import {
+  type Box, type Cable, type BoxValue,
+  boxes, cables, boxValues, inletValues, boxState,
+  getPatchNextId, setPatchNextId, bumpPatchNextId,
+  getSynthBorderY, setSynthBorderY,
+  getDeployedPatch, setDeployedPatch,
+  routerState, groupState, latestValues, uplinkIndex,
+  clearPatchState, removeCablesForBox, cablesFromOutlet, isSynthZone,
+} from "./patch-state.ts";
+
 const CERT_FILE = "cert.pem";
 const KEY_FILE = "key.pem";
 const HTTPS_PORT = 443;
@@ -130,9 +140,6 @@ function getSynthClientIds(): number[] {
 }
 
 // --- Router state (for one/sweep/group targeting) ---
-
-const routerState = new Map<number, { index: number; order?: number[] }>();
-const groupState = new Map<number, number[][]>(); // boxId -> array of groups, each group is array of client IDs
 
 function buildGroups(routerBoxId: number): void {
   const box = boxes.get(routerBoxId);
@@ -922,41 +929,7 @@ function renderAllArcEncoders(): void {
   }
 }
 
-// ============================================================
-// --- Patch State (server is the single source of truth) ---
-// ============================================================
-
-interface Box {
-  x: number; y: number; text: string; inlets: number; outlets: number;
-}
-interface Cable {
-  srcBox: number; srcOutlet: number; dstBox: number; dstInlet: number;
-}
-
-const boxes = new Map<number, Box>();
-const cables = new Map<number, Cable>();
-type BoxValue = number | number[] | string;
-const boxValues = new Map<number, BoxValue>();
-const inletValues = new Map<number, number[]>();
-// deno-lint-ignore no-explicit-any
-const boxState = new Map<number, any>(); // per-box state for time-based boxes
-let patchNextId = 1;
-let synthBorderY = 400;
-
-// deno-lint-ignore no-explicit-any
-let deployedPatch: Record<string, any> | null = null;
-const latestValues = new Map<string, string>();
-const uplinkIndex = new Map<string, Array<{boxId: number, outletIndex: number}>>();
-
 // --- Evaluation engine ---
-
-function isSynthZone(_px: number, py: number): boolean { return py >= synthBorderY; }
-
-function cablesFromOutlet(boxId: number, outlet: number): Cable[] {
-  const r: Cable[] = [];
-  for (const [, c] of cables) if (c.srcBox === boxId && c.srcOutlet === outlet) r.push(c);
-  return r;
-}
 
 function evaluateBox(box: Box, iv: number[]): number {
   const name = boxTypeName(box.text);
@@ -1375,17 +1348,13 @@ function findBoxByText(text: string): number | null {
 
 // --- Edit handling ---
 
-function removeCablesForBox(boxId: number): void {
-  for (const [id, c] of cables) if (c.srcBox === boxId || c.dstBox === boxId) cables.delete(id);
-}
-
 // --- Abstraction expansion ---
 
 function expandAbstractions(): string[] {
   const errors: string[] = [];
   const MAX_DEPTH = 16;
   let globalIdCounter = 100000;
-  let nextCableId = patchNextId + 50000;
+  let nextCableId = getPatchNextId() + 50000;
 
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
     let expanded = 0;
@@ -1516,19 +1485,19 @@ function expandAbstractions(): string[] {
 
 // deno-lint-ignore no-explicit-any
 function handleApply(msg: any): void {
-  boxes.clear(); cables.clear(); boxValues.clear(); inletValues.clear(); boxState.clear();
+  clearPatchState();
   for (const [id, box] of msg.boxes) {
     const p = getBoxPorts(box.text);
     box.inlets = p.inlets; box.outlets = p.outlets;
     boxes.set(id, box);
     // snap routers to border
     if (getBoxZone(box.text) === "router") {
-      box.y = synthBorderY - 11;
+      box.y = getSynthBorderY() - 11;
     }
   }
   for (const [id, cable] of msg.cables) cables.set(id, cable);
-  patchNextId = msg.nextId || 1;
-  if (msg.synthBorderY !== undefined) synthBorderY = msg.synthBorderY;
+  setPatchNextId(msg.nextId || 1);
+  if (msg.synthBorderY !== undefined) setSynthBorderY(msg.synthBorderY);
 
   // expand abstractions inline
   const absErrors = expandAbstractions();
@@ -1563,7 +1532,7 @@ function handleEdit(msg: any): void {
       const ports = getBoxPorts(msg.text || "");
       const newBox = { x: msg.x, y: msg.y, text: msg.text || "", inlets: ports.inlets, outlets: ports.outlets };
       boxes.set(msg.id, newBox);
-      if (msg.id >= patchNextId) patchNextId = msg.id + 1;
+      bumpPatchNextId(msg.id);
       if (shouldServerEval(newBox)) initBoxState(msg.id, newBox);
       rebuildGridRegions();
       break;
@@ -1587,11 +1556,11 @@ function handleEdit(msg: any): void {
         if (c.dstBox === msg.id && c.dstInlet >= box.inlets) cables.delete(cid);
       }
       // snap router to border
-      if (getBoxZone(msg.text) === "router") box.y = synthBorderY - 11;
+      if (getBoxZone(msg.text) === "router") box.y = getSynthBorderY() - 11;
       // zone enforcement
       const zone = getBoxZone(msg.text);
-      if (zone === "synth" && !isSynthZone(box.x, box.y)) box.y = synthBorderY + 20;
-      else if (zone === "ctrl" && isSynthZone(box.x, box.y)) box.y = synthBorderY - 42;
+      if (zone === "synth" && !isSynthZone(box.x, box.y)) box.y = getSynthBorderY() + 20;
+      else if (zone === "ctrl" && isSynthZone(box.x, box.y)) box.y = getSynthBorderY() - 42;
       // re-init state and re-evaluate
       boxState.delete(msg.id);
       if (shouldServerEval(box)) initBoxState(msg.id, box);
@@ -1607,7 +1576,7 @@ function handleEdit(msg: any): void {
     }
     case "cable-create": {
       cables.set(msg.id, { srcBox: msg.srcBox, srcOutlet: msg.srcOutlet, dstBox: msg.dstBox, dstInlet: msg.dstInlet });
-      if (msg.id >= patchNextId) patchNextId = msg.id + 1;
+      bumpPatchNextId(msg.id);
       evaluateAllConsts();
       break;
     }
@@ -1616,9 +1585,9 @@ function handleEdit(msg: any): void {
       break;
     }
     case "border-move": {
-      synthBorderY = msg.y;
+      setSynthBorderY(msg.y);
       // snap all routers
-      for (const [, box] of boxes) if (getBoxZone(box.text) === "router") box.y = synthBorderY - 11;
+      for (const [, box] of boxes) if (getBoxZone(box.text) === "router") box.y = getSynthBorderY() - 11;
       break;
     }
     case "deploy": {
@@ -1713,7 +1682,7 @@ function serializeSynthPatch(): Record<string, unknown> {
 }
 
 function deployPatch(): void {
-  deployedPatch = serializeSynthPatch();
+  setDeployedPatch(serializeSynthPatch());
   latestValues.clear();
   // rebuild uplink channel index
   uplinkIndex.clear();
@@ -1726,7 +1695,7 @@ function deployPatch(): void {
       uplinkIndex.get(ch)!.push({ boxId: id, outletIndex: i });
     }
   }
-  broadcastSynth(deployedPatch);
+  broadcastSynth(getDeployedPatch()!);
   event("patch deployed to " + totalSynthClients() + " clients");
   sendCtrl({ type: "deployed" });
   // re-evaluate consts and devices so rv messages flow immediately after deploy
@@ -1743,8 +1712,8 @@ function getFullState(): Record<string, unknown> {
     type: "state",
     boxes: [...boxes.entries()],
     cables: [...cables.entries()],
-    nextId: patchNextId,
-    synthBorderY,
+    nextId: getPatchNextId(),
+    synthBorderY: getSynthBorderY(),
     boxValues: bv,
   };
 }
@@ -1841,8 +1810,8 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
     trackConnect(clientIP, id);
     drawStatus();
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
-    if (deployedPatch) {
-      socket.send(JSON.stringify(deployedPatch));
+    if (getDeployedPatch()) {
+      socket.send(JSON.stringify(getDeployedPatch()));
       for (const data of latestValues.values()) socket.send(data);
     }
     broadcastClientCount();
@@ -1893,8 +1862,8 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
       trackConnect(clientIP, id);
       drawStatus();
       send({ type: "welcome", id, clients: totalSynthClients() });
-      if (deployedPatch) {
-        send(deployedPatch);
+      if (getDeployedPatch()) {
+        send(getDeployedPatch()!);
         for (const data of latestValues.values()) send(JSON.parse(data));
       }
       broadcastClientCount();

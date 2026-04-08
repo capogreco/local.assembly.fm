@@ -1582,7 +1582,19 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Fixed by adding explicit `--watch=server.ts,public/gpi-types.js,public/graph-core.js`
 - Root cause of a confusing bug: inlet reorder in gpi-types wasn't picked up, stale paramNames sent wrong values to engine params
 
-### Next up (planned, not started)
-- **server.ts split** into server.ts (~600 lines), eval-engine.ts (~800 lines), hardware.ts (~500 lines). Plan exists at `.claude/plans/gleaming-singing-eagle.md`. Boundaries are clean (no circular deps), but the extraction is mechanically risky due to deeply intertwined state Maps. Tackle fresh with incremental testing.
+### PatchState extraction (step 1 of server.ts split)
+- Audited all 20 Maps in server.ts — 11 are module-local, 9 cross module boundaries
+- Cross-module Maps fall into two patterns: shared graph state (5 core Maps) and one-way pipelines (4 Maps)
+- Extracted `patch-state.ts` (77 lines, zero dependencies) at project root as Deno-only ES module
+- Moved: 9 Maps (`boxes`, `cables`, `boxValues`, `inletValues`, `boxState`, `routerState`, `groupState`, `latestValues`, `uplinkIndex`), 3 scalars (`patchNextId`, `synthBorderY`, `deployedPatch` via getter/setter), interfaces (`Box`, `Cable`, `BoxValue`), 4 helpers (`clearPatchState`, `removeCablesForBox`, `cablesFromOutlet`, `isSynthZone`)
+- Scalars use getter/setter functions (not `export let`) for readability — avoids `import *` syntax requirement
+- `bumpPatchNextId(id)` helper replaces the repeated `if (id >= patchNextId) patchNextId = id + 1` pattern
+- server.ts: 2213 → 2185 lines (net -28 after removing declarations, adding import)
+- Since patch-state.ts is a real `import`, Deno `--watch` tracks it automatically (unlike `readTextFile` + `importCjs` modules)
+- Tested with sendup_test patch: apply, propagate, deploy all working
+
+### Next up
+- **hardware.ts extraction** — cleanest boundary in the split. Grid/arc Maps are almost entirely self-contained (only `arcValues` touched by eval init). Next step.
+- **eval-engine.ts extraction** — after hardware.ts, shared state is already a separate import, making this split straightforward
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal escape** needs multi-device testing (Chrome Android, Samsung, iOS)
