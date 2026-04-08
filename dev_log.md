@@ -1593,8 +1593,17 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 - Since patch-state.ts is a real `import`, Deno `--watch` tracks it automatically (unlike `readTextFile` + `importCjs` modules)
 - Tested with sendup_test patch: apply, propagate, deploy all working
 
+### hardware.ts extraction (step 2 of server.ts split)
+- Extracted all grid, arc, and OSC/serialosc code into `hardware.ts` (561 lines)
+- Moved: 6 hardware-local Maps (`gridRegions`, `gridToggleStates`, `gridArrayStates`, `arcEncoders`, `arcValues`, plus device state), all OSC encoding/parsing, all grid/arc handlers, `initGrid()`, `rebuildGridRegions()`
+- Dependency injection via `initHardware()` — server passes `setBoxValueAndNotify`, `sendCtrl`, `event`, `boxTypeName`, `getBoxDef` as callbacks, avoiding circular imports
+- `arcValues` exported for the one line in `evaluateAllDevices()` that sets arc init values
+- `getGridDeviceInfo()` / `getArcDeviceInfo()` exported for ctrl client sync on connect
+- hardware.ts imports from `patch-state.ts` directly (`boxes`, `boxValues`) — no server.ts dependency
+- server.ts: 2185 → 1618 lines (-567)
+- Tested with sendup_test patch
+
 ### Next up
-- **hardware.ts extraction** — cleanest boundary in the split. Grid/arc Maps are almost entirely self-contained (only `arcValues` touched by eval init). Next step.
-- **eval-engine.ts extraction** — after hardware.ts, shared state is already a separate import, making this split straightforward
+- **eval-engine.ts extraction** — shared state is now a separate import, making this split straightforward. server.ts is 1618 lines, target ~600 for server + ~800 for eval-engine
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal escape** needs multi-device testing (Chrome Android, Samsung, iOS)
