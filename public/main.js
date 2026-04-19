@@ -288,18 +288,6 @@ async function loadPatchForVoice(voice, patch) {
       sendParams(engine, params);
     }
   }
-
-  // apply initial values
-  if (patch.initialValues) {
-    for (const [key, value] of Object.entries(patch.initialValues)) {
-      const [routerId, channel] = key.split(":").map(Number);
-      const updates = processRouterValue(voice.graph, routerId, channel, value);
-      for (const [id, params] of Object.entries(updates)) {
-        voiceSendParams(voice, Number(id), params);
-      }
-    }
-  }
-
   voice.patchLoading = false;
   for (const msg of voice.pendingMessages) voiceOnMessage(voice, msg);
   voice.pendingMessages = [];

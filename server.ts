@@ -518,20 +518,7 @@ function serializeSynthPatch(): Record<string, unknown> {
     }
   }
 
-  // collect current boxValues for all router entries as initialValues
-  const initialValues: Record<string, BoxValue> = {};
-  for (const entry of entries) {
-    const key = entry.routerId + ":" + (entry.routerOutlet || 0);
-    // find the current value flowing into this router channel
-    for (const [, c] of cables) {
-      if (c.dstBox === entry.routerId && c.dstInlet === entry.routerOutlet) {
-        const val = boxValues.get(c.srcBox);
-        if (val !== undefined) initialValues[key] = val;
-      }
-    }
-  }
-
-  return { type: "patch", boxes: patchBoxes, cables: patchCables, audioCables, entries, initialValues };
+  return { type: "patch", boxes: patchBoxes, cables: patchCables, audioCables, entries };
 }
 
 function deployPatch(): void {

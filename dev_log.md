@@ -1647,7 +1647,11 @@ All modules use dependency injection (`initX()` callbacks) to avoid circular imp
 - **infants**: Grid-toggle just-intonation tones (1, 5/4, 4/3, 3/2, 2/1) with 5 sine-osc~ voices, 2s fades, cathedral reverb
 - **epimetheus**: Sortition touch control — swarm~ water + cute-sine~ crossfade via grid-triggered phone selection (complex, untested)
 
+### Fix key → KS routing
+- Root cause: `initialValues` in `serializeSynthPatch()` sent raw `boxValues` (note number, e.g. 60) for the key box through the velocity cable path, poisoning KS excitation's edge detector (`excPrev` stuck at 60, so `0.8 > 0.5 && 60 <= 0.5` always false)
+- Fix: removed `initialValues` entirely from server.ts and main.js — redundant since `latestValues` already handles synth client state sync correctly
+- 26 lines removed, 0 added. KS now plucks on first keypress from ctrl client.
+
 ### Next up
-- **Fix key → KS routing**: values reach engine params but pluck doesn't trigger from ctrl client
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
