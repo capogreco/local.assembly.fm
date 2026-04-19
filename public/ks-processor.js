@@ -1,70 +1,81 @@
 /**
  * Karplus-Strong Worklet — plucked string synthesis
- * Parameters via AudioParam: frequency, damping, brightness, amplitude
- * Excite trigger via MessagePort.
+ * Parameters via AudioParam: frequency, damping, brightness, excitation, amplitude
+ * Rising edge on excitation (crosses above 0.5) triggers a pluck.
  */
 
 class KSProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
       { name: "frequency",  defaultValue: 220, automationRate: "k-rate" },
-      { name: "damping",    defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "damping",    defaultValue: 0.996, automationRate: "k-rate" },
       { name: "brightness", defaultValue: 0.8, automationRate: "k-rate" },
+      { name: "excitation", defaultValue: 0,   automationRate: "a-rate" },
       { name: "amplitude",  defaultValue: 0.5, automationRate: "k-rate" },
     ];
   }
 
   constructor() {
     super();
-    this.sr = sampleRate;
-    this.maxDelay = Math.ceil(this.sr / 20);
-    this.delayLine = new Float32Array(this.maxDelay);
-    this.writeIdx = 0;
-    this.lpState = 0;
-
-    this.port.onmessage = (e) => {
-      if (e.data.type === "excite") this.excite(e.data);
-    };
+    this.maxLen = Math.ceil(sampleRate / 20); // longest delay line: 20 Hz
+    this.buf = new Float32Array(this.maxLen);
+    this.writePos = 0;
+    this.lpPrev = 0;
+    this.excPrev = 0;
   }
 
-  excite(msg) {
-    const freq = msg.frequency || 220;
-    const brightness = msg.brightness || 0.8;
-    const period = Math.round(this.sr / freq);
+  pluck(delay, brightness) {
+    // Write filtered noise burst at the READ positions (behind writePos).
+    // The process loop reads from (writePos - delay), so that's where the noise must go.
     let prev = 0;
-    for (let i = 0; i < period && i < this.maxDelay; i++) {
+    const len = Math.min(delay, this.maxLen);
+    for (let i = 0; i < len; i++) {
       const noise = Math.random() * 2 - 1;
-      const filtered = prev + brightness * (noise - prev);
-      prev = filtered;
-      this.delayLine[(this.writeIdx + i) % this.maxDelay] = filtered;
+      const sample = prev + brightness * (noise - prev);
+      prev = sample;
+      this.buf[(this.writePos - delay + i + this.maxLen) % this.maxLen] = sample;
     }
+    this.lpPrev = 0;
   }
 
   process(_inputs, outputs, parameters) {
-    const out = outputs[0]?.[0];
+    const out = outputs[0][0];
     if (!out) return true;
 
     const freq = parameters.frequency[0];
-    const damping = parameters.damping[0];
+    const damp = parameters.damping[0];
+    const brightness = parameters.brightness[0];
     const amp = parameters.amplitude[0];
-    if (freq <= 20 || amp < 0.0001) { out.fill(0); return true; }
+    const excArr = parameters.excitation;
 
-    const exactDelay = this.sr / freq;
-    const intDelay = Math.floor(exactDelay);
-    const frac = exactDelay - intDelay;
-    const lpCoeff = damping * 0.5;
+    const delay = Math.min(Math.round(sampleRate / Math.max(freq, 20)), this.maxLen);
+
+    // Edge-detect excitation
+    for (let i = 0; i < excArr.length; i++) {
+      const exc = excArr.length > 1 ? excArr[i] : excArr[0];
+      if (exc > 0.5 && this.excPrev <= 0.5) {
+        this.pluck(delay, brightness);
+      }
+      this.excPrev = exc;
+    }
 
     for (let s = 0; s < out.length; s++) {
-      const r1 = (this.writeIdx - intDelay + this.maxDelay) % this.maxDelay;
-      const r2 = (this.writeIdx - intDelay - 1 + this.maxDelay) % this.maxDelay;
-      const sample = this.delayLine[r1] * (1 - frac) + this.delayLine[r2] * frac;
+      // Read from delay samples behind write position
+      const readPos = (this.writePos - delay + this.maxLen) % this.maxLen;
+      const cur = this.buf[readPos];
 
-      this.lpState = sample * (1 - lpCoeff) + this.lpState * lpCoeff;
-      this.delayLine[this.writeIdx] = this.lpState * 0.996;
-      this.writeIdx = (this.writeIdx + 1) % this.maxDelay;
+      // KS filter: average current + previous, scale by damping
+      const filtered = damp * 0.5 * (cur + this.lpPrev);
+      this.lpPrev = cur;
 
-      out[s] = sample * amp;
+      // Output the raw delay line sample (before filtering)
+      out[s] = cur * amp;
+
+      // Write filtered sample back — this is what gets read `delay` samples from now
+      this.buf[this.writePos] = filtered;
+      this.writePos = (this.writePos + 1) % this.maxLen;
     }
+
     return true;
   }
 }

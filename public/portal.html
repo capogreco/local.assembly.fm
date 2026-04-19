@@ -15,59 +15,124 @@
       align-items: center;
       justify-content: center;
       height: 100dvh;
-      gap: 2rem;
+      padding: 2rem 1.5rem;
       text-align: center;
     }
     h1 {
-      font-size: 1.2rem;
+      font-size: 1.1rem;
       font-weight: 400;
       letter-spacing: 0.3em;
       text-transform: uppercase;
-      color: #888;
+      color: #666;
+      margin-bottom: 2.5rem;
     }
-    a {
-      font-size: 1.3rem;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
+    .step {
+      font-size: 0.85rem;
+      color: #999;
+      line-height: 1.6;
+      margin-bottom: 1.2rem;
+    }
+    .url-box {
+      font-size: 1.1rem;
+      letter-spacing: 0.05em;
+      color: #fff;
+      padding: 1rem 1.5rem;
+      border: 1px solid #444;
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      -webkit-user-select: all;
+      user-select: all;
+      transition: border-color 0.15s;
+    }
+    .url-box:active { border-color: #888; }
+    .copy-hint {
+      font-size: 0.7rem;
+      color: #555;
+      margin-bottom: 2rem;
+      min-height: 1.2em;
+    }
+    .copy-hint.copied { color: #8c8; }
+    .browser-note {
+      font-size: 0.75rem;
+      color: #666;
+      line-height: 1.7;
+      margin-bottom: 2rem;
+    }
+    .browser-note strong { color: #999; font-weight: 500; }
+    .open-link {
+      font-size: 0.9rem;
       color: #e0e0e0;
       text-decoration: none;
-      padding: 1.5rem 2rem;
-      border: 1px solid #444;
-      display: block;
+      padding: 0.8rem 1.5rem;
+      border: 1px solid #333;
+      display: inline-block;
+      letter-spacing: 0.1em;
     }
-    a:active { color: #fff; border-color: #888; }
-    .hint {
-      font-size: 0.8rem;
-      color: #555;
-      line-height: 1.8;
-    }
+    .open-link:active { color: #fff; border-color: #666; }
+    .or { font-size: 0.7rem; color: #444; margin-bottom: 0.8rem; }
   </style>
 </head>
 <body>
   <h1>assembly</h1>
-  <a id="open" href="#">tap to join</a>
-  <p class="hint" id="fallback" style="display:none">
-    if nothing happens, dismiss this<br>and open <span style="color:#888">local.assembly.fm</span> in your browser
-  </p>
-  <!-- silent auth ping so WiFi stays connected after CNA dismisses -->
-  <img src="/auth" style="display:none" alt="">
-  <script>
-    const host = location.hostname;
-    const link = document.getElementById("open");
 
-    // Try intent URI to escape Android CNA webview into real browser
-    // Falls back to direct link (works if already in a real browser, or iOS)
-    if (/android/i.test(navigator.userAgent)) {
-      link.href = "intent://" + host + "/#Intent;scheme=https;end";
-      // If intent doesn't work (e.g. Firefox), fall back to direct navigation
-      link.addEventListener("click", function(e) {
-        setTimeout(function() {
-          // If we're still here after 500ms, intent didn't launch — navigate directly
-          window.location.href = "https://" + host + "/";
-        }, 500);
-      });
-    } else {
-      link.href = "https://" + host + "/";
+  <p class="step">open this URL in <strong style="color:#e0e0e0">Chrome</strong></p>
+
+  <div class="url-box" id="url-box"></div>
+  <p class="copy-hint" id="copy-hint">tap to copy</p>
+
+  <p class="browser-note">
+    this popup can't run audio<br>
+    paste the URL into <strong>Chrome</strong> for the full experience
+  </p>
+
+  <p class="or">or try opening directly</p>
+  <a class="open-link" id="open-link" href="#">open in browser</a>
+
+  <!-- silent auth ping — keeps WiFi connected after CNA dismisses -->
+  <img src="/auth" style="display:none" alt="">
+
+  <script>
+    var url = "https://" + location.host + "/";
+    var box = document.getElementById("url-box");
+    var hint = document.getElementById("copy-hint");
+    var link = document.getElementById("open-link");
+
+    box.textContent = url.replace("https://", "");
+    link.href = url;
+
+    box.addEventListener("click", function () {
+      // try clipboard API first, fall back to execCommand
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(copied, fallbackCopy);
+      } else {
+        fallbackCopy();
+      }
+    });
+
+    function fallbackCopy() {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        copied();
+      } catch (e) {
+        hint.textContent = "long-press to select & copy";
+      }
+    }
+
+    function copied() {
+      hint.textContent = "copied!";
+      hint.classList.add("copied");
+      setTimeout(function () {
+        hint.textContent = "tap to copy";
+        hint.classList.remove("copied");
+      }, 2000);
     }
   </script>
 </body>

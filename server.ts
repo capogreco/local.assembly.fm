@@ -620,7 +620,13 @@ function handleCtrlWs(req: Request): Response {
           }
         } else if (msg.note !== undefined) {
           const id = findBoxByText("key");
-          if (id !== null) setBoxValueAndNotify(id, msg.note);
+          if (id !== null) {
+            const velocity = (msg.velocity ?? 0) / 127;
+            boxValues.set(id, msg.note);
+            queueValueUpdate(id, msg.note);
+            propagateAndNotify(id, 0, msg.note);   // outlet 0: pitch
+            propagateAndNotify(id, 1, velocity);    // outlet 1: velocity (0-1)
+          }
         }
       } else if (msg.type === "knob") {
         setBoxValueAndNotify(msg.id, msg.value);
@@ -663,6 +669,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   socket.addEventListener("open", () => {
     synthWsClients.set(id, socket);
     trackConnect(clientIP, id);
+    authenticatedIPs.add(clientIP);
     drawStatus();
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
     if (getDeployedPatch()) {

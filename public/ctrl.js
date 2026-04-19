@@ -641,6 +641,7 @@ function onMIDIMessage(e) {
   const [status, d1, d2] = e.data, type = status & 0xf0;
   if (type === 0xb0) send({ type: "midi", cc: d1, value: d2 });
   else if (type === 0x90) send({ type: "midi", note: d1, velocity: d2 });
+  else if (type === 0x80) send({ type: "midi", note: d1, velocity: 0 });
 }
 
 async function initMIDI() {

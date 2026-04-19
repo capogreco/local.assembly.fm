@@ -598,7 +598,7 @@ const BOX_TYPES = {
                       { name: "F3", type: "audio", description: "Formant 3 signal" }] },
   "karplus-strong~": { zone: "any", description: "Karplus-Strong plucked string synthesis.",
                     inlets: [
-                      { name: "freq", type: "number", description: "Frequency in Hz" },
+                      { name: "frequency", type: "number", description: "Frequency in Hz" },
                       { name: "damping", type: "number", description: "Decay rate (0-1)" },
                       { name: "brightness", type: "number", description: "Lowpass filter (0-1)" },
                       { name: "excitation", type: "number", description: "Noise burst level (0-1)" },

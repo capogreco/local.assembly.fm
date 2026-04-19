@@ -1621,6 +1621,33 @@ Established convention: inlet 0 = primary action (trigger/gate), subsequent = pa
 
 All modules use dependency injection (`initX()` callbacks) to avoid circular imports. Import graph: `patch-state.ts ← eval-engine.ts / hardware.ts ← server.ts`. No module imports from server.ts.
 
+### CNA portal redesign
+- Replaced Android intent URI approach with universal tap-to-copy-URL flow
+- URL shown prominently with clipboard API + execCommand fallback
+- Chrome recommended explicitly for AudioWorklet support
+- "Open in browser" link as secondary path
+- Uses `var` (not const/let) for maximum CNA webview compatibility
+- Silent `/auth` ping preserved
+
+### MIDI key handling fix
+- Server `key` handler now propagates pitch (outlet 0) and velocity (outlet 1) separately — was sending note number from both outlets
+- ctrl.js: note-off (`0x80`) messages now handled, sending velocity 0
+- Server: synth client IPs auto-authenticated on WS connect (stops CNA probe redirect spam)
+
+### karplus-strong~ engine rewrite
+- Root cause: delay line topology was broken — pluck noise was written ahead of writePos but process loop read behind it, so noise was overwritten before being read
+- Removed all MessagePort/postMessage code — excitation now exclusively via AudioParam edge detection (rising edge past 0.5), consistent with all other engines
+- Damping default changed from 0.5 to 0.996 (standard KS feedback coefficient)
+- `frequency` paramName in gpi-types fixed to match processor (was `freq`, causing param routing to fail)
+- KS now produces sound via AudioParam control — tested via console
+- **Still TODO**: key → router → KS excitation path not triggering from ctrl client (values reach engine but pluck doesn't fire — likely a routing/timing issue)
+
+### New patches (initial versions)
+- **sparkly-keys**: MIDI keyboard → karplus-strong~ with reverb (WIP, routing issue above)
+- **infants**: Grid-toggle just-intonation tones (1, 5/4, 4/3, 3/2, 2/1) with 5 sine-osc~ voices, 2s fades, cathedral reverb
+- **epimetheus**: Sortition touch control — swarm~ water + cute-sine~ crossfade via grid-triggered phone selection (complex, untested)
+
 ### Next up
+- **Fix key → KS routing**: values reach engine params but pluck doesn't trigger from ctrl client
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
-- **CNA portal escape** needs multi-device testing (Chrome Android, Samsung, iOS)
+- **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
