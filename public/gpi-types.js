@@ -29,6 +29,15 @@ const BOX_TYPES = {
                     inlets: [], outlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
                       { name: "velocity", type: "number", description: "Velocity (0-1)" }] },
+  held:           { zone: "ctrl", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity).",
+                    inlets: [
+                      { name: "pitch", type: "number", description: "Note number (0-127)" },
+                      { name: "velocity", type: "number", description: ">0 adds pitch to set; 0 removes" }],
+                    outlets: [
+                      { name: "held", type: "array", description: "Currently held pitches (press order)" },
+                      { name: "added", type: "event", description: "Null event when a pitch was newly added" },
+                      { name: "removed", type: "event", description: "Null event when a pitch was removed" },
+                      { name: "count", type: "number", description: "|held|" }] },
   "grid-trig":    { zone: "ctrl", description: "Monome Grid trigger region. Outputs 1 on press, 0 on release.", args: "x y w h", example: "grid-trig 0 0 4 2",
                     inlets: [], outlets: [{ name: "trig", type: "number", description: "1 when pressed, 0 when released" }] },
   "grid-toggle":  { zone: "ctrl", description: "Monome Grid toggle region. Press to flip between 0 and 1.", args: "x y w h", example: "grid-toggle 4 0 2 1",
@@ -213,6 +222,12 @@ const BOX_TYPES = {
   length:         { zone: "any", description: "Output length of an array.",
                     inlets: [{ name: "in", type: "number", description: "Array input" }],
                     outlets: [{ name: "length", type: "number", description: "Number of elements" }] },
+  sort:           { zone: "any", description: "Sort an array numerically. Default ascending; arg 'desc' for descending.", args: "[desc]", example: "sort desc",
+                    inlets: [{ name: "in", type: "array", description: "Input array" }],
+                    outlets: [{ name: "out", type: "array", description: "Sorted copy" }] },
+  nth:            { zone: "any", description: "Extract element at index N. Negative indices count from end. Empty/out-of-bounds → 0.", args: "n", example: "nth -1",
+                    inlets: [{ name: "in", type: "array", description: "Input array" }],
+                    outlets: [{ name: "out", type: "number", description: "Element at index" }] },
   map:            { zone: "any", description: "Index lookup. Floor-indexes into values, clamped to range. Inlet 1 replaces table (array).", args: "values...", example: "map 0 4 7 11",
                     inlets: [{ name: "index", type: "number", description: "Index (floored, clamped)" },
                              { name: "table", type: "number", description: "New table (array)" }],

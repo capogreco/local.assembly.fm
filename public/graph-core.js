@@ -186,6 +186,8 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { defaultRight: parseFloat(args) || 0 };
     case "spigot":
       return {};
+    case "held":
+      return { pitches: [] };
     default:
       return null;
   }
@@ -212,6 +214,18 @@ function evaluatePure(type, args, iv) {
     case "spigot": return a; // gate check at propagation level
     case "quantize": { const d = parseFloat(args[0]) || 12; return Math.round(a * d) / d; }
     case "length": return Array.isArray(iv[0]) ? iv[0].length : 1;
+    case "sort": {
+      if (!Array.isArray(iv[0])) return iv[0];
+      const desc = args[0] === "desc";
+      return [...iv[0]].sort((x, y) => desc ? y - x : x - y);
+    }
+    case "nth": {
+      const n = parseInt(args[0]) || 0;
+      if (!Array.isArray(iv[0])) return 0;
+      const arr = iv[0];
+      const idx = n < 0 ? arr.length + n : n;
+      return (idx >= 0 && idx < arr.length) ? arr[idx] : 0;
+    }
     case "floor": return Math.floor(a);
     case "ceil": return Math.ceil(a);
     case "round": return Math.round(a);
@@ -335,6 +349,27 @@ function handleBoxEvent(type, state, iv) {
     case "fan":
       // Output each stored value on its corresponding outlet
       return { value: 0, propagate: false, outputs: state.values.map((v, i) => ({ outlet: i, value: v, type: "value" })) };
+    case "held": {
+      const pitch = iv[0];
+      const velocity = iv[1];
+      if (typeof pitch !== "number") return null;
+      const idx = state.pitches.indexOf(pitch);
+      const outputs = [];
+      if (velocity > 0) {
+        if (idx === -1) {
+          state.pitches.push(pitch);
+          outputs.push({ outlet: 1, value: null, type: "event" });
+        }
+      } else {
+        if (idx !== -1) {
+          state.pitches.splice(idx, 1);
+          outputs.push({ outlet: 2, value: null, type: "event" });
+        }
+      }
+      outputs.push({ outlet: 0, value: [...state.pitches], type: "value" });
+      outputs.push({ outlet: 3, value: state.pitches.length, type: "value" });
+      return { value: 0, propagate: false, outputs };
+    }
     case "trigger": case "t": {
       const types = state.types || ["b"];
       const outputs = [];
@@ -509,7 +544,7 @@ function tickBox(type, state, iv, dt) {
 function isEventTrigger(type, inlet) {
   if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle" || type === "const")) return true;
   if (inlet === 0 && type === "phasor") return true;
-  if (inlet === 1 && type === "sample-hold") return true;
+  if (inlet === 1 && (type === "sample-hold" || type === "held")) return true;
   return false;
 }
 

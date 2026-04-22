@@ -1717,5 +1717,15 @@ Server side (`eval-engine.ts`) has an analogous wart: `handleRouterInlet(..., is
 - Server-side state: extends `routerState` entry with `storedValues: Record<number, unknown>`. Dispatch sends one `rv` per stored inlet followed by one `re` for the fire event, all to a single client via `_sendToClient`.
 - Client-side changes: none. Existing `processRouterValue` / `processRouterEvent` (with the engine-destination branch fixed earlier in this session) handle the incoming messages unchanged.
 - Known latent issue surfaced during implementation (not fixed): `propagateAndNotify` uses `def.inlets[cable.dstInlet]` and `def.outlets[outletIndex]` — the static defs — to determine inlet/outlet types. For dynamic boxes like `one N` and `sel 1 2`, indices beyond the static def return undefined. The typical path (event sources into router fire/shuffle inlets) still works because `isEventSource` covers the common case, but relying on the source rather than the destination is fragile. Fits the destination-dispatch duplication deferred refactor; fix there.
+
+### `held` + `sort` + `nth` — MIDI held-notes accumulator with array accessors
+- `held` (ctrl-zone, stateful): two inlets (pitch, velocity), four outlets (held-array, added-event, removed-event, count). Velocity > 0 adds pitch to an ordered set in press order; velocity == 0 removes. Dedupe on repeat-press (no-op, no `added` event); graceful skip on release-without-press. Array re-emits on every event arrival so downstream stays live; outlet 0 is a fresh copy so consumers can't mutate internal state.
+- `sort [desc]` (pure): numeric sort of an incoming array, ascending by default, `desc` arg flips. Non-array input passes through.
+- `nth N` (pure): extract element at index N with JS `at()` semantics (negative counts from end). Empty / out-of-bounds / non-array → 0, keeping the chain numeric-safe.
+- All three slot into existing switch statements (`createBoxState`, `evaluatePure`, `handleBoxEvent`, `isEventTrigger` in `public/graph-core.js`) plus a `gpi-types.js` entry each. No changes to `eval-engine.ts` or client-side propagation — arrays already travel as first-class inlet values within the ctrl zone (they can't cross to synth via `rv` messages, which only carry numbers, so held-note patches must terminate extraction in ctrl-zone before sending to phones).
+- Covers arp-in-press-order (`held → seq`), ascending/descending arp (`held → sort [desc] → seq`), min/max (`held → sort → nth 0/-1`), latest-press / earliest-press mono-priority (`held → nth -1/0`), count-gated textures (`held → length`).
+- Smoke-tested via CJS-shim script: add/remove/dedupe/release-not-held semantics verified; sort/nth edge cases (non-array, empty, out-of-bounds, negative indices) verified.
+
+### Next up
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
