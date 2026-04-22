@@ -399,6 +399,12 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
       } else if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
+      } else if (_boxTypeName(dst.text) === "seq" && cable.dstInlet === 2) {
+        // seq inlet 2 replaces the values array at runtime. Preserve the raw
+        // array (handleStatefulInlet would see pre-coerced numValue=0 for arrays).
+        let iv = inletValues.get(cable.dstBox);
+        if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
+        iv[2] = (Array.isArray(value) ? value : numValue) as unknown as number;
       } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValue)) {
         // handled by stateful box
       } else if (_boxTypeName(dst.text) === "length") {
