@@ -1726,6 +1726,26 @@ Server side (`eval-engine.ts`) has an analogous wart: `handleRouterInlet(..., is
 - Covers arp-in-press-order (`held → seq`), ascending/descending arp (`held → sort [desc] → seq`), min/max (`held → sort → nth 0/-1`), latest-press / earliest-press mono-priority (`held → nth -1/0`), count-gated textures (`held → length`).
 - Smoke-tested via CJS-shim script: add/remove/dedupe/release-not-held semantics verified; sort/nth edge cases (non-array, empty, out-of-bounds, negative indices) verified.
 
+### Event-path destination dispatch extracted into `deliverEventToInlet`
+Client-side refactor of `public/graph.js`. Both `propagateEvent` (cable walk) and `processRouterEvent` (router-entry walk) now call a single helper `deliverEventToInlet(graph, boxId, inlet)` that enumerates every event-receiving destination type in one place. Adding a new destination that responds to events (or changing behaviour for an existing one) is now a one-site edit instead of a two-site edit, preventing the class of "one path has a case the other doesn't" bug that caused the sparkly-keys silent-router-event issue earlier this session.
+
+Destinations handled uniformly by the helper:
+- Wireless `send`/`s`: forward the event to all named receivers.
+- `throw`/`sendup`: drop (events don't sum; uplink is number-only).
+- `receive`/`r`: passthrough — forward from outlet 0.
+- Engine with trigger/gate paramName: write `1` to AudioParam.
+- Event-trigger inlet (`isEventTrigger`) / firesEvent box: fire `handleBoxEvent`.
+- Anything else: drop silently (type mismatch).
+
+The two top-level functions collapse to 4–8 lines each: walk cables/entries, call helper, merge results.
+
+Behavioural notes:
+- `propagateEvent` behaviour is unchanged — it always dropped events on non-matching inlets, which is what the helper does too.
+- `processRouterEvent` tightens slightly: the old code had a loose fallback `if (node.state) handleEvent else propagateEvent(boxId, 0)` that fired on any stateful target regardless of inlet type. The helper only fires `handleBoxEvent` when `isEventTrigger`/`firesEvent` matches, and only forwards from outlet 0 for `r`/`receive` specifically. In practice, router outlets are wired either to engine trigger paramNames, to event-trigger inlets, or to wireless receivers — so the old loose fallback wasn't doing useful work.
+- Smoke-tested with router→engine-trigger, router→receive, cable→engine-trigger, and direct delivery — all produce the same updates objects pre/post refactor.
+
+Value path is still duplicated between `propagateValue` and `processRouterValue`. Deliberately deferred — value-path semantics diverge in non-trivial ways (range/drunk inlet handling, deferred vs immediate event firing) and need a more careful test plan before unification. Dispatch-duplication memory still valid; event path is the cleaner half.
+
 ### Next up
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)

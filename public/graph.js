@@ -238,6 +238,58 @@ function propagateValue(graph, boxId, outletIndex, value) {
   return updates;
 }
 
+// Deliver an event to a specific (box, inlet). Single source of truth for
+// destination-type dispatch on the event path — shared between propagateEvent
+// (cable walk) and processRouterEvent (router-entry walk). Adding a new
+// event-receiving destination type means editing this function alone.
+function deliverEventToInlet(graph, boxId, inlet) {
+  const updates = {};
+  const node = graph.boxes.get(boxId);
+  if (!node) return updates;
+
+  // Wireless send: forward as event to every receiver of the same name.
+  if (node.type === "send" || node.type === "s") {
+    const name = node.args.trim();
+    const w = graph.wireless.get(name);
+    if (w) {
+      for (const recvId of w.receives) {
+        mergeUpdates(updates, propagateEvent(graph, recvId, 0));
+      }
+    }
+    return updates;
+  }
+  // throw sums values; events don't sum, so drop.
+  if (node.type === "throw") return updates;
+  // sendup channels numbers to the server; events aren't forwarded.
+  if (node.type === "sendup") return updates;
+  // Wireless receive / passthrough: forward event from outlet 0.
+  // This path matters when a router entry lands directly on an r/receive box.
+  if (node.type === "receive" || node.type === "r") {
+    mergeUpdates(updates, propagateEvent(graph, boxId, 0));
+    return updates;
+  }
+
+  // Engine trigger/gate: write 1 to the AudioParam.
+  if (graph.engines.has(boxId)) {
+    const engine = graph.engines.get(boxId);
+    const paramName = engine.paramNames[inlet];
+    if (paramName && (paramName === "trigger" || paramName === "gate")) {
+      if (graphDebug) console.log(`  → engine event box:${boxId} ${paramName}=1`);
+      updates[boxId] = { [paramName]: 1 };
+    }
+    return updates;
+  }
+
+  // Event-trigger inlets (isEventTrigger) or firesEvent boxes (trigger/t/sel): fire handleEvent.
+  if (isEventTrigger(node.type, inlet) || firesEvent(node.type, inlet)) {
+    mergeUpdates(updates, handleEvent(graph, boxId));
+    return updates;
+  }
+
+  // Everything else (plain number inlets, display sinks): event is dropped.
+  return updates;
+}
+
 // propagate an event (bang) from a box's outlet through the graph
 function propagateEvent(graph, boxId, outletIndex) {
   const node = graph.boxes.get(boxId);
@@ -247,42 +299,8 @@ function propagateEvent(graph, boxId, outletIndex) {
 
   for (const cable of node.outletCables) {
     if (cable.outlet !== outletIndex) continue;
-
-    const dstNode = graph.boxes.get(cable.dstBox);
-    if (!dstNode) continue;
-
-    // Wireless send: forward as event
-    if (dstNode.type === "send" || dstNode.type === "s") {
-      const name = dstNode.args.trim();
-      const w = graph.wireless.get(name);
-      if (w) {
-        for (const recvId of w.receives) {
-          mergeUpdates(updates, propagateEvent(graph, recvId, 0));
-        }
-      }
-      continue;
-    }
-    if (dstNode.type === "throw") continue; // events don't sum
-    if (dstNode.type === "sendup") continue; // events not forwarded via uplink
-
-    // Engine trigger/gate: send 1
-    if (graph.engines.has(cable.dstBox)) {
-      const engine = graph.engines.get(cable.dstBox);
-      const paramName = engine.paramNames[cable.dstInlet];
-      if (paramName && (paramName === "trigger" || paramName === "gate")) {
-        if (graphDebug) console.log(`  → engine event box:${cable.dstBox} ${paramName}=1`);
-        if (!updates[cable.dstBox]) updates[cable.dstBox] = {};
-        updates[cable.dstBox][paramName] = 1;
-      }
-      continue;
-    }
-
-    // Event-trigger inlets or firesEvent: fire handleEvent
-    if (isEventTrigger(dstNode.type, cable.dstInlet) || firesEvent(dstNode.type, cable.dstInlet)) {
-      mergeUpdates(updates, handleEvent(graph, cable.dstBox));
-      continue;
-    }
-    // Number-only inlets: ignored (type mismatch)
+    if (!graph.boxes.has(cable.dstBox)) continue;
+    mergeUpdates(updates, deliverEventToInlet(graph, cable.dstBox, cable.dstInlet));
   }
 
   return updates;
@@ -450,30 +468,10 @@ function processRouterEvent(graph, routerId, channel) {
   const entries = graph.entries.get(key);
   if (!entries) return {};
 
-  let allUpdates = {};
+  const allUpdates = {};
   for (const entry of entries) {
-    const node = graph.boxes.get(entry.targetBox);
-    if (!node) continue;
-
-    // Engine destination: write 1 to the trigger/gate AudioParam directly,
-    // mirroring the value path in processRouterValue.
-    if (graph.engines.has(entry.targetBox)) {
-      const engine = graph.engines.get(entry.targetBox);
-      const paramName = engine.paramNames[entry.targetInlet];
-      if (paramName && (paramName === "trigger" || paramName === "gate")) {
-        if (!allUpdates[entry.targetBox]) allUpdates[entry.targetBox] = {};
-        allUpdates[entry.targetBox][paramName] = 1;
-      }
-      continue;
-    }
-
-    if (node.state) {
-      // Stateful box: fire event handler
-      mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
-    } else {
-      // Stateless box (r/receive, passthrough): propagate event downstream
-      mergeUpdates(allUpdates, propagateEvent(graph, entry.targetBox, 0));
-    }
+    if (!graph.boxes.has(entry.targetBox)) continue;
+    mergeUpdates(allUpdates, deliverEventToInlet(graph, entry.targetBox, entry.targetInlet));
   }
   return allUpdates;
 }
