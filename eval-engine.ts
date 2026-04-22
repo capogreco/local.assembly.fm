@@ -429,7 +429,10 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       } else {
         let iv = inletValues.get(cable.dstBox);
         if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-        iv[cable.dstInlet] = numValue;
+        // Preserve arrays; number-typed inlets still fall back to coerced numValue.
+        // (inletValues is typed number[] for math paths; downstream evaluatePure cases
+        //  branch on Array.isArray so the runtime-mixed storage is safe.)
+        iv[cable.dstInlet] = (Array.isArray(value) ? value : numValue) as unknown as number;
         const hasHotArg = /\bhot\b/.test(dst.text);
         const isHot = cable.dstInlet === 0 || inletDef?.hot === true || hasHotArg;
         if (isHot) {
@@ -618,6 +621,12 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
     let iv = inletValues.get(id);
     if (!iv) { iv = []; inletValues.set(id, iv); }
     iv[inlet] = value;
+    return true;
+  }
+  if (name === "held" && inlet === 0) {
+    let iv = inletValues.get(id);
+    if (!iv) { iv = []; inletValues.set(id, iv); }
+    iv[0] = value;
     return true;
   }
   if (name === "map" && inlet === 1) {

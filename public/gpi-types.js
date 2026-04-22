@@ -32,7 +32,7 @@ const BOX_TYPES = {
   held:           { zone: "ctrl", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity).",
                     inlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
-                      { name: "velocity", type: "number", description: ">0 adds pitch to set; 0 removes" }],
+                      { name: "velocity", type: "number", firesEvent: true, description: ">0 adds pitch to set; 0 removes" }],
                     outlets: [
                       { name: "held", type: "array", description: "Currently held pitches (press order)" },
                       { name: "added", type: "event", description: "Null event when a pitch was newly added" },
