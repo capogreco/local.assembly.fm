@@ -45,6 +45,16 @@ function createSigState(args) {
 }
 
 function advanceSig(state) {
+  // Guard: empty values → nothing to advance, reset index and output 0.
+  if (!state.values || state.values.length === 0) {
+    state.index = 0;
+    return 0;
+  }
+  // Guard: recover from NaN/invalid index (e.g. after values was emptied
+  // then repopulated — prior modulo-by-zero leaves index as NaN).
+  if (!Number.isFinite(state.index) || state.index < 0 || state.index >= state.values.length) {
+    state.index = 0;
+  }
   switch (state.behaviour) {
     case "shuffle":
       for (let i = state.values.length - 1; i > 0; i--) {

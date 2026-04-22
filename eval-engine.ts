@@ -440,6 +440,9 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
         // (inletValues is typed number[] for math paths; downstream evaluatePure cases
         //  branch on Array.isArray so the runtime-mixed storage is safe.)
         iv[cable.dstInlet] = (Array.isArray(value) ? value : numValue) as unknown as number;
+        // spigot: inlet 1 is gate; block propagation when gate ≤ 0
+        // (mirrors client-side check in public/graph.js)
+        if (_boxTypeName(dst.text) === "spigot" && cable.dstInlet === 0 && (iv[1] || 0) <= 0) continue;
         const hasHotArg = /\bhot\b/.test(dst.text);
         const isHot = cable.dstInlet === 0 || inletDef?.hot === true || hasHotArg;
         if (isHot) {
