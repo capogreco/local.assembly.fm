@@ -324,13 +324,14 @@ export function setBoxValueAndNotify(boxId: number, value: BoxValue): void {
   const def = _getBoxDef(box.text);
   if (!def) return;
 
-  // breath/bite: outlet 0 = value, outlet 1 = onset event, outlet 2 = offset event
+  // breath/bite: outlet 0 = value (0-1 pressure), outlet 1 = gate (0 below threshold, 1 above).
+  // Gate only fires on threshold crossings, not every tick.
   if (name === "breath" || name === "bite") {
     propagateAndNotify(boxId, 0, value);
     const p = typeof prev === "number" ? prev : 0;
     const v = typeof value === "number" ? value : 0;
     if (p < ONSET_THRESHOLD && v >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 1);
-    if (p >= ONSET_THRESHOLD && v < ONSET_THRESHOLD) propagateAndNotify(boxId, 2, 0);
+    else if (p >= ONSET_THRESHOLD && v < ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 0);
     return;
   }
 

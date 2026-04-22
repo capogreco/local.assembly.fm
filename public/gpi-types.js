@@ -12,13 +12,11 @@ const BOX_TYPES = {
   breath:         { zone: "ctrl", description: "BBC2 breath pressure. CC#2. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
-                      { name: "onset", type: "event", description: "Null event at start of breath" },
-                      { name: "offset", type: "event", description: "Null event at end of breath" }] },
+                      { name: "gate", type: "number", description: "1 above threshold, 0 below (changes on crossing)" }] },
   bite:           { zone: "ctrl", description: "BBC2 bite pressure. CC#1. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
-                      { name: "onset", type: "event", description: "Null event at start of bite" },
-                      { name: "offset", type: "event", description: "Null event at end of bite" }] },
+                      { name: "gate", type: "number", description: "1 above threshold, 0 below (changes on crossing)" }] },
   nod:            { zone: "ctrl", description: "BBC2 head nod. CC#12. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
   tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
