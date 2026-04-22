@@ -306,7 +306,8 @@ const BOX_TYPES = {
                     dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on each phone" }] },
-  one:            { zone: "router", description: "Send to one phone at a time. Auto-advances on each value.",
+  one:            { zone: "router", description: "Send to one phone at a time. No arg: auto-advances on each value. With arg N: N data inlets hold values; fire inlet flushes the bundle to current phone and advances.", args: "[n]", example: "one 3",
+                    dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "shuffle", type: "event", description: "Randomize visit order" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on selected phone" }] },
   group:          { zone: "router", description: "Partitioned send. Phones divided into N groups. Last inlet shuffles membership.", args: "groups", example: "group 3",
@@ -649,6 +650,12 @@ function getBoxPorts(text) {
       const n = parseInt(text.split(/\s+/)[1]) || 1;
       return { inlets: n + 1, outlets: 1 }; // N group inlets + 1 shuffle, 1 outlet
     }
+    if (name === "one") {
+      const tokens = text.split(/\s+/);
+      if (tokens.length === 1) return { inlets: 2, outlets: 1 }; // no arg: current auto-advance
+      const n = parseInt(tokens[1]) || 1;
+      return { inlets: n + 2, outlets: n + 1 }; // N data + fire + shuffle, N data + event
+    }
     if (name === "sendup" || name === "sall") {
       const n = Math.max(1, text.split(/\s+/).length - 1);
       return { inlets: n, outlets: 0 };
@@ -683,6 +690,19 @@ function getInletDef(text, index) {
     if (index === n) return def.inlets[1]; // shuffle inlet
     return null;
   }
+  if (name === "one") {
+    const tokens = text.split(/\s+/);
+    if (tokens.length === 1) {
+      if (index === 0) return def.inlets[0]; // in
+      if (index === 1) return def.inlets[1]; // shuffle
+      return null;
+    }
+    const n = parseInt(tokens[1]) || 1;
+    if (index < n) return { name: `in${index}`, type: "passthrough", description: "Value (cold stored until fire)" };
+    if (index === n) return { name: "fire", type: "event", description: "Dispatch bundle to current phone and advance" };
+    if (index === n + 1) return def.inlets[1]; // shuffle
+    return null;
+  }
   // For other dynamic types (all, fan), repeat the first definition
   if (def.dynamic && def.inlets.length === 1) return def.inlets[0];
   return def.inlets?.[index] || null;
@@ -697,6 +717,14 @@ function getOutletDef(text, index) {
     const nMatch = Math.max(1, text.split(/\s+/).length - 1);
     if (index < nMatch) return { name: "match", type: "event", description: "Event on match" };
     return { name: "reject", type: "number", description: "Non-matching value" };
+  }
+  if (name === "one") {
+    const tokens = text.split(/\s+/);
+    if (tokens.length === 1) return def.outlets[0]; // no-arg: single passthrough outlet
+    const n = parseInt(tokens[1]) || 1;
+    if (index < n) return { name: `out${index}`, type: "passthrough", description: "Stored value, dispatched on fire" };
+    if (index === n) return { name: "event", type: "event", description: "Fire event to current phone" };
+    return null;
   }
   if (def.dynamic && def.outlets.length === 1) return def.outlets[0];
   return def.outlets?.[index] || null;

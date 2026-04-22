@@ -101,14 +101,56 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
   if (!box) return;
   const routerType = _boxTypeName(box.text);
 
-  // for `one`: inlet 1 is shuffle trigger
-  if (inlet === 1 && routerType === "one") {
-    if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
-    const state = routerState.get(routerBoxId)!;
-    const clients = _getSynthClientIds();
-    state.order = shuffleArray([...Array(clients.length).keys()]);
-    state.index = 0;
-    return;
+  // `one` with arg N: explicit-fire bundling semantics.
+  // Inlets 0..N-1 = data (cold store), inlet N = fire (flush + advance), inlet N+1 = shuffle.
+  // `one` with no arg: auto-advance — falls through to routerDispatch below.
+  if (routerType === "one") {
+    const tokens = box.text.split(/\s+/);
+    if (tokens.length > 1) {
+      const n = parseInt(tokens[1]) || 1;
+      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0, storedValues: {} });
+      const state = routerState.get(routerBoxId)!;
+      if (!state.storedValues) state.storedValues = {};
+
+      if (inlet < n) {
+        state.storedValues[inlet] = value;
+        return;
+      }
+      if (inlet === n) {
+        const clients = _getSynthClientIds();
+        if (clients.length === 0) return;
+        const clientIndex = state.order
+          ? state.order[state.index % state.order.length]
+          : state.index;
+        const targetClient = clients[clientIndex % clients.length];
+
+        for (const [storedInletStr, storedValue] of Object.entries(state.storedValues)) {
+          const storedInlet = parseInt(storedInletStr);
+          _sendToClient(targetClient, { type: "rv", r: routerBoxId, ch: storedInlet, v: storedValue });
+        }
+        _sendToClient(targetClient, { type: "re", r: routerBoxId, ch: n });
+
+        const len = state.order ? state.order.length : clients.length;
+        state.index = (state.index + 1) % len;
+        return;
+      }
+      if (inlet === n + 1) {
+        const clients = _getSynthClientIds();
+        state.order = shuffleArray([...Array(clients.length).keys()]);
+        state.index = 0;
+        return;
+      }
+      return;
+    }
+    // No-arg `one`: inlet 1 is shuffle; inlet 0 falls through to routerDispatch (auto-advance).
+    if (inlet === 1) {
+      if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
+      const state = routerState.get(routerBoxId)!;
+      const clients = _getSynthClientIds();
+      state.order = shuffleArray([...Array(clients.length).keys()]);
+      state.index = 0;
+      return;
+    }
   }
 
   // for `group`: last inlet is shuffle trigger

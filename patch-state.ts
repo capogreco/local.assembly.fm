@@ -43,7 +43,7 @@ export function setDeployedPatch(v: Record<string, any> | null): void { _deploye
 
 // --- Pipeline state ---
 
-export const routerState = new Map<number, { index: number; order?: number[] }>();
+export const routerState = new Map<number, { index: number; order?: number[]; storedValues?: Record<number, unknown> }>();
 export const groupState = new Map<number, number[][]>();
 export const latestValues = new Map<string, string>();
 export const uplinkIndex = new Map<string, Array<{ boxId: number; outletIndex: number }>>();

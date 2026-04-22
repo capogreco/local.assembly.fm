@@ -1710,6 +1710,12 @@ Server side (`eval-engine.ts`) has an analogous wart: `handleRouterInlet(..., is
 - A pre-step when adding a new destination type (the new case lands in one place, cost of porting existing cases is justified), OR
 - A focused standalone session with a behavioural-equivalence test plan: a matrix of (kind × destination × route) sample patches that must route identically before and after.
 
-### Next up
+### `one N` — explicit-fire bundling router
+- `one` (no arg) keeps its current auto-advance-on-value behavior: single data inlet, shuffle on inlet 1. Patches using it aren't affected.
+- `one N` (arg ≥ 1) is a new bundling variant. Inlets 0..N-1 are cold-stored data inlets; inlet N is `fire` (event); inlet N+1 is `shuffle`. Outlets 0..N-1 are passthrough; outlet N is event. A fire event dispatches every stored value + the event atomically to the current target phone, then advances the pointer. Stored values persist across fires, so you can set long-lived state (e.g. decay, brightness) once and then fire trigger+freq bundles to walk through phones.
+- Data inlets that have never been set produce no message — partial bundles are legitimate.
+- Server-side state: extends `routerState` entry with `storedValues: Record<number, unknown>`. Dispatch sends one `rv` per stored inlet followed by one `re` for the fire event, all to a single client via `_sendToClient`.
+- Client-side changes: none. Existing `processRouterValue` / `processRouterEvent` (with the engine-destination branch fixed earlier in this session) handle the incoming messages unchanged.
+- Known latent issue surfaced during implementation (not fixed): `propagateAndNotify` uses `def.inlets[cable.dstInlet]` and `def.outlets[outletIndex]` — the static defs — to determine inlet/outlet types. For dynamic boxes like `one N` and `sel 1 2`, indices beyond the static def return undefined. The typical path (event sources into router fire/shuffle inlets) still works because `isEventSource` covers the common case, but relying on the source rather than the destination is fragile. Fits the destination-dispatch duplication deferred refactor; fix there.
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
