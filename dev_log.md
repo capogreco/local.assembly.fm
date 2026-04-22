@@ -1681,6 +1681,35 @@ All modules use dependency injection (`initX()` callbacks) to avoid circular imp
 - Fix: add an engine-destination branch that mirrors the value path in `processRouterValue` — `allUpdates[box][paramName] = 1` when the target inlet resolves to `"trigger"` or `"gate"`.
 - Both this and the `ch`-on-`re` bug were discovered debugging sparkly-keys (MIDI key → `> 0` → `sel 1` → `all 2` → KS trigger). Each one alone kept the patch silent.
 
+### Architecture note — destination-dispatch duplication (deferred refactor)
+
+Both router-event bugs above were instances of the same pattern: the **value path had a case the event path was missing**. Bug 1 (server): value path included `ch` in the outbound message, event path didn't. Bug 2 (client): `processRouterValue` handled engine destinations; `processRouterEvent` didn't.
+
+**Root cause.** Propagation code has two axes — kind (value / event) and route (normal cable / router entry) — giving four top-level functions: `propagateValue`, `propagateEvent`, `processRouterValue`, `processRouterEvent`. Each one independently enumerates *every destination type* (engine AudioParam, stateful control box, wireless send/throw, phasor, adsr, toggle, …) inline. A new destination type has to be wired into all four; miss one and you get a silent-path bug.
+
+The 2026-04-04 propagation refactor split value vs event at the top level (correct — they have different semantics at every inlet), but didn't factor the destination dispatch below that split. So the split accumulated duplication instead of simplifying it.
+
+**Proposed fix.** Extract a per-inlet delivery layer:
+
+```
+deliverValueToInlet(graph, boxId, inlet, value) → updates
+deliverEventToInlet(graph, boxId, inlet) → updates
+```
+
+All destination-type logic lives inside those two functions. Then:
+- `propagateValue` walks outlet cables → calls `deliverValueToInlet` per cable.
+- `propagateEvent` walks outlet cables → calls `deliverEventToInlet` per cable.
+- `processRouterValue` walks entries → calls `deliverValueToInlet`.
+- `processRouterEvent` walks entries → calls `deliverEventToInlet`.
+
+Normal-cable vs router-entry axis collapses to "how do I find the destination"; destination dispatch becomes one place per kind. Adding a destination is editing 2 files instead of 4.
+
+Server side (`eval-engine.ts`) has an analogous wart: `handleRouterInlet(..., isEvent)` builds `rv` / `re` messages with slightly different shapes inline. A `buildRouterMessage(routerId, ch, kind, value?)` helper would prevent the shape drift that caused Bug 1.
+
+**When to do this.** Not mid-session after debugging. The propagation layer is load-bearing and silent-miswire is the worst failure mode. Do it as:
+- A pre-step when adding a new destination type (the new case lands in one place, cost of porting existing cases is justified), OR
+- A focused standalone session with a behavioural-equivalence test plan: a matrix of (kind × destination × route) sample patches that must route identically before and after.
+
 ### Next up
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
