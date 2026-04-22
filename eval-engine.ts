@@ -158,7 +158,7 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
 
   // all routers — send immediately
   if (isEvent) {
-    routerDispatch(routerBoxId, { type: "re", r: routerBoxId }, { advanceSweep: true, storeLatest: false });
+    routerDispatch(routerBoxId, { type: "re", r: routerBoxId, ch: inlet }, { advanceSweep: true, storeLatest: false });
   } else {
     sendViaRouter(routerBoxId, inlet, value);
   }

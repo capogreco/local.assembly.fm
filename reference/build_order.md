@@ -42,7 +42,7 @@
 **1.3 Karplus-Strong worklet**
 - New `public/ks-processor.js` AudioWorklet
 - Delay line + LP filter + feedback = plucked string
-- AudioParams: frequency, damping, brightness, excitation, amplitude
+- AudioParams: frequency, decay, brightness, stiffness, amplitude (trigger via message port)
 - Trigger via message port (excite the string)
 - Standalone test: trigger from ctrl client MIDI note-on
 - Simplest new synthesis engine — validates multi-engine architecture

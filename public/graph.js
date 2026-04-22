@@ -454,6 +454,19 @@ function processRouterEvent(graph, routerId, channel) {
   for (const entry of entries) {
     const node = graph.boxes.get(entry.targetBox);
     if (!node) continue;
+
+    // Engine destination: write 1 to the trigger/gate AudioParam directly,
+    // mirroring the value path in processRouterValue.
+    if (graph.engines.has(entry.targetBox)) {
+      const engine = graph.engines.get(entry.targetBox);
+      const paramName = engine.paramNames[entry.targetInlet];
+      if (paramName && (paramName === "trigger" || paramName === "gate")) {
+        if (!allUpdates[entry.targetBox]) allUpdates[entry.targetBox] = {};
+        allUpdates[entry.targetBox][paramName] = 1;
+      }
+      continue;
+    }
+
     if (node.state) {
       // Stateful box: fire event handler
       mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));

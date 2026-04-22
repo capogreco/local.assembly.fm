@@ -599,9 +599,10 @@ const BOX_TYPES = {
   "karplus-strong~": { zone: "any", description: "Karplus-Strong plucked string synthesis.",
                     inlets: [
                       { name: "frequency", type: "number", description: "Frequency in Hz" },
-                      { name: "damping", type: "number", description: "Decay rate (0-1)" },
+                      { name: "decay", type: "number", description: "Decay time in seconds (T60)" },
                       { name: "brightness", type: "number", description: "Lowpass filter (0-1)" },
-                      { name: "excitation", type: "number", description: "Noise burst level (0-1)" },
+                      { name: "stiffness", type: "number", description: "Inharmonic dispersion (0=harmonic, 1=piano-like)" },
+                      { name: "trigger", type: "event", description: "Fire a pluck" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
   "swarm~":       { zone: "any", description: "Resonant event swarm. Water, rain, fizz, metallic textures via parameter regimes.",

@@ -233,7 +233,7 @@ trombone: [
 ]
 
 karplusStrong: [
-  frequency, damping, brightness, excitation, amplitude
+  frequency, decay, brightness, stiffness, trigger, amplitude
 ]
 
 reverb: [

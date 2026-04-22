@@ -1652,6 +1652,35 @@ All modules use dependency injection (`initX()` callbacks) to avoid circular imp
 - Fix: removed `initialValues` entirely from server.ts and main.js — redundant since `latestValues` already handles synth client state sync correctly
 - 26 lines removed, 0 added. KS now plucks on first keypress from ctrl client.
 
+### karplus-strong~ trigger → port message
+- Reverses the "exclusively via AudioParam edge detection" decision from the recent rewrite. Rationale: a-rate edge-detect was never used musically, and all other tilde trigger boxes (ar~, adsr~, sigmoid~, cosine~, ramp~, step~, trig~) already go through port messages. Unifying gets rid of a one-off mechanism.
+- `ks-processor.js`: removed `excitation` AudioParam and `excPrev` edge-detector. Added `port.onmessage` handler that sets `pendingPluck = true` on `{type:"trigger"}`; `process()` fires at top of next block.
+- `gpi-types.js`: renamed inlet 3 from `excitation` (number) to `trigger` (event, description "Fire a pluck"). Server-derived `paramNames[3]` becomes `"trigger"`, which `main.js:204` already catches and translates to `port.postMessage({type:"trigger"})`. No changes to graph.js required — the existing `paramName === "trigger" || paramName === "gate"` handshake just works.
+- Reference doc fixes: `reference/build_order.md` and `reference/program_layer.md` updated to drop `excitation` from KS AudioParam lists.
+
+### karplus-strong~ allpass fractional delay
+- Fixes the classic KS high-octave flattening. Root cause: the integer-sample delay line could only approximate the true period, and the two-point loop lowpass adds ~0.5 samples of group delay that always makes pitch flatter. At 880 Hz the combined error was ~15¢ flat; by A6+ it was tens of cents, unusable for tonal music.
+- Added a one-pole allpass between the delay-line read and the loop filter. `totalDelay = sampleRate/freq - 0.5` compensates the filter's group delay; `intDelay = round(totalDelay - 1)` picks a buffer-read position such that the allpass fractional delay `d = totalDelay - intDelay` lands in [0.5, 1.5] — the well-conditioned range for the one-pole form. Coefficient `C = (1-d)/(1+d)`; recurrence `y[n] = C*(x[n] - y[n-1]) + x[n-1]`.
+- Output and loop feedback both use the allpass-filtered signal (not the raw buffer read), so the pitch the listener hears matches the loop's actual period.
+- `pluck()` resets the allpass state alongside `lpPrev` for clean re-plucks.
+
+### karplus-strong~ decay (seconds) + stiffness cascade
+- **Param rename**: `damping` (0-1 per-sample feedback coefficient) → `decay` (T60 in seconds). Worklet computes `damp = 0.001^(1/(freq*decay))` per block so decay time is uniform across the pitch range instead of 1/f (each octave halving). Default 2.0s.
+- **New param**: `stiffness` (0-1). Drives a cascade of K=4 first-order allpasses in the feedback loop with coefficient `a = -0.9 * stiffness`. Produces frequency-dependent phase delay: low modes slower, high modes faster, so the Nth mode tunes progressively sharp of N×f₀ — physical inharmonicity. Stiffness=0 is classic harmonic KS.
+- **Fundamental-tuning compensation**: stiffness cascade has nonzero phase delay at f₀, so we compute its phase delay analytically (two `atan2`s at block rate) and subtract from the target loop delay. The tuning allpass picks up the fractional remainder. Result: stiffness sweeps don't wobble the fundamental — they only change the harmonic structure above it.
+- **Inlet layout**: follows the convention (set by `sine-osc~`, `cute-sine~`, `noise-engine~`, `shepard~`, `formant~`) that `amplitude` is the rightmost inlet. Final order: `frequency, decay, brightness, stiffness, trigger, amplitude`. This shifts `trigger` from index 3 → 4 and `amplitude` from 4 → 5 relative to the prior layout, so existing patches using those inlets need re-cabling. Inlet 1 is now `decay`, semantically different from the old `damping`. Per prototype-mode: no compatibility shim.
+- **Doc sync**: `reference/build_order.md`, `reference/program_layer.md` updated.
+- Deleted `public/audio-graph.js` (462 lines) — orphaned remnant of the automatic audio-rate hoisting system that was torn out when the explicit `~` convention landed. No HTML file loaded it; its functions (`identifyAudioBoxes`, `buildAudioSubgraph`, `createContinuousNode`, `forwardDiscreteValue`, `forwardEvent`) had no callers. `engine-factory.js` does the equivalent job now, triggered by the user typing `~` rather than inferred from topology.
+
+### Router events lost channel on generic `all` path
+- `eval-engine.ts` `handleRouterInlet`: the `re` message built for generic routers (`all` and fall-through) omitted `ch`, so `processRouterEvent` on the client side always defaulted to channel 0 regardless of which inlet fired. Events into `all 2` inlet 1 were therefore delivered on outlet 0 of the synth-side router, never reaching cables wired from outlet 1.
+- The value path (`sendViaRouter`) and the `sall` event path both already included `ch`; only the generic-router event path was wrong. One-line fix: `{ type: "re", r: routerBoxId, ch: inlet }`.
+
+### Router events dropped when target was an engine inlet
+- `public/graph.js` `processRouterEvent` had two branches — `node.state` → `handleEvent`, else propagate from outlet 0 — and no engine branch. When the router delivered an event whose target was an engine's trigger/gate inlet (e.g. `all 2` → `karplus-strong~` trigger), the engine has no `state` so the code fired an event OUT of the engine's audio outlet 0 into `dac~`, a no-op. The trigger paramName was never written.
+- Fix: add an engine-destination branch that mirrors the value path in `processRouterValue` — `allUpdates[box][paramName] = 1` when the target inlet resolves to `"trigger"` or `"gate"`.
+- Both this and the `ch`-on-`re` bug were discovered debugging sparkly-keys (MIDI key → `> 0` → `sel 1` → `all 2` → KS trigger). Each one alone kept the patch silent.
+
 ### Next up
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
