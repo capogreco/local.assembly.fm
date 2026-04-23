@@ -680,6 +680,148 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
   return updates;
 }
 
+// Single source of truth for value-path destination dispatch. Called by both
+// client (propagateValue / processRouterValue) and server-side equivalents.
+//
+// `helpers`: { propagateValue(graph, boxId, outlet, value) → updates,
+//              evaluateNode(graph, boxId) → value,
+//              debug?: boolean }
+//
+// Returns `{ updates, deferEvent }`. When `deferEvent` is true, the caller
+// should fire handleEvent for `boxId` — either deferred (cable path) or
+// immediately (router-entry path), per the caller's policy.
+//
+// This helper handles the SHARED destination cases. The two callers may add
+// path-specific pre-dispatch (e.g. processRouterValue handles range/drunk
+// min/max update before delegating).
+function deliverValueToInlet(graph, boxId, inlet, value, helpers) {
+  const updates = {};
+  const node = graph.boxes.get(boxId);
+  if (!node) return { updates, deferEvent: false };
+
+  // Always store the incoming value first (preserving arrays). Matches the
+  // original cable path where inletValues was set before any branching.
+  node.inletValues[inlet] = value;
+
+  // Spigot gate: block downstream propagation on inlet 0 when inlet 1 ≤ 0.
+  // The value IS stored (above); we just don't evaluate or forward.
+  if (node.type === "spigot" && inlet === 0 && (node.inletValues[1] || 0) <= 0) {
+    return { updates, deferEvent: false };
+  }
+
+  // Display/sensor sinks: just stored, no dispatch.
+  if (node.type === "screen" || node.type === "text" || node.type === "touch") {
+    return { updates, deferEvent: false };
+  }
+
+  // Wireless send: forward to every named receiver.
+  if (node.type === "send" || node.type === "s") {
+    const w = graph.wireless && graph.wireless.get((node.args || "").trim());
+    if (w) {
+      for (const recvId of w.receives) {
+        mergeUpdates(updates, helpers.propagateValue(graph, recvId, 0, value));
+      }
+    }
+    return { updates, deferEvent: false };
+  }
+
+  // Wireless throw: sum into every named catch's inlet 0.
+  if (node.type === "throw") {
+    const w = graph.wireless && graph.wireless.get((node.args || "").trim());
+    if (w) {
+      for (const catchId of w.catches) {
+        const catchNode = graph.boxes.get(catchId);
+        if (catchNode) {
+          catchNode.inletValues[0] = (catchNode.inletValues[0] || 0) + value;
+          mergeUpdates(updates, helpers.propagateValue(graph, catchId, 0, catchNode.inletValues[0]));
+        }
+      }
+    }
+    return { updates, deferEvent: false };
+  }
+
+  // Uplink: queue value on a named channel for the server.
+  if (node.type === "sendup") {
+    const names = (node.args || "").split(/\s+/).filter(Boolean);
+    const chName = names[inlet];
+    if (chName && graph.uplinkQueue) graph.uplinkQueue.push({ ch: chName, v: value });
+    return { updates, deferEvent: false };
+  }
+
+  // Engine destination: write to AudioParam by paramName. Values never fire
+  // trigger/gate — only events do (skip those branches).
+  if (graph.engines && graph.engines.has(boxId)) {
+    const engine = graph.engines.get(boxId);
+    const paramName = engine.paramNames[inlet];
+    if (paramName) {
+      if (paramName === "trigger" || paramName === "gate") return { updates, deferEvent: false };
+      if (helpers.debug) console.log(`  → engine box:${boxId} ${paramName}=${value}`);
+      updates[boxId] = { [paramName]: value };
+    }
+    return { updates, deferEvent: false };
+  }
+
+  // Event-trigger / firesEvent inlets: caller fires handleEvent.
+  if (isEventTrigger(node.type, inlet) || firesEvent(node.type, inlet)) {
+    return { updates, deferEvent: true };
+  }
+
+  // Cold-store-only stateful boxes (value already stored above; no further side effect).
+  if (node.type === "phasor") return { updates, deferEvent: false };
+  if (node.type === "sample-hold" && inlet === 0) return { updates, deferEvent: false };
+  if (node.type === "adsr" && inlet === 0) return { updates, deferEvent: false };
+  if (node.type === "seq" && inlet >= 1) return { updates, deferEvent: false };
+
+  // Data-driven inlet map (adsr/ar/ramp/sigmoid/cosine/lfo/phasor/metro/slew/lag/step).
+  if (node.state && applyInletToState(node.type, node.state, inlet, value)) {
+    return { updates, deferEvent: false };
+  }
+
+  // Toggle inlet 1: flip on rising edge, propagate state.
+  if (node.type === "toggle" && inlet === 1) {
+    if (node.state) {
+      const newVal = value > 0 ? 1 : 0;
+      if (newVal !== node.state.value) {
+        node.state.value = newVal;
+        mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, node.state.value));
+      }
+    }
+    return { updates, deferEvent: false };
+  }
+
+  // Map: inlet 1 replaces table (array); inlet 0 indexes and propagates.
+  if (node.type === "map") {
+    if (node.state) {
+      if (inlet === 1 && Array.isArray(value)) {
+        node.state.table = value;
+      } else if (inlet === 0) {
+        const t = node.state.table;
+        const idx = Math.max(0, Math.min(t.length - 1, Math.floor(value)));
+        mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, t[idx] !== undefined ? t[idx] : 0));
+      }
+    }
+    return { updates, deferEvent: false };
+  }
+
+  // Change: only propagate when value differs from previous.
+  if (node.type === "change") {
+    if (node.state && value !== node.state.prev) {
+      node.state.prev = value;
+      mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, value));
+    }
+    return { updates, deferEvent: false };
+  }
+
+  // Default: pure math / passthrough. Hot inlet → evaluate + propagate; cold just stored.
+  if (!isHotInlet(node.type, inlet, node.args)) return { updates, deferEvent: false };
+  if (helpers.evaluateNode) {
+    const result = helpers.evaluateNode(graph, boxId);
+    if (helpers.debug) console.log(`  eval box:${boxId} type:${node.type} inlet[${inlet}]=${value} → ${result}`);
+    mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, result));
+  }
+  return { updates, deferEvent: false };
+}
+
 // --- Exports (CJS for server, globals for browser) ---
 
 if (typeof exports === "object") Object.assign(exports, {
@@ -689,5 +831,5 @@ if (typeof exports === "object") Object.assign(exports, {
   handleBoxEvent, tickBox,
   isEventTrigger, firesEvent, isHotInlet, isEventOutlet, parseValues,
   INLET_MAPS, applyInletToState,
-  mergeUpdates, deliverEventToInlet,
+  mergeUpdates, deliverEventToInlet, deliverValueToInlet,
 });

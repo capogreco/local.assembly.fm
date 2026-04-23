@@ -39,6 +39,7 @@ var isEventOutlet = core.isEventOutlet;
 var applyInletToState = core.applyInletToState;
 var mergeUpdates = core.mergeUpdates;
 var deliverEventToInlet = core.deliverEventToInlet;
+var deliverValueToInlet = core.deliverValueToInlet;
 ${graphSrc}
 return {
   buildGraph,
