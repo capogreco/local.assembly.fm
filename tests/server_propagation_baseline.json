@@ -1,0 +1,395 @@
+{
+  "propagate const value to mtof": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 261.6255653005986
+    },
+    "inletValues": {
+      "2": [
+        60
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 60
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "propagate value to wireless send → receive": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "3": 0.5,
+      "4": 0.5
+    },
+    "inletValues": {
+      "4": [
+        0.5
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 0.5
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "propagate value through wireless throw → catch (sums)": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "3": 8,
+      "4": 8
+    },
+    "inletValues": {
+      "4": [
+        8
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 5
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "spigot blocks when gate=0": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {},
+    "inletValues": {
+      "2": [
+        5
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 5
+      },
+      "2": {}
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "spigot passes when gate=1": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 5,
+      "3": 15
+    },
+    "inletValues": {
+      "2": [
+        5,
+        1
+      ],
+      "3": [
+        5
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 5
+      },
+      "2": {}
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "toggle inlet 1 flips on rising edge": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 1,
+      "3": 1
+    },
+    "inletValues": {
+      "3": [
+        1
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 1
+      },
+      "2": {
+        "value": 1
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "change passes only on diff": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 7,
+      "3": 7
+    },
+    "inletValues": {
+      "3": [
+        7
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 5
+      },
+      "2": {
+        "prev": 7
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "applyInletToState on adsr release": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {},
+    "inletValues": {},
+    "boxState": {
+      "1": {
+        "value": 0.7
+      },
+      "2": {
+        "value": 0,
+        "phase": "idle",
+        "elapsed": 0,
+        "a": 0.05,
+        "d": 0.1,
+        "s": 0.7,
+        "r": 0.7,
+        "gateOpen": false
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "seq inlet 2 receives array (preserved through propagation)": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {},
+    "inletValues": {
+      "2": [
+        null,
+        null,
+        [
+          60,
+          64,
+          67
+        ]
+      ]
+    },
+    "boxState": {
+      "1": {
+        "pitches": []
+      },
+      "2": {
+        "values": [
+          0
+        ],
+        "behaviour": "asc",
+        "index": 0
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "seq inlet 0 trigger advances": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 1,
+      "3": 1
+    },
+    "inletValues": {
+      "3": [
+        1
+      ]
+    },
+    "boxState": {
+      "1": {
+        "elapsed": 0,
+        "interval": 0.1,
+        "paused": false
+      },
+      "2": {
+        "values": [
+          1
+        ],
+        "behaviour": "2",
+        "index": 0
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "held: pitch on inlet 0, velocity on inlet 1 fires event": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 1,
+      "3": [
+        60
+      ]
+    },
+    "inletValues": {
+      "2": [
+        60,
+        100
+      ],
+      "3": [
+        [
+          60
+        ]
+      ]
+    },
+    "boxState": {
+      "2": {
+        "pitches": [
+          60
+        ]
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "router all → engine paramName": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [
+        {
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 440
+        }
+      ],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {},
+    "inletValues": {},
+    "boxState": {
+      "1": {
+        "value": 440
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":440}"
+    }
+  },
+  "* hot recompute and propagate": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 10,
+      "3": 10
+    },
+    "inletValues": {
+      "2": [
+        5
+      ],
+      "3": [
+        10
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 5
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "+ cold inlet 1 stores without re-eval": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {},
+    "inletValues": {
+      "2": [
+        null,
+        3
+      ]
+    },
+    "boxState": {
+      "1": {
+        "value": 3
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  }
+}
