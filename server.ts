@@ -601,14 +601,26 @@ function handleCtrlWs(req: Request): Response {
             const id = findBoxByText(name);
             if (id !== null) setBoxValueAndNotify(id, msg.value / 127);
           }
-          // Generic CC boxes: "cc N" matches CC number N
-          const ccId = findBoxByText("cc " + msg.cc);
-          if (ccId !== null) setBoxValueAndNotify(ccId, msg.value / 127);
-          // CC monitor: bare "cc" with no arg — display cc:value
-          const monId = findBoxByText("cc");
-          if (monId !== null) {
-            boxValues.set(monId, msg.value / 127);
-            queueValueUpdate(monId, msg.cc + ":" + (msg.value / 127).toFixed(2));
+          const value = msg.value / 127;
+          // Generic CC boxes: each box can list one or more CC numbers as args;
+          // each arg position maps to a same-indexed outlet. A bare `cc` (no
+          // args) is a passive monitor — display the last cc:value, don't
+          // propagate.
+          for (const [ccId, ccBox] of boxes) {
+            if (boxTypeName(ccBox.text) !== "cc") continue;
+            const tokens = ccBox.text.split(/\s+/);
+            if (tokens.length === 1) {
+              boxValues.set(ccId, value);
+              queueValueUpdate(ccId, msg.cc + ":" + value.toFixed(2));
+              continue;
+            }
+            for (let i = 1; i < tokens.length; i++) {
+              if (parseInt(tokens[i]) === msg.cc) {
+                boxValues.set(ccId, value);
+                queueValueUpdate(ccId, value);
+                propagateAndNotify(ccId, i - 1, value);
+              }
+            }
           }
         } else if (msg.note !== undefined) {
           const id = findBoxByText("key");

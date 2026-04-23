@@ -21,7 +21,8 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
   tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
-  cc:             { zone: "ctrl", description: "MIDI CC input. Arg is CC number. No arg = monitor all CCs (displays cc:value).", args: "[number]", example: "cc 1",
+  cc:             { zone: "ctrl", description: "MIDI CC input. Pass one or more CC numbers as args; each gets its own outlet. No args = monitor mode (displays last cc:value, does not propagate).", args: "[n ...]", example: "cc 1 7 11",
+                    dynamic: true,
                     inlets: [], outlets: [{ name: "value", type: "number", description: "CC value (0-1)" }] },
   key:            { zone: "ctrl", description: "MIDI keyboard input.",
                     inlets: [], outlets: [
@@ -691,6 +692,10 @@ function getBoxPorts(text) {
       const n = parseInt(tokens[1]) || 1;
       return { inlets: n + 2, outlets: n + 1 }; // N data + fire + shuffle, N data + event
     }
+    if (name === "cc") {
+      const nArgs = Math.max(0, text.split(/\s+/).length - 1);
+      return { inlets: 0, outlets: Math.max(1, nArgs) };
+    }
     if (name === "sendup" || name === "sall") {
       const n = Math.max(1, text.split(/\s+/).length - 1);
       return { inlets: n, outlets: 0 };
@@ -760,6 +765,13 @@ function getOutletDef(text, index) {
     if (index < n) return { name: `out${index}`, type: "passthrough", description: "Stored value, dispatched on fire" };
     if (index === n) return { name: "event", type: "event", description: "Fire event to current phone" };
     return null;
+  }
+  if (name === "cc") {
+    const tokens = text.split(/\s+/);
+    if (tokens.length === 1) return def.outlets[0]; // no-arg monitor: single generic outlet
+    const ccN = parseInt(tokens[index + 1]);
+    if (!isNaN(ccN)) return { name: `cc${ccN}`, type: "number", description: `CC #${ccN} value (0-1)` };
+    return def.outlets[0];
   }
   if (def.dynamic && def.outlets.length === 1) return def.outlets[0];
   return def.outlets?.[index] || null;
