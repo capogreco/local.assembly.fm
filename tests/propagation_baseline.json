@@ -1,0 +1,736 @@
+{
+  "propagateValue → engine non-trigger paramName": {
+    "result": {
+      "2": {
+        "frequency": 440
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 440
+          }
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [
+            440
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → engine trigger paramName (value should NOT fire)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 1
+          }
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [
+            null,
+            null,
+            null,
+            null,
+            1
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → wireless send": {
+    "result": {
+      "4": {
+        "frequency": 55
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 55
+          }
+        },
+        "2": {
+          "type": "send",
+          "inletValues": [
+            55
+          ],
+          "state": null
+        },
+        "3": {
+          "type": "receive",
+          "inletValues": [],
+          "state": null
+        },
+        "4": {
+          "type": "karplus-strong~",
+          "inletValues": [
+            55
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → wireless throw (sums into catch)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 10
+          }
+        },
+        "2": {
+          "type": "throw",
+          "inletValues": [
+            10
+          ],
+          "state": null
+        },
+        "3": {
+          "type": "catch",
+          "inletValues": [
+            20
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → uplink (queues to uplinkQueue)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0.5
+          }
+        },
+        "2": {
+          "type": "sendup",
+          "inletValues": [
+            0.5
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": [
+        {
+          "ch": "tx",
+          "v": 0.5
+        },
+        {
+          "ch": "tx",
+          "v": 0.5
+        }
+      ]
+    }
+  },
+  "propagateValue → display sink (no-op)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 1
+          }
+        },
+        "2": {
+          "type": "screen",
+          "inletValues": [
+            1
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → spigot inlet 0 with gate=0 (block)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 5
+          }
+        },
+        "2": {
+          "type": "spigot",
+          "inletValues": [
+            5,
+            0
+          ],
+          "state": {}
+        },
+        "3": {
+          "type": "+",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → spigot inlet 0 with gate=1 (pass)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 5
+          }
+        },
+        "2": {
+          "type": "spigot",
+          "inletValues": [
+            5,
+            1
+          ],
+          "state": {}
+        },
+        "3": {
+          "type": "+",
+          "inletValues": [
+            5
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → toggle inlet 1 (flip when crossing)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 1
+          }
+        },
+        "2": {
+          "type": "toggle",
+          "inletValues": [
+            null,
+            1
+          ],
+          "state": {
+            "value": 1
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → map inlet 1 (replace table)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "map",
+          "inletValues": [
+            null,
+            [
+              99,
+              100,
+              101
+            ]
+          ],
+          "state": {
+            "table": [
+              99,
+              100,
+              101
+            ]
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → map inlet 0 (lookup)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 1
+          }
+        },
+        "2": {
+          "type": "map",
+          "inletValues": [
+            1
+          ],
+          "state": {
+            "table": [
+              10,
+              20,
+              30
+            ]
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → change (only fires on diff)": {
+    "result": {
+      "firstCall": {},
+      "secondCall": {}
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 5
+          }
+        },
+        "2": {
+          "type": "change",
+          "inletValues": [
+            5
+          ],
+          "state": {
+            "prev": 5
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → applyInletToState (adsr release)": {
+    "result": {
+      "value": 0,
+      "phase": "idle",
+      "elapsed": 0,
+      "a": 0.05,
+      "d": 0.1,
+      "s": 0.7,
+      "r": 0.7,
+      "gateOpen": false
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0.7
+          }
+        },
+        "2": {
+          "type": "adsr",
+          "inletValues": [
+            null,
+            null,
+            null,
+            null,
+            0.7
+          ],
+          "state": {
+            "value": 0,
+            "phase": "idle",
+            "elapsed": 0,
+            "a": 0.05,
+            "d": 0.1,
+            "s": 0.7,
+            "r": 0.7,
+            "gateOpen": false
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → seq inlet 2 (replace values array)": {
+    "result": {
+      "values": [
+        1
+      ],
+      "behaviour": "2",
+      "index": 0
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "seq",
+          "inletValues": [
+            null,
+            null,
+            [
+              60,
+              64,
+              67
+            ]
+          ],
+          "state": {
+            "values": [
+              1
+            ],
+            "behaviour": "2",
+            "index": 0
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → pure math hot inlet (recompute and propagate)": {
+    "result": {
+      "3": {
+        "frequency": 15
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 5
+          }
+        },
+        "2": {
+          "type": "+",
+          "inletValues": [
+            5
+          ],
+          "state": null
+        },
+        "3": {
+          "type": "karplus-strong~",
+          "inletValues": [
+            15
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateValue → event-trigger inlet (defer handleEvent)": {
+    "result": {
+      "updates": {},
+      "counterState": {
+        "count": 2,
+        "min": 0,
+        "max": 7
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "counter",
+          "inletValues": [
+            0
+          ],
+          "state": {
+            "count": 2,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateEvent → engine trigger paramName (writes 1)": {
+    "result": {
+      "2": {
+        "trigger": 1
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateEvent → engine non-trigger paramName (drop)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateEvent → wireless send (forward as event)": {
+    "result": {
+      "4": {
+        "trigger": 1
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "send",
+          "inletValues": [],
+          "state": null
+        },
+        "3": {
+          "type": "receive",
+          "inletValues": [],
+          "state": null
+        },
+        "4": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateEvent → throw (drop, events don't sum)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "throw",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateEvent → event-trigger inlet (handleEvent fires)": {
+    "result": {
+      "updates": {},
+      "counterState": {
+        "count": 1,
+        "min": 0,
+        "max": 7
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 1,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "processRouterValue → engine paramName (write)": {
+    "result": {
+      "2": {
+        "frequency": 880
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "all",
+          "inletValues": [],
+          "state": null
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [
+            880
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "processRouterValue → r/receive (no-op, no downstream)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "all",
+          "inletValues": [],
+          "state": null
+        },
+        "2": {
+          "type": "receive",
+          "inletValues": [
+            42
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "processRouterEvent → engine trigger (write 1)": {
+    "result": {
+      "2": {
+        "trigger": 1
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "all",
+          "inletValues": [],
+          "state": null
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "processRouterEvent → engine non-trigger paramName (drop)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "all",
+          "inletValues": [],
+          "state": null
+        },
+        "2": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "processRouterEvent → r/receive (forward as event)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "all",
+          "inletValues": [],
+          "state": null
+        },
+        "2": {
+          "type": "receive",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  }
+}
