@@ -126,7 +126,11 @@ class KSProcessor extends AudioWorkletProcessor {
         y = yOut;
       }
 
-      const filtered = damp * 0.5 * (y + this.lpPrev);
+      // Tiny DC offset prevents the feedback loop from drifting into denormal
+      // range during long ringdowns — inaudible (below 32-bit float audio
+      // precision) but rules out denormal-transition artifacts on platforms
+      // where sub-normal arithmetic is slow or lossy.
+      const filtered = damp * 0.5 * (y + this.lpPrev) + 1e-20;
       this.lpPrev = y;
 
       out[s] = y * amp;
