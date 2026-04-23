@@ -517,7 +517,12 @@ class PatchEditor {
 
   hitTestSynthHandle(mx, my) {
     if (!this.showSynthBorder) return false;
-    return Math.abs(mx - SYNTH_HANDLE) < SYNTH_HANDLE && Math.abs(my - this.synthBorderY) < SYNTH_HANDLE;
+    // Handle is drawn pinned to viewport-left at world-x = panX + (SYNTH_HANDLE/2)/zoom
+    // with width SYNTH_HANDLE/zoom. Hit area is 2x the visible width (matches the
+    // pre-pin behaviour where hit was Math.abs(mx - SYNTH_HANDLE) < SYNTH_HANDLE).
+    const handleCenter = this.panX + SYNTH_HANDLE / this.zoom;
+    const hitRadius = SYNTH_HANDLE / this.zoom;
+    return Math.abs(mx - handleCenter) < hitRadius && Math.abs(my - this.synthBorderY) < hitRadius;
   }
 
   measureText(text) {
@@ -789,14 +794,19 @@ class PatchEditor {
       this.ctx.moveTo(this.panX, this.synthBorderY);
       this.ctx.lineTo(this.panX + visW, this.synthBorderY);
       this.ctx.stroke();
+      // Handle + labels: pin to canvas-left regardless of pan/zoom by
+      // converting "12px from viewport left" → world coord (panX + 12/zoom).
+      const handleX = this.panX + (SYNTH_HANDLE / 2) / this.zoom;
+      const handleSize = SYNTH_HANDLE / this.zoom;
+      const labelX = this.panX + 12 / this.zoom;
       this.ctx.fillStyle = COLORS.synthHandle;
-      this.ctx.fillRect(SYNTH_HANDLE / 2, this.synthBorderY - SYNTH_HANDLE / 2, SYNTH_HANDLE, SYNTH_HANDLE);
+      this.ctx.fillRect(handleX, this.synthBorderY - handleSize / 2, handleSize, handleSize);
       this.ctx.font = SMALL_FONT;
       this.ctx.fillStyle = COLORS.synthLabel;
       this.ctx.textBaseline = "bottom";
-      this.ctx.fillText("ctrl", 12, this.synthBorderY - 6);
+      this.ctx.fillText("ctrl", labelX, this.synthBorderY - 6 / this.zoom);
       this.ctx.textBaseline = "top";
-      this.ctx.fillText("synth", 12, this.synthBorderY + 6);
+      this.ctx.fillText("synth", labelX, this.synthBorderY + 6 / this.zoom);
     }
 
     // Cables
