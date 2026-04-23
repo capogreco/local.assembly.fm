@@ -74,13 +74,14 @@ const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
 const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, isAudioBox, isDac } = boxTypes;
 
 const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
-const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation, applyInletToState } = graphCore;
+const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation, applyInletToState, deliverValueToInlet } = graphCore;
 
 // Wire module callbacks (function declarations are hoisted, safe to reference here)
 initEvalEngine({
   broadcastSynth, sendToClient, getSynthClientIds, sendCtrl, event,
   boxTypeName, getBoxDef, getBoxZone, isAudioBox,
   evaluatePure, createBoxState, tickBox, handleBoxEvent, applyInletToState,
+  deliverValueToInlet,
 });
 initHardware({ setBoxValueAndNotify, sendCtrl, event, boxTypeName, getBoxDef });
 

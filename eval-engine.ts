@@ -33,6 +33,8 @@ let _tickBox: (name: string, state: any, iv: number[], dt: number) => any;
 let _handleBoxEvent: (name: string, state: any, iv: number[]) => any;
 // deno-lint-ignore no-explicit-any
 let _applyInletToState: (name: string, state: any, inlet: number, value: number) => boolean;
+// deno-lint-ignore no-explicit-any
+let _deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any) => { updates: any; deferEvent: boolean };
 
 export function initEvalEngine(deps: {
   broadcastSynth: (msg: Record<string, unknown>) => void;
@@ -57,6 +59,8 @@ export function initEvalEngine(deps: {
   handleBoxEvent: (name: string, state: any, iv: number[]) => any;
   // deno-lint-ignore no-explicit-any
   applyInletToState: (name: string, state: any, inlet: number, value: number) => boolean;
+  // deno-lint-ignore no-explicit-any
+  deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any) => { updates: any; deferEvent: boolean };
 }): void {
   _broadcastSynth = deps.broadcastSynth;
   _sendToClient = deps.sendToClient;
@@ -72,6 +76,7 @@ export function initEvalEngine(deps: {
   _tickBox = deps.tickBox;
   _handleBoxEvent = deps.handleBoxEvent;
   _applyInletToState = deps.applyInletToState;
+  _deliverValueToInlet = deps.deliverValueToInlet;
 }
 
 // --- Router state (for one/sweep/group targeting) ---
@@ -339,6 +344,65 @@ export function setBoxValueAndNotify(boxId: number, value: BoxValue): void {
   for (let i = 0; i < outlets; i++) propagateAndNotify(boxId, i, value);
 }
 
+// --- Server graph-view adapter for the shared deliverValueToInlet helper ---
+//
+// The shared helper (graph-core.js) expects a graph object with a few uniform
+// shapes: boxes.get(id) → { type, args, inletValues, state }, engines, wireless,
+// uplinkQueue. Server stores these across globals (boxes, boxState, inletValues
+// in patch-state.ts), so we wrap them in a thin view that returns shared
+// references — mutations to inletValues / state via the helper land in the
+// real server state.
+
+// deno-lint-ignore no-explicit-any
+const _serverGraphView: any = {
+  boxes: {
+    get(id: number) {
+      const box = boxes.get(id);
+      if (!box) return undefined;
+      const type = _boxTypeName(box.text);
+      const args = box.text.split(/\s+/).slice(1).join(" ");
+      let iv = inletValues.get(id);
+      if (!iv) { iv = []; inletValues.set(id, iv); }
+      return { type, args, inletValues: iv, state: boxState.get(id) || null };
+    },
+    has(id: number): boolean { return boxes.has(id); },
+  },
+  // Server has no engines (engines live on synth side) — empty Map keeps
+  // the helper's engine branch from firing.
+  engines: { has: () => false, get: () => undefined },
+  // Wireless lookups are kept INLINE in propagateAndNotify (server uses
+  // boxValues for catch summing rather than inletValues[0]). The helper's
+  // wireless branches are bypassed by handling send/throw before delegation.
+  wireless: { get: () => null },
+  // Server doesn't use uplinkQueue (sendup is synth-side only — server has
+  // its own uplinkIndex for the receive direction).
+  uplinkQueue: null,
+};
+
+// Server-side helpers passed to deliverValueToInlet. Bridge the helper's
+// recursive callbacks to server-specific side effects.
+// deno-lint-ignore no-explicit-any
+const _serverDeliverHelpers: any = {
+  // Helper calls this for: wireless send forward, toggle inlet 1 propagation,
+  // map inlet 0 lookup, change diff propagation, default hot-inlet eval.
+  // Server's setBoxValueAndNotify sets boxValues + queueValueUpdate +
+  // propagates through all outlets — equivalent for single-outlet ctrl boxes.
+  // deno-lint-ignore no-explicit-any
+  propagateValue: (_graph: any, targetBoxId: number, _outlet: number, v: BoxValue) => {
+    setBoxValueAndNotify(targetBoxId, v);
+    return {};
+  },
+  // Helper calls this for default hot-inlet recompute.
+  // deno-lint-ignore no-explicit-any
+  evaluateNode: (_graph: any, targetBoxId: number) => {
+    const targetBox = boxes.get(targetBoxId);
+    if (!targetBox) return 0;
+    const iv = inletValues.get(targetBoxId) || [];
+    return evaluateBox(targetBox, iv);
+  },
+  debug: false,
+};
+
 export function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue): void {
   const deferred: Array<() => void> = [];
 
@@ -390,68 +454,48 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
         }
       }
     } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
-      const numValue = typeof value === "number" ? value : 0;
+      // Pre-helper: event-typed inlet on a stateful box (e.g. ar/sigmoid/cosine
+      // trigger). The shared helper's isEventTrigger covers most of these but
+      // there are edge cases (event-type inlet on stateful boxes not in the
+      // hardcoded list); preserve the explicit check.
       const inletDef = def.inlets[cable.dstInlet];
-      if (inletDef?.firesEvent && boxState.has(cable.dstBox)) {
-        let iv = inletValues.get(cable.dstBox);
-        if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-        iv[cable.dstInlet] = numValue;
+      if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox) && !inletDef.firesEvent) {
+        const numValue = typeof value === "number" ? value : 0;
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
-      } else if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox)) {
-        deferred.push(() => handleEventBox(cable.dstBox, numValue));
-      } else if (_boxTypeName(dst.text) === "seq" && cable.dstInlet === 2) {
-        // seq inlet 2 replaces the values array at runtime. Preserve the raw
-        // array (handleStatefulInlet would see pre-coerced numValue=0 for arrays).
-        let iv = inletValues.get(cable.dstBox);
-        if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-        iv[2] = (Array.isArray(value) ? value : numValue) as unknown as number;
-      } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValue)) {
-        // handled by stateful box
-      } else if (_boxTypeName(dst.text) === "length") {
+        continue;
+      }
+
+      // Pre-helper: seq inlet 2 array preservation. handleStatefulInlet would
+      // store the coerced numValue (0 for arrays), losing the array; the
+      // shared helper's seq inlet ≥1 branch correctly preserves it via the
+      // top-of-function value-store. Delegate to the helper for this case.
+      const dstName = _boxTypeName(dst.text);
+      const numValueForStateful = typeof value === "number" ? value : 0;
+      if (dstName === "seq" && cable.dstInlet === 2) {
+        // fall through to shared dispatch below
+      } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValueForStateful)) {
+        // ctrl-side stateful inlet stores (toggle, sample-hold, adsr inlet 0,
+        // INLET_MAPS-driven cold params, etc.) — handled, no further dispatch.
+        continue;
+      }
+
+      // Pre-helper: length is a server-special with array-aware computation
+      // and queueValueUpdate (the helper doesn't know about queueValueUpdate).
+      if (_boxTypeName(dst.text) === "length") {
         const result = Array.isArray(value) ? value.length : 1;
         boxValues.set(cable.dstBox, result);
         queueValueUpdate(cable.dstBox, result);
         propagateAndNotify(cable.dstBox, 0, result);
-      } else if (_boxTypeName(dst.text) === "map") {
-        const state = boxState.get(cable.dstBox);
-        if (state) {
-          if (cable.dstInlet === 1 && Array.isArray(value)) {
-            state.table = value as number[];
-          } else if (cable.dstInlet === 0) {
-            const idx = Math.max(0, Math.min(state.table.length - 1, Math.floor(numValue)));
-            const result = state.table[idx] !== undefined ? state.table[idx] : 0;
-            boxValues.set(cable.dstBox, result);
-            queueValueUpdate(cable.dstBox, result);
-            propagateAndNotify(cable.dstBox, 0, result);
-          }
-        }
-      } else if (_boxTypeName(dst.text) === "change") {
-        const state = boxState.get(cable.dstBox);
-        if (state && numValue !== state.prev) {
-          state.prev = numValue;
-          boxValues.set(cable.dstBox, numValue);
-          queueValueUpdate(cable.dstBox, numValue);
-          propagateAndNotify(cable.dstBox, 0, numValue);
-        }
-      } else {
-        let iv = inletValues.get(cable.dstBox);
-        if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-        // Preserve arrays; number-typed inlets still fall back to coerced numValue.
-        // (inletValues is typed number[] for math paths; downstream evaluatePure cases
-        //  branch on Array.isArray so the runtime-mixed storage is safe.)
-        iv[cable.dstInlet] = (Array.isArray(value) ? value : numValue) as unknown as number;
-        // spigot: inlet 1 is gate; block propagation when gate ≤ 0
-        // (mirrors client-side check in public/graph.js)
-        if (_boxTypeName(dst.text) === "spigot" && cable.dstInlet === 0 && (iv[1] || 0) <= 0) continue;
-        const hasHotArg = /\bhot\b/.test(dst.text);
-        const isHot = cable.dstInlet === 0 || inletDef?.hot === true || hasHotArg;
-        if (isHot) {
-          const result = evaluateBox(dst, iv);
-          boxValues.set(cable.dstBox, result);
-          queueValueUpdate(cable.dstBox, result);
-          const outlets = def.outlets?.length || 1;
-          for (let i = 0; i < outlets; i++) propagateAndNotify(cable.dstBox, i, result);
-        }
+        continue;
+      }
+
+      // Shared dispatch — handles seq inlet 2 (array-preserving), map,
+      // change, spigot gate, default hot-inlet evaluation, firesEvent
+      // signalling, and miscellaneous cold-store cases.
+      const r = _deliverValueToInlet(_serverGraphView, cable.dstBox, cable.dstInlet, value, _serverDeliverHelpers);
+      if (r.deferEvent) {
+        const numValue = typeof value === "number" ? value : 0;
+        deferred.push(() => handleEventBox(cable.dstBox, numValue));
       }
     }
   }

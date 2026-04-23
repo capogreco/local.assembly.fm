@@ -68,6 +68,7 @@ initEvalEngine({
   tickBox: gc.tickBox,
   handleBoxEvent: gc.handleBoxEvent,
   applyInletToState: gc.applyInletToState,
+  deliverValueToInlet: gc.deliverValueToInlet,
 });
 
 // --- Helpers for building patches ---
