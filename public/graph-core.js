@@ -573,10 +573,13 @@ function firesEvent(type, inlet) {
   return inlet === 0 && (type === "trigger" || type === "t" || type === "select" || type === "sel" || type === "swap");
 }
 
-// Hot inlets trigger evaluation; cold inlets just store
-// Pass args string to check for "hot" modifier (e.g. "** hot", "* hot")
-function isHotInlet(type, inlet, args) {
+// Hot inlets trigger evaluation; cold inlets just store.
+// - inlet 0 is hot by default
+// - args "... hot" makes all inlets hot (per-instance opt-in)
+// - inletDef.hot:true flag (from gpi-types) makes a specific inlet hot (per-type)
+function isHotInlet(type, inlet, args, inletDef) {
   if (inlet === 0) return true;
+  if (inletDef?.hot === true) return true;
   if (args && /\bhot\b/.test(args)) return true;
   return false;
 }
@@ -704,7 +707,7 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
 // This helper handles the SHARED destination cases. The two callers may add
 // path-specific pre-dispatch (e.g. processRouterValue handles range/drunk
 // min/max update before delegating).
-function deliverValueToInlet(graph, boxId, inlet, value, helpers) {
+function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   const updates = {};
   const node = graph.boxes.get(boxId);
   if (!node) return { updates, deferEvent: false };
@@ -823,7 +826,7 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers) {
   }
 
   // Default: pure math / passthrough. Hot inlet → evaluate + propagate; cold just stored.
-  if (!isHotInlet(node.type, inlet, node.args)) return { updates, deferEvent: false };
+  if (!isHotInlet(node.type, inlet, node.args, inletDef)) return { updates, deferEvent: false };
   if (helpers.evaluateNode) {
     const result = helpers.evaluateNode(graph, boxId);
     if (helpers.debug) console.log(`  eval box:${boxId} type:${node.type} inlet[${inlet}]=${value} → ${result}`);

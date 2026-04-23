@@ -34,7 +34,7 @@ let _handleBoxEvent: (name: string, state: any, iv: number[]) => any;
 // deno-lint-ignore no-explicit-any
 let _applyInletToState: (name: string, state: any, inlet: number, value: number) => boolean;
 // deno-lint-ignore no-explicit-any
-let _deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any) => { updates: any; deferEvent: boolean };
+let _deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 
 export function initEvalEngine(deps: {
   broadcastSynth: (msg: Record<string, unknown>) => void;
@@ -60,7 +60,7 @@ export function initEvalEngine(deps: {
   // deno-lint-ignore no-explicit-any
   applyInletToState: (name: string, state: any, inlet: number, value: number) => boolean;
   // deno-lint-ignore no-explicit-any
-  deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any) => { updates: any; deferEvent: boolean };
+  deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 }): void {
   _broadcastSynth = deps.broadcastSynth;
   _sendToClient = deps.sendToClient;
@@ -491,8 +491,9 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
 
       // Shared dispatch — handles seq inlet 2 (array-preserving), map,
       // change, spigot gate, default hot-inlet evaluation, firesEvent
-      // signalling, and miscellaneous cold-store cases.
-      const r = _deliverValueToInlet(_serverGraphView, cable.dstBox, cable.dstInlet, value, _serverDeliverHelpers);
+      // signalling, and miscellaneous cold-store cases. inletDef passed
+      // through so the helper can respect per-inlet hot:true metadata.
+      const r = _deliverValueToInlet(_serverGraphView, cable.dstBox, cable.dstInlet, value, _serverDeliverHelpers, inletDef);
       if (r.deferEvent) {
         const numValue = typeof value === "number" ? value : 0;
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
