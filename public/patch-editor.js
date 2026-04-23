@@ -498,6 +498,48 @@ class PatchEditor {
 
   // --- Geometry ---
 
+  boxesAABBOverlap(aId, a, bId, b) {
+    const aW = this.boxWidth(a, aId);
+    const bW = this.boxWidth(b, bId);
+    const xOverlap = a.x < b.x + bW && b.x < a.x + aW;
+    const yOverlap = a.y < b.y + BOX_HEIGHT && b.y < a.y + BOX_HEIGHT;
+    return xOverlap && yOverlap;
+  }
+
+  // Piston cascade: after a membrane displacement, resolve any remaining
+  // box overlaps by pushing in the sweep direction until settled.
+  // `direction` is "down" (synth zone was squeezed — push lower boxes further
+  // down) or "up" (ctrl zone was squeezed — push upper boxes further up).
+  // Routers are anchored to the border and skipped.
+  cascadeOverlaps(direction, PAD) {
+    const ids = [];
+    for (const [id, box] of this.boxes) {
+      if (!this.isRouterType(box.text)) ids.push(id);
+    }
+    const MAX_ITERS = ids.length + 5;
+    for (let iter = 0; iter < MAX_ITERS; iter++) {
+      let moved = false;
+      for (let i = 0; i < ids.length; i++) {
+        const a = this.boxes.get(ids[i]);
+        for (let j = i + 1; j < ids.length; j++) {
+          const b = this.boxes.get(ids[j]);
+          if (!this.boxesAABBOverlap(ids[i], a, ids[j], b)) continue;
+          if (direction === "down") {
+            // Push the lower of the two further down
+            if (a.y >= b.y) { a.y = b.y + BOX_HEIGHT + PAD; }
+            else { b.y = a.y + BOX_HEIGHT + PAD; }
+          } else {
+            // Push the upper of the two further up
+            if (a.y <= b.y) { a.y = b.y - BOX_HEIGHT - PAD; }
+            else { b.y = a.y - BOX_HEIGHT - PAD; }
+          }
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+  }
+
   canvasCoords(e) {
     const r = this.canvas.getBoundingClientRect();
     return {
@@ -1159,17 +1201,22 @@ class PatchEditor {
       const newY = Math.max(30, m.y);
       const oldY = this.synthBorderY;
       this.synthBorderY = newY;
+      const PAD = 4;
+      // Piston: displace any box the membrane swept through, then cascade
+      // resolve overlaps in the sweep direction so the push propagates
+      // through stacked boxes instead of squashing them together.
       for (const [, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
           box.y = newY - BOX_HEIGHT / 2;
         } else if (newY > oldY) {
-          // Border moving down — push synth boxes down to stay in synth zone
-          if (box.y >= oldY && box.y < newY) box.y = newY + 4;
+          if (box.y >= oldY && box.y < newY) box.y = newY + PAD;
         } else if (newY < oldY) {
-          // Border moving up — push ctrl boxes up to stay in ctrl zone
-          if (box.y + BOX_HEIGHT > newY && box.y + BOX_HEIGHT <= oldY) box.y = newY - BOX_HEIGHT - 4;
+          if (box.y + BOX_HEIGHT > newY && box.y + BOX_HEIGHT <= oldY + BOX_HEIGHT) {
+            box.y = newY - BOX_HEIGHT - PAD;
+          }
         }
       }
+      if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
       return;
     }
