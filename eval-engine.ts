@@ -643,7 +643,7 @@ function tick(): void {
     const state = boxState.get(id);
     if (!state) continue;
 
-    if (name === "slew" || name === "lag" || name === "inertia") {
+    if (name === "slew" || name === "lag" || name === "inertia" || name === "follow") {
       const iv = inletValues.get(id);
       if (iv) state.target = iv[0] || 0;
     }

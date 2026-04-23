@@ -260,6 +260,12 @@ const BOX_TYPES = {
                       { name: "freq", type: "number", description: "Spring stiffness in Hz" },
                       { name: "damping", type: "number", description: "Damping ratio (0=ring, 1=critical)" }],
                     outlets: [{ name: "out", type: "number", description: "Current position" }] },
+  follow:         { zone: "any", description: "Envelope follower with asymmetric attack/release. Tracks input fast on the way up, decays slowly on the way down — like a balloon deflating after you stop blowing. No overshoot, no ringing.", args: "attack release", example: "follow 0.05 6",
+                    inlets: [
+                      { name: "in", type: "number", description: "Input value" },
+                      { name: "attack", type: "number", description: "Rise time constant (seconds)" },
+                      { name: "release", type: "number", description: "Fall time constant (seconds)" }],
+                    outlets: [{ name: "out", type: "number", description: "Followed value" }] },
   mtof:           { zone: "any", description: "MIDI note number to frequency.",
                     inlets: [{ name: "note", type: "number", description: "MIDI note (0-127)" }],
                     outlets: [{ name: "freq", type: "number", description: "Frequency in Hz" }] },

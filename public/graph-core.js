@@ -169,6 +169,14 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
         damping: parts[1] !== undefined && !isNaN(parts[1]) ? parts[1] : 0.3,
       };
     }
+    case "follow": {
+      const parts = (args || "0.05 6").split(/\s+/).map(Number);
+      return {
+        value: 0, target: 0,
+        attack: parts[0] > 0 ? parts[0] : 0.05,
+        release: parts[1] > 0 ? parts[1] : 6,
+      };
+    }
     case "sample-hold":
       return { value: 0 };
     case "step": {
@@ -292,7 +300,7 @@ function evaluateStateful(type, state) {
     }
     case "seq": return state.values[state.index];
     case "phasor": return state.phase;
-    case "slew": case "lag": case "inertia": return state.value;
+    case "slew": case "lag": case "inertia": case "follow": return state.value;
     case "step": return state.active ? state.amplitude : 0;
     case "range": case "spread": case "drunk": case "ar": case "adsr":
     case "ramp": case "sample-hold": case "sigmoid": case "cosine": case "random":
@@ -544,6 +552,15 @@ function tickBox(type, state, iv, dt) {
       state.value += (state.target - state.value) * alpha;
       return { value: state.value, events: [] };
     }
+    case "follow": {
+      // Asymmetric one-pole: fast on the way up, slow on the way down.
+      // No oscillation, no overshoot. tau picked from the direction of error.
+      if (Math.abs(state.value - state.target) <= 0.0001) return null;
+      const tau = state.target > state.value ? state.attack : state.release;
+      const alpha = 1 - Math.exp(-dt / tau);
+      state.value += (state.target - state.value) * alpha;
+      return { value: state.value, events: [] };
+    }
     case "inertia": {
       // Settled early-out: both displacement and velocity near zero.
       if (
@@ -648,6 +665,7 @@ const INLET_MAPS = {
   slew:    { 0: "target" },
   lag:     { 0: "target" },
   inertia: { 1: { field: "freq", min: 0.01 }, 2: { field: "damping", min: 0 } },
+  follow:  { 1: { field: "attack", min: 0.001 }, 2: { field: "release", min: 0.001 } },
   step:    { 1: "amplitude", 2: "length" },
 };
 
