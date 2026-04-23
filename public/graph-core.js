@@ -610,6 +610,76 @@ function applyInletToState(type, state, inlet, value) {
   return true;
 }
 
+// --- Propagation harness (shared between client + server) ---
+// Both runtimes call these helpers to dispatch values/events to box inlets.
+// Recursion (propagateValue/propagateEvent/handleEvent) is provided via the
+// `helpers` object so each runtime can supply its own stack.
+
+function mergeUpdates(target, source) {
+  for (const eid of Object.keys(source)) {
+    if (!target[eid]) target[eid] = {};
+    Object.assign(target[eid], source[eid]);
+  }
+}
+
+// Single source of truth for event-path destination dispatch. Called by both
+// client (propagateEvent / processRouterEvent) and server-side equivalents.
+//
+// `helpers`: { propagateEvent(graph, boxId, outlet) → updates,
+//              handleEvent(graph, boxId) → updates,
+//              debug?: boolean }
+//
+// `graph`: { boxes: Map, engines: Map, wireless: Map }
+//   Engines map can be empty on server (no engines on ctrl side); the engine
+//   branch then never fires, naturally degrading to no-op.
+function deliverEventToInlet(graph, boxId, inlet, helpers) {
+  const updates = {};
+  const node = graph.boxes.get(boxId);
+  if (!node) return updates;
+
+  // Wireless send: forward as event to every receiver of the same name.
+  if (node.type === "send" || node.type === "s") {
+    const name = (node.args || "").trim();
+    const w = graph.wireless && graph.wireless.get(name);
+    if (w) {
+      for (const recvId of w.receives) {
+        mergeUpdates(updates, helpers.propagateEvent(graph, recvId, 0));
+      }
+    }
+    return updates;
+  }
+  // throw sums values; events don't sum, so drop.
+  if (node.type === "throw") return updates;
+  // sendup channels numbers to the server; events aren't forwarded.
+  if (node.type === "sendup") return updates;
+  // Wireless receive / passthrough: forward event from outlet 0.
+  // This path matters when a router entry lands directly on an r/receive box.
+  if (node.type === "receive" || node.type === "r") {
+    mergeUpdates(updates, helpers.propagateEvent(graph, boxId, 0));
+    return updates;
+  }
+
+  // Engine trigger/gate: write 1 to the AudioParam.
+  if (graph.engines && graph.engines.has(boxId)) {
+    const engine = graph.engines.get(boxId);
+    const paramName = engine.paramNames[inlet];
+    if (paramName && (paramName === "trigger" || paramName === "gate")) {
+      if (helpers.debug) console.log(`  → engine event box:${boxId} ${paramName}=1`);
+      updates[boxId] = { [paramName]: 1 };
+    }
+    return updates;
+  }
+
+  // Event-trigger inlets (isEventTrigger) or firesEvent boxes: fire handleEvent.
+  if (isEventTrigger(node.type, inlet) || firesEvent(node.type, inlet)) {
+    mergeUpdates(updates, helpers.handleEvent(graph, boxId));
+    return updates;
+  }
+
+  // Everything else (plain number inlets, display sinks): event is dropped.
+  return updates;
+}
+
 // --- Exports (CJS for server, globals for browser) ---
 
 if (typeof exports === "object") Object.assign(exports, {
@@ -619,4 +689,5 @@ if (typeof exports === "object") Object.assign(exports, {
   handleBoxEvent, tickBox,
   isEventTrigger, firesEvent, isHotInlet, isEventOutlet, parseValues,
   INLET_MAPS, applyInletToState,
+  mergeUpdates, deliverEventToInlet,
 });

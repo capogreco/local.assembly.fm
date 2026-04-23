@@ -14,13 +14,8 @@ function enableGraphDebug() { graphDebug = true; console.log("graph debug ON"); 
 function disableGraphDebug() { graphDebug = false; }
 
 // --- Helpers ---
-
-function mergeUpdates(target, source) {
-  for (const [eid, params] of Object.entries(source)) {
-    if (!target[eid]) target[eid] = {};
-    Object.assign(target[eid], params);
-  }
-}
+// `mergeUpdates` and `deliverEventToInlet` are shared from graph-core.js
+// (loaded as globals before this script).
 
 // --- Graph ---
 
@@ -238,57 +233,13 @@ function propagateValue(graph, boxId, outletIndex, value) {
   return updates;
 }
 
-// Deliver an event to a specific (box, inlet). Single source of truth for
-// destination-type dispatch on the event path — shared between propagateEvent
-// (cable walk) and processRouterEvent (router-entry walk). Adding a new
-// event-receiving destination type means editing this function alone.
-function deliverEventToInlet(graph, boxId, inlet) {
-  const updates = {};
-  const node = graph.boxes.get(boxId);
-  if (!node) return updates;
-
-  // Wireless send: forward as event to every receiver of the same name.
-  if (node.type === "send" || node.type === "s") {
-    const name = node.args.trim();
-    const w = graph.wireless.get(name);
-    if (w) {
-      for (const recvId of w.receives) {
-        mergeUpdates(updates, propagateEvent(graph, recvId, 0));
-      }
-    }
-    return updates;
-  }
-  // throw sums values; events don't sum, so drop.
-  if (node.type === "throw") return updates;
-  // sendup channels numbers to the server; events aren't forwarded.
-  if (node.type === "sendup") return updates;
-  // Wireless receive / passthrough: forward event from outlet 0.
-  // This path matters when a router entry lands directly on an r/receive box.
-  if (node.type === "receive" || node.type === "r") {
-    mergeUpdates(updates, propagateEvent(graph, boxId, 0));
-    return updates;
-  }
-
-  // Engine trigger/gate: write 1 to the AudioParam.
-  if (graph.engines.has(boxId)) {
-    const engine = graph.engines.get(boxId);
-    const paramName = engine.paramNames[inlet];
-    if (paramName && (paramName === "trigger" || paramName === "gate")) {
-      if (graphDebug) console.log(`  → engine event box:${boxId} ${paramName}=1`);
-      updates[boxId] = { [paramName]: 1 };
-    }
-    return updates;
-  }
-
-  // Event-trigger inlets (isEventTrigger) or firesEvent boxes (trigger/t/sel): fire handleEvent.
-  if (isEventTrigger(node.type, inlet) || firesEvent(node.type, inlet)) {
-    mergeUpdates(updates, handleEvent(graph, boxId));
-    return updates;
-  }
-
-  // Everything else (plain number inlets, display sinks): event is dropped.
-  return updates;
-}
+// Client-side event-path helpers object passed into the shared dispatch.
+// Captures graph.js's recursion stack so deliverEventToInlet can call back in.
+const _clientEventHelpers = {
+  propagateEvent: (graph, boxId, outlet) => propagateEvent(graph, boxId, outlet),
+  handleEvent: (graph, boxId) => handleEvent(graph, boxId),
+  get debug() { return graphDebug; },
+};
 
 // propagate an event (bang) from a box's outlet through the graph
 function propagateEvent(graph, boxId, outletIndex) {
@@ -300,7 +251,7 @@ function propagateEvent(graph, boxId, outletIndex) {
   for (const cable of node.outletCables) {
     if (cable.outlet !== outletIndex) continue;
     if (!graph.boxes.has(cable.dstBox)) continue;
-    mergeUpdates(updates, deliverEventToInlet(graph, cable.dstBox, cable.dstInlet));
+    mergeUpdates(updates, deliverEventToInlet(graph, cable.dstBox, cable.dstInlet, _clientEventHelpers));
   }
 
   return updates;
@@ -471,7 +422,7 @@ function processRouterEvent(graph, routerId, channel) {
   const allUpdates = {};
   for (const entry of entries) {
     if (!graph.boxes.has(entry.targetBox)) continue;
-    mergeUpdates(allUpdates, deliverEventToInlet(graph, entry.targetBox, entry.targetInlet));
+    mergeUpdates(allUpdates, deliverEventToInlet(graph, entry.targetBox, entry.targetInlet, _clientEventHelpers));
   }
   return allUpdates;
 }
