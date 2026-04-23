@@ -45,6 +45,8 @@ const BOX_TYPES = {
   uplink:         { zone: "ctrl", description: "Receive values from synth clients on named channels.", args: "name1 [name2 ...]", example: "uplink tx ty tg",
                     dynamic: true,
                     inlets: [], outlets: [{ name: "out", type: "number", description: "Value from synth" }] },
+  clients:        { zone: "ctrl", description: "Live count of connected synth clients (phones). Updates on connect/disconnect.",
+                    inlets: [], outlets: [{ name: "count", type: "number", description: "Connected client count" }] },
 
   // --- abstraction interface ---
   inlet:          { zone: "any", description: "Abstraction inlet. Index determines port order.", args: "index", example: "inlet 0",

@@ -11,7 +11,7 @@ import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInf
 import {
   initEvalEngine, buildGroups,
   setBoxValueAndNotify, propagateAndNotify,
-  evaluateAllConsts, evaluateAllDevices,
+  evaluateAllConsts, evaluateAllDevices, evaluateAllClients,
   initBoxState, shouldServerEval, initAllBoxState,
   findBoxByText, CC_SOURCE, queueValueUpdate,
 } from "./eval-engine.ts";
@@ -169,6 +169,8 @@ function broadcastClientCount(): void {
   sendCtrl({ type: "count", clients: count });
   // Rebuild group router memberships when client count changes
   for (const boxId of groupState.keys()) buildGroups(boxId);
+  // Push the new count to every patch-side `clients` box
+  evaluateAllClients();
 }
 
 // --- IP auth tracking ---
@@ -365,6 +367,7 @@ function handleApply(msg: any): void {
   rebuildGridRegions();
   evaluateAllConsts();
   evaluateAllDevices();
+  evaluateAllClients();
 
   // deploy synth patch to clients
   deployPatch();
@@ -375,6 +378,7 @@ function handleApply(msg: any): void {
   // arrive after the ctrl client has rebuilt its audio graph
   evaluateAllConsts();
   evaluateAllDevices();
+  evaluateAllClients();
   status.applied = true;
   event("patch applied");
 }

@@ -562,6 +562,18 @@ export function evaluateAllDevices(): void {
   }
 }
 
+// Push the live synth-client count to every `clients` box. Called from
+// server.ts on patch deploy and on every client connect/disconnect.
+export function evaluateAllClients(): void {
+  const count = _getSynthClientIds().length;
+  for (const [id, box] of boxes) {
+    if (!isCtrlSide(box)) continue;
+    if (_boxTypeName(box.text) === "clients") {
+      setBoxValueAndNotify(id, count);
+    }
+  }
+}
+
 // --- Time-based box tick ---
 
 export function initBoxState(id: number, box: Box): void {
