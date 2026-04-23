@@ -38,6 +38,13 @@ class KSProcessor extends AudioWorkletProcessor {
     this.apPrevOut = 0;
     this.stiffState = new Float32Array(STIFF_K);
     this.pendingPluck = false;
+    // Latched-at-pluck buffer-read geometry. intDelay and C determine how the
+    // feedback loop reads from the delay line; recomputing them mid-ring when
+    // parameters change (e.g. during a parameter-send / trigger gap) can read
+    // stale buffer content at a new offset, injecting a transient that rings
+    // down through the loop filter. Freeze them at pluck time.
+    this.intDelay = 1;
+    this.C = 0;
     this.port.onmessage = (e) => {
       if (e.data?.type === "trigger") this.pendingPluck = true;
     };
@@ -76,29 +83,32 @@ class KSProcessor extends AudioWorkletProcessor {
     const damp = decay > 0 ? Math.pow(0.001, 1 / (fSafe * decay)) : 0;
 
     // Stiffness cascade allpass coefficient. Negative a produces the physical
-    // "high modes travel faster" dispersion. Clamp magnitude to stay stable.
+    // "high modes travel faster" dispersion. Safe to update per block — the
+    // cascade state is small and transitions smoothly with the coefficient.
     const stiff = Math.max(0, Math.min(1, stiffness));
     const a = -0.9 * stiff;
 
-    // Phase delay of the stiffness cascade at the fundamental (in samples),
-    // so we can subtract it from the integer delay and keep the fundamental
-    // tuned correctly regardless of stiffness.
-    const sw = Math.sin(w);
-    const cw = Math.cos(w);
-    const phaseNum = Math.atan2(-sw, a + cw);
-    const phaseDen = Math.atan2(-a * sw, 1 + a * cw);
-    const stiffPhaseDelay = -STIFF_K * (phaseNum - phaseDen) / w;
-
-    // Total target loop delay = period − loop-filter group delay − stiffness delay
-    const totalDelay = sampleRate / fSafe - 0.5 - stiffPhaseDelay;
-    const intDelay = Math.max(1, Math.min(this.maxLen, Math.round(totalDelay - 1)));
-    const d = totalDelay - intDelay;
-    const C = (1 - d) / (1 + d);
-
+    // Buffer-read geometry (intDelay, C) is LATCHED AT PLUCK TIME. A pending
+    // pluck recomputes it using the current params; between plucks we keep the
+    // previous values so the loop reads consistent buffer content even if
+    // AudioParams update mid-ring.
     if (this.pendingPluck) {
-      this.pluck(intDelay, brightness);
+      // Phase delay of the stiffness cascade at the fundamental (in samples).
+      const sw = Math.sin(w);
+      const cw = Math.cos(w);
+      const phaseNum = Math.atan2(-sw, a + cw);
+      const phaseDen = Math.atan2(-a * sw, 1 + a * cw);
+      const stiffPhaseDelay = -STIFF_K * (phaseNum - phaseDen) / w;
+      const totalDelay = sampleRate / fSafe - 0.5 - stiffPhaseDelay;
+      this.intDelay = Math.max(1, Math.min(this.maxLen, Math.round(totalDelay - 1)));
+      const d = totalDelay - this.intDelay;
+      this.C = (1 - d) / (1 + d);
+      this.pluck(this.intDelay, brightness);
       this.pendingPluck = false;
     }
+
+    const intDelay = this.intDelay;
+    const C = this.C;
 
     for (let s = 0; s < out.length; s++) {
       const readPos = (this.writePos - intDelay + this.maxLen) % this.maxLen;
