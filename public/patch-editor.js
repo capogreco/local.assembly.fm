@@ -1259,9 +1259,9 @@ class PatchEditor {
       if (port) {
         const box = this.boxes.get(port.boxId);
         if (box) {
-          const def = getBoxDef(box.text);
-          const portList = i ? def?.inlets : def?.outlets;
-          const portDef = portList?.[port.index];
+          const portDef = i
+            ? getInletDef(box.text, port.index)
+            : getOutletDef(box.text, port.index);
           if (portDef) {
             if (this.tooltipEl) this.tooltipEl.innerHTML =
               `<span class="tt-name">${portDef.name}</span> <span class="tt-type">${portDef.type}</span><br>${portDef.description}`;
@@ -1292,9 +1292,9 @@ class PatchEditor {
       if (port) {
         const box = this.boxes.get(port.boxId);
         if (box) {
-          const def = getBoxDef(box.text);
-          const portList = i ? def?.inlets : def?.outlets;
-          const portDef = portList?.[port.index];
+          const portDef = i
+            ? getInletDef(box.text, port.index)
+            : getOutletDef(box.text, port.index);
           if (portDef) {
             if (this.tooltipEl) this.tooltipEl.innerHTML =
               `<span class="tt-name">${portDef.name}</span> <span class="tt-type">${portDef.type}</span><br>${portDef.description}`;
