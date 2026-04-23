@@ -238,11 +238,22 @@ function evaluatePure(type, args, iv) {
     }
     case "octaves": {
       if (!Array.isArray(iv[0])) return iv[0];
-      const n = iv[1] !== undefined ? Math.floor(iv[1]) : (parseInt(args[0]) || 0);
-      const layers = Math.max(0, n);
+      const raw = iv[1] !== undefined ? iv[1] : (parseFloat(args[0]) || 0);
+      const n = Math.max(0, raw);
+      const fullLayers = Math.floor(n);
+      const frac = n - fullLayers;
+      const arr = iv[0];
       const out = [];
-      for (let k = 0; k <= layers; k++) {
-        for (const p of iv[0]) out.push(p + 12 * k);
+      // k = 0 is originals; k = 1..fullLayers are full octave layers above.
+      for (let k = 0; k <= fullLayers; k++) {
+        for (const p of arr) out.push(p + 12 * k);
+      }
+      // Fractional layer: add the first floor(frac × arr.length) notes of the
+      // next octave up, so sweeping N adds notes one at a time rather than in
+      // whole-layer jumps.
+      if (frac > 0 && arr.length > 0) {
+        const partialCount = Math.floor(frac * arr.length);
+        for (let i = 0; i < partialCount; i++) out.push(arr[i] + 12 * (fullLayers + 1));
       }
       return out;
     }
