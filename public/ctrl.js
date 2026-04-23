@@ -649,9 +649,13 @@ async function initMIDI() {
     const ma = await navigator.requestMIDIAccess();
     for (const inp of ma.inputs.values()) { autoCreateSources(inp.name || "keyboard"); inp.onmidimessage = onMIDIMessage; }
     ma.onstatechange = (e) => {
-      if (e.port.type === "input" && e.port.state === "connected") {
+      if (e.port.type !== "input") return;
+      if (e.port.state === "connected") {
         autoCreateSources(e.port.name || "keyboard");
         e.port.onmidimessage = onMIDIMessage;
+      } else if (e.port.state === "disconnected") {
+        const i = midiDeviceNames.indexOf(e.port.name);
+        if (i >= 0) { midiDeviceNames.splice(i, 1); mainEditor.render(); }
       }
     };
   } catch {}
