@@ -254,6 +254,12 @@ const BOX_TYPES = {
   lag:            { zone: "any", description: "Exponential smoothing.", args: "time", example: "lag 0.2",
                     inlets: [{ name: "in", type: "number", description: "Input value" }],
                     outlets: [{ name: "out", type: "number", description: "Smoothed output" }] },
+  inertia:        { zone: "any", description: "Damped-spring follower (mass-spring-damper). Input pulls the output toward it; output has momentum and can overshoot. Like blowing into a balloon. Frequency = natural spring rate (Hz). Damping: 0 rings forever, 1 critical (just-no-overshoot), >1 overdamped.", args: "freq damping", example: "inertia 5 0.3",
+                    inlets: [
+                      { name: "in", type: "number", description: "Target value" },
+                      { name: "freq", type: "number", description: "Spring stiffness in Hz" },
+                      { name: "damping", type: "number", description: "Damping ratio (0=ring, 1=critical)" }],
+                    outlets: [{ name: "out", type: "number", description: "Current position" }] },
   mtof:           { zone: "any", description: "MIDI note number to frequency.",
                     inlets: [{ name: "note", type: "number", description: "MIDI note (0-127)" }],
                     outlets: [{ name: "freq", type: "number", description: "Frequency in Hz" }] },

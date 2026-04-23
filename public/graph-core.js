@@ -161,6 +161,14 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { value: 0, target: 0, rate: parseFloat(args) || 0.05 };
     case "lag":
       return { value: 0, target: 0, coeff: parseFloat(args) || 0.2 };
+    case "inertia": {
+      const parts = (args || "5 0.3").split(/\s+/).map(Number);
+      return {
+        value: 0, velocity: 0, target: 0,
+        freq: parts[0] > 0 ? parts[0] : 5,
+        damping: parts[1] !== undefined && !isNaN(parts[1]) ? parts[1] : 0.3,
+      };
+    }
     case "sample-hold":
       return { value: 0 };
     case "step": {
@@ -284,7 +292,7 @@ function evaluateStateful(type, state) {
     }
     case "seq": return state.values[state.index];
     case "phasor": return state.phase;
-    case "slew": case "lag": return state.value;
+    case "slew": case "lag": case "inertia": return state.value;
     case "step": return state.active ? state.amplitude : 0;
     case "range": case "spread": case "drunk": case "ar": case "adsr":
     case "ramp": case "sample-hold": case "sigmoid": case "cosine": case "random":
@@ -536,6 +544,30 @@ function tickBox(type, state, iv, dt) {
       state.value += (state.target - state.value) * alpha;
       return { value: state.value, events: [] };
     }
+    case "inertia": {
+      // Settled early-out: both displacement and velocity near zero.
+      if (
+        Math.abs(state.value - state.target) < 0.0001 &&
+        Math.abs(state.velocity) < 0.0001
+      ) {
+        state.velocity = 0;
+        state.value = state.target;
+        return null;
+      }
+      // Mass-spring-damper (unit mass). Sub-step for stability at high freq,
+      // semi-implicit Euler. k = ω², c = 2ζω (damping coefficient).
+      const omega = 2 * Math.PI * (state.freq > 0 ? state.freq : 0.01);
+      const k = omega * omega;
+      const c = 2 * state.damping * omega;
+      const subSteps = Math.max(1, Math.ceil(omega * dt * 5));
+      const subDt = dt / subSteps;
+      for (let i = 0; i < subSteps; i++) {
+        const acc = (state.target - state.value) * k - state.velocity * c;
+        state.velocity += acc * subDt;
+        state.value += state.velocity * subDt;
+      }
+      return { value: state.value, events: [] };
+    }
     case "step": {
       if (!state.active) return null;
       state.remaining -= dt;
@@ -615,6 +647,7 @@ const INLET_MAPS = {
   metro:   { 1: { field: "interval", min: 0.001 } },
   slew:    { 0: "target" },
   lag:     { 0: "target" },
+  inertia: { 1: { field: "freq", min: 0.01 }, 2: { field: "damping", min: 0 } },
   step:    { 1: "amplitude", 2: "length" },
 };
 
