@@ -37,6 +37,7 @@ const BASE_NATIVE_NODES = new Set([
   "oscillatorNode~", "gainNode~", "biquadFilterNode~",
   "const~", "sig~", "osc~", "noise~",
   "send~", "s~", "receive~", "r~", "throw~", "catch~",
+  "conv~",
 ]);
 
 // --- Shared functions ---
@@ -100,6 +101,20 @@ async function createNativeNode(ctx, modulesLoaded, type, args, specialHandler) 
   } else if (type === "send~" || type === "s~" || type === "receive~" || type === "r~"
           || type === "throw~" || type === "catch~") {
     node = ctx.createGain();
+    return { type, node, paramMap: {} };
+  } else if (type === "conv~") {
+    // Browser-native ConvolverNode — partitioned FFT convolution, bounded
+    // output (output = input ⊛ IR, no feedback, can't run away).
+    // Arg is the IR filename under /impulse_responses/. Default: GiantCave.flac.
+    // IR loads async; node outputs silence until the buffer is set.
+    node = ctx.createConvolver();
+    node.normalize = true; // auto-scale IR so peaks sit near 0 dB
+    const irName = tokens[0] || "GiantCave.flac";
+    fetch("/impulse_responses/" + irName)
+      .then((r) => r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((audioBuffer) => { node.buffer = audioBuffer; })
+      .catch((e) => console.error(`conv~: failed to load ${irName}:`, e));
     return { type, node, paramMap: {} };
   } else if (specialHandler) {
     return await specialHandler(ctx, type, args);

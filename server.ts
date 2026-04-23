@@ -104,6 +104,8 @@ function mimeType(path: string): string {
   const types: Record<string, string> = {
     html: "text/html", js: "application/javascript", css: "text/css",
     json: "application/json", png: "image/png", ico: "image/x-icon",
+    flac: "audio/flac", wav: "audio/wav", aiff: "audio/aiff", aif: "audio/aiff",
+    ogg: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4",
   };
   return types[ext ?? ""] ?? "application/octet-stream";
 }
@@ -778,7 +780,7 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
     return handleSynthWs(req, info);
   }
   const ext = url.pathname.split(".").pop()?.toLowerCase();
-  if (ext && ["html", "js", "css", "json", "png", "ico"].includes(ext)) return serveFile(url.pathname);
+  if (ext && ["html", "js", "css", "json", "png", "ico", "flac", "wav", "aiff", "aif", "ogg", "mp3", "m4a"].includes(ext)) return serveFile(url.pathname);
   return serveFile("/index.html");
 }
 

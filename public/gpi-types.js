@@ -588,6 +588,9 @@ const BOX_TYPES = {
                       { name: "modSpeed", type: "number", description: "Mod LFO speed (0-1)" },
                       { name: "modDepth", type: "number", description: "Mod LFO depth (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Processed audio" }] },
+  "conv~":        { zone: "any", description: "Convolution reverb (browser-native ConvolverNode). Output is bounded by construction (input ⊛ IR) — no feedback, can't run away. Arg is IR filename under /impulse_responses/ (default GiantCave.flac).", args: "[ir-file]", example: "conv~ GiantCave.flac",
+                    inlets: [{ name: "in", type: "audio", description: "Audio input" }],
+                    outlets: [{ name: "out", type: "audio", description: "Convolved audio" }] },
 
   "sine-osc~":    { zone: "any", description: "Pure sine tone oscillator.",
                     inlets: [
