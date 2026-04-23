@@ -236,6 +236,16 @@ function evaluatePure(type, args, iv) {
       const idx = n < 0 ? arr.length + n : n;
       return (idx >= 0 && idx < arr.length) ? arr[idx] : 0;
     }
+    case "octaves": {
+      if (!Array.isArray(iv[0])) return iv[0];
+      const n = iv[1] !== undefined ? Math.floor(iv[1]) : (parseInt(args[0]) || 0);
+      const layers = Math.max(0, n);
+      const out = [];
+      for (let k = 0; k <= layers; k++) {
+        for (const p of iv[0]) out.push(p + 12 * k);
+      }
+      return out;
+    }
     case "floor": return Math.floor(a);
     case "ceil": return Math.ceil(a);
     case "round": return Math.round(a);
