@@ -334,7 +334,14 @@ function handleBoxEvent(type, state, iv) {
       return { value: 0, propagate: true };
     case "counter":
       state.count++;
-      if (state.count > state.max) state.count = state.min;
+      if (state.count > state.max) {
+        state.count = state.min;
+        // Emit both: new count value (outlet 0) AND rollover event (outlet 1).
+        return { value: 0, propagate: false, outputs: [
+          { outlet: 0, value: state.count, type: "value" },
+          { outlet: 1, value: null, type: "event" },
+        ]};
+      }
       return { value: state.count, propagate: true };
     case "ar":
       if (iv[1] > 0) state.attack = iv[1];
@@ -666,6 +673,7 @@ const INLET_MAPS = {
   lag:     { 0: "target" },
   inertia: { 1: { field: "freq", min: 0.01 }, 2: { field: "damping", min: 0 } },
   follow:  { 1: { field: "attack", min: 0.001 }, 2: { field: "release", min: 0.001 } },
+  counter: { 1: { field: "max", min: 0 } },
   step:    { 1: "amplitude", 2: "length" },
 };
 

@@ -175,9 +175,13 @@ const BOX_TYPES = {
   drunk:          { zone: "any", description: "Random walk. Step on each null event.", args: "step", example: "drunk 0.01",
                     inlets: [{ name: "trigger", type: "event", description: "Take one step" }],
                     outlets: [{ name: "value", type: "number", description: "Current position (0-1)" }] },
-  counter:        { zone: "any", description: "Count up on each null event.", args: "min max", example: "counter 0 7",
-                    inlets: [{ name: "trigger", type: "event", description: "Increment" }],
-                    outlets: [{ name: "value", type: "number", description: "Current count" }] },
+  counter:        { zone: "any", description: "Count up on each null event. Wraps from max back to min. Inlet 1 sets max dynamically (cold). Outlet 1 fires an event on rollover.", args: "min max", example: "counter 0 7",
+                    inlets: [
+                      { name: "trigger", type: "event", description: "Increment" },
+                      { name: "max", type: "number", description: "Top of range (cold)" }],
+                    outlets: [
+                      { name: "value", type: "number", description: "Current count" },
+                      { name: "rollover", type: "event", description: "Fires when count wraps from max back to min" }] },
 
   // --- generators ---
   random:         { zone: "any", description: "Random value on each trigger. Optional curve: 1=uniform (default), 2+=bias low, 0.5=bias high.", args: "min max [curve]", example: "random 0 1 2",
