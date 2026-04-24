@@ -463,7 +463,7 @@ export async function initGrid(): Promise<void> {
     serialoscConn.close();
 
     (async () => {
-      for await (const [data, _addr] of gridSocket!) {
+      for await (const [data, addr] of gridSocket!) {
         const msg = parseOsc(new Uint8Array(data));
         if (!msg) {
           _event(`grid OSC: failed to parse message`);
@@ -472,6 +472,20 @@ export async function initGrid(): Promise<void> {
 
         if (!["/sys/port", "/sys/host", "/sys/prefix"].includes(msg.address)) {
           _event(`grid OSC: ${msg.address} [${msg.args.join(", ")}]`);
+        }
+
+        // Fallback: if /serialosc/add was missed (e.g. server started against an
+        // already-connected grid and serialosc's subscription cache skipped us),
+        // adopt the source port of any grid-addressed message as gridDevicePort.
+        // Keys from serialosc arrive via the per-grid proxy — that proxy's port
+        // is exactly what we need for sending LEDs back.
+        if (gridDevicePort === null && msg.address.startsWith(GRID_PREFIX + "/")) {
+          const srcPort = (addr as Deno.NetAddr).port;
+          _event(`grid port adopted from incoming message: ${srcPort}`);
+          gridDevicePort = srcPort;
+          gridSysSend("/sys/prefix", "s", GRID_PREFIX);
+          gridSend("/grid/led/all", "i", 0);
+          for (const region of gridRegions.values()) renderGridRegion(region);
         }
 
         if (msg.address === "/serialosc/device" || msg.address === "/serialosc/add") {

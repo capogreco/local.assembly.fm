@@ -5,6 +5,7 @@
 #   ./start-macos.sh dns        Start DNS server only
 #   ./start-macos.sh server     Start Deno server only
 #   ./start-macos.sh dev        Start with auto-reload on file changes
+#   ./start-macos.sh local      Patch-editing only — no dnsmasq, no subnet check (localhost)
 #   ./start-macos.sh status     Show system status
 
 set -e
@@ -200,7 +201,7 @@ start_dev() {
     echo ""
 
     cd "$PROJECT_DIR"
-    sudo $(which deno) run -A --unstable-net --watch=server.ts,public/gpi-types.js,public/graph-core.js server.ts
+    sudo $(which deno) run -A --unstable-net --watch=server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js server.ts
 }
 
 show_status() {
@@ -286,7 +287,22 @@ case "${1:-}" in
         trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
 
         cd "$PROJECT_DIR"
-        sudo $(which deno) run -A --unstable-net --watch=server.ts,public/gpi-types.js,public/graph-core.js server.ts
+        sudo $(which deno) run -A --unstable-net --watch=server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js server.ts
+        ;;
+    local)
+        # Patch-editing mode — no dnsmasq, no network hardware required.
+        # Serves on localhost so you can open https://localhost/ctrl.html
+        # (or https://local.assembly.fm/ctrl.html if 127.0.0.1 is in /etc/hosts).
+        check_prerequisites
+
+        echo_info "Starting Deno server in local mode (auto-reload on file changes)..."
+        echo_info "ctrl:     https://localhost/ctrl.html"
+        echo_info "synth:    https://localhost/"
+        echo_info "Ctrl+C to stop"
+        echo ""
+
+        cd "$PROJECT_DIR"
+        sudo $(which deno) run -A --unstable-net --watch=server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js server.ts
         ;;
     status)
         show_status

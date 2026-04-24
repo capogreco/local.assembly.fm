@@ -633,7 +633,7 @@ function tickCtrlAudioAnims(dt: number): void {
   }
 }
 
-const TICK_RATE = 60;
+const TICK_RATE = 240;
 const TICK_DT = 1 / TICK_RATE;
 
 function tick(): void {

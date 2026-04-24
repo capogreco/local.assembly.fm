@@ -1749,3 +1749,142 @@ Value path is still duplicated between `propagateValue` and `processRouterValue`
 ### Next up
 - **Abstraction workflow** needs more testing: argument substitution ($1/$2), nesting, error reporting
 - **CNA portal** needs multi-device testing (Chrome Android, Samsung, iOS)
+
+## 2026-04-24 — Tick-rate bump + measurement plan for rhythmic jitter
+
+### What changed
+Bumped `TICK_RATE` from 60 to 240 in `eval-engine.ts`. One-line band-aid that cuts
+server-side metro/phasor/envelope quantization jitter from ±16.67 ms to ±4.17 ms —
+roughly 4× tighter rhythm on anything driven by the tick loop. Server CPU is nowhere
+near saturation at 240 Hz for current patch sizes.
+
+Triggered by RMIT rehearsal tonight: sparkly-keys felt obviously stutterier than the
+captive_portal performance on 2026-03-19. Tick paradigm is identical between those
+dates (verified by inspecting `server.ts` at commit `d256a65` — same TICK_RATE=60,
+same `state.elapsed += TICK_DT` metro). So the root cause is either (a) 60 Hz
+quantization was always on the edge and sparkly-keys' faster breath-modulated metro
+just crossed it, or (b) per-bang propagation cost has grown since March 19 and ticks
+are now overrunning, or (c) both.
+
+### What this doesn't fix
+- **Client-side tick stays at RAF cadence.** Synth-zone metros and envelopes still
+  quantize to display refresh. A server-side TICK_RATE bump does not help there.
+- **Absolute wall-clock accuracy is still tick-aligned.** 4.17 ms jitter is tighter
+  but not sample-accurate. The proper fix is a `performance.now()`-keyed scheduler
+  for `metro`/`delay`/`step` (see senior-architect assessment captured elsewhere).
+- **Any per-bang propagation cost overrun.** If a metro bang's downstream chain
+  (spigot → t → seq → one → mtof → KS + recompute loop via held → octaves → sort →
+  length → / hot × 3) takes longer than 4.17 ms, we're still blowing the new tick.
+  Measurement needed.
+
+### Measurement plan (next session)
+Before committing to the scheduler refactor or a propagation-optimisation pass,
+instrument three things:
+
+1. **Tick duration.** Wrap `tick()` at `eval-engine.ts:639` with `performance.now()`.
+   Log p50/p95/max per second. If p95 < 1 ms we're fine; if pushing 4 ms we're
+   overrunning the new grid.
+2. **Per-bang propagation depth.** Count box evaluations per metro fire on
+   sparkly-keys. Sanity-check: ~20–30 expected. If 100+, something is recursing
+   beyond intent.
+3. **WS broadcast burst size.** Messages emitted to each synth per metro bang.
+   Burst-then-silence on the wire is felt as stutter independent of tick timing.
+
+Once numbers are in hand, decide between:
+- Scheduler refactor for `metro`/`delay`/`step` (sub-ms absolute timing, ~3–4
+  focused days including client-symmetric mirror and virtual-clock test harness).
+- Hot-path optimisation of `deliverValueToInlet` / `propagateAndNotify` /
+  `queueValueUpdate` (the shared-dispatch unification on 2026-04-23 put indirection
+  in a path that used to be inline — measurable candidate).
+- Both, in sequence.
+
+### Not addressed
+- iOS Safari background `setTimeout` throttling — only matters once we adopt a
+  scheduler.
+- `delay` semantics clarification — today queued value is always `1`, so it's really
+  a null-event-delay. If we keep it that way, the scheduler port is trivial; if we
+  extend to value-delay, heap entries need to carry the payload.
+
+## 2026-04-24 — RMIT run-through session: multi-fix savepoint
+
+### Captive portal / CNA page (`public/portal.html`)
+- Removed the "open in browser" link — on some phones the intent URI dropped
+  the `https://` scheme, landing the user on an HTTP page that couldn't bring up
+  audio.
+- Updated the browser-note copy: the CNA webview can run audio fine, but it
+  disables swipe-back/refresh gestures, which we want off during performance.
+- URL box remains as a copy-to-clipboard target.
+
+### `conv~` wiring and `scale` arg format
+- Added a convolution reverb (`conv~`) to `sparkly-keys.json` routed wet/dry into
+  `dac~`; preserved from prior work, no code change.
+- Discovered `scale` args were being written Max/MSP-style (`scale 0 1 100 2000 2`)
+  but this project's `scale` takes `min max [curve]` with input assumed 0–1
+  (`graph-core.js:235`). The extra two numbers were silently being interpreted as
+  a huge exponent curve, making the output ≈0 everywhere except x ≈ 1.
+- Repaired all six scale boxes in `epimetheus.json` (`scale 100 2000 2`,
+  `scale 0 1`, `scale 5 60`, etc.). Worth a `scale` arg parser that detects the
+  5-arg form and warns, but deferred.
+
+### `epimetheus` sortition wiring
+- Pink-screen selection feedback: added `screen` box in synth zone wired
+  `const 1 / 0.4 / 0.7 → r g b` and `toggle #52 out0 → a`. Only the
+  sortition-selected phone blooms pink before the finger touches.
+- Fixed the "pink stays after finger lift" regression: pointed `toggle #52 in1`
+  (set-mode) at `all 8 out5` (the broadcast `tg`) instead of `out4` (which was
+  only being driven by a `const 0` on grid-trig cycles). Toggle now follows the
+  tg value — flips to 0 on release, pink fades, audio disarms.
+
+### Tick-paradigm band-aid
+- Bumped `TICK_RATE` in `eval-engine.ts` from 60 to 240 Hz as a one-line mitigation
+  for musically audible metro quantization jitter. Full plan (scheduler for
+  metro/delay/step → selective closed-form for pure continuous boxes → audio-rate
+  continuous boxes in worklet) captured in `project_tick_paradigm.md` memory.
+  Two architect reports (archived in conversation history) narrowed the approach:
+  don't attempt full server-side tick-ectomy because integrators with
+  live-modulated input (`follow`, `lag`, `inertia`) silently change musical
+  behaviour when moved off the tick.
+
+### Dev ergonomics
+- Added `./start-macos.sh local` — patch-editing mode that skips `detect_network`
+  and dnsmasq; serves Deno on 0.0.0.0 with the same `--watch` flags. Lets you
+  iterate on patches without the AP / FritzBox / hardware pulled up.
+- Extended `--watch` across all invocations to include `eval-engine.ts`,
+  `hardware.ts`, `patch-state.ts` so server-side TS edits reload automatically.
+
+### Grid hot-plug fallback (`hardware.ts:473`)
+- Root cause: when the server cold-starts against an already-connected monome,
+  serialosc's subscription cache skips us — the grid keeps forwarding keys
+  (cached `/sys/port 13000 /sys/prefix /assembly` from a prior session) but
+  `/serialosc/add` never arrives, so `gridDevicePort` stays null and every LED
+  write fails silently. Symptom: `grid OSC: /assembly/grid/key [...]` logs but
+  `gridSend failed: socket=true port=null`.
+- Fix: in the OSC receive loop, if `gridDevicePort === null` and the incoming
+  message starts with `GRID_PREFIX + "/"`, adopt the sender's source port as
+  `gridDevicePort`, re-assert `/sys/prefix`, clear all LEDs, and repaint any
+  registered regions. Self-healing — no user-visible setup required if the grid
+  is already speaking to us on the right port.
+- Unplug/replug still works as the canonical recovery, but the server no longer
+  requires it.
+
+### Nomenclature: "bang" → "null event", trigger `b` → `e`
+- User preference: conceptually cleaner to name the zero-payload signal a
+  "null event" and keep "event" as the general term. The `b` token (inherited
+  from Pd-style `trigger b f`) is renamed to `e`.
+- Clean break (prototype mode — no compat shim):
+  - `graph-core.js:208` / `:428` / `:431` — default args and match check now use
+    `"e"` instead of `"b"`.
+  - `gpi-types.js:64` — `const` inlet renamed from `"bang"` to `"trigger"`.
+  - `gpi-types.js:317` / `:321` — trigger/`t` descriptions and examples updated.
+  - `graph-core.js:489` and `graph.js:157` — comments updated.
+  - `patches/sparkly-keys.json` — `t b b b` migrated to `t e e e`.
+- Not touched: dev_log.md historical references (this one excepted). Math-box
+  inlets named `a`/`b` (second operand) are unrelated to trigger tokens and
+  remain as-is.
+
+### Next up
+- Measurement pass on sparkly-keys before committing to the scheduler refactor
+  (tick duration p95, per-bang propagation depth, WS broadcast burst size).
+- Audit/parse-time warning for `scale` arg misuse (5-arg Max/MSP form).
+- Open ticket to migrate any abstractions still shipping `trigger b` syntax (none
+  found in the current `abstractions/` dir, confirmed via audit).

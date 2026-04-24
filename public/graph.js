@@ -154,7 +154,7 @@ const _clientEventHelpers = {
   get debug() { return graphDebug; },
 };
 
-// propagate an event (bang) from a box's outlet through the graph
+// propagate a null event from a box's outlet through the graph
 function propagateEvent(graph, boxId, outletIndex) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};

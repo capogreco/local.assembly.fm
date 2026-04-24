@@ -59,17 +59,6 @@
       margin-bottom: 2rem;
     }
     .browser-note strong { color: #999; font-weight: 500; }
-    .open-link {
-      font-size: 0.9rem;
-      color: #e0e0e0;
-      text-decoration: none;
-      padding: 0.8rem 1.5rem;
-      border: 1px solid #333;
-      display: inline-block;
-      letter-spacing: 0.1em;
-    }
-    .open-link:active { color: #fff; border-color: #666; }
-    .or { font-size: 0.7rem; color: #444; margin-bottom: 0.8rem; }
   </style>
 </head>
 <body>
@@ -81,12 +70,9 @@
   <p class="copy-hint" id="copy-hint">tap to copy</p>
 
   <p class="browser-note">
-    this popup can't run audio<br>
+    this popup disables swipe gestures<br>
     paste the URL into <strong>Chrome</strong> for the full experience
   </p>
-
-  <p class="or">or try opening directly</p>
-  <a class="open-link" id="open-link" href="#">open in browser</a>
 
   <!-- silent auth ping — keeps WiFi connected after CNA dismisses -->
   <img src="/auth" style="display:none" alt="">
@@ -95,10 +81,8 @@
     var url = "https://" + location.host + "/";
     var box = document.getElementById("url-box");
     var hint = document.getElementById("copy-hint");
-    var link = document.getElementById("open-link");
 
     box.textContent = url.replace("https://", "");
-    link.href = url;
 
     box.addEventListener("click", function () {
       // try clipboard API first, fall back to execCommand

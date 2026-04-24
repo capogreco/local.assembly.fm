@@ -61,7 +61,7 @@ const BOX_TYPES = {
 
   // --- values ---
   const:          { zone: "any", description: "Constant value. Event inlet re-propagates.", args: "value", example: "const 220",
-                    inlets: [{ name: "bang", type: "event", description: "Re-propagate value" }],
+                    inlets: [{ name: "trigger", type: "event", description: "Re-propagate value" }],
                     outlets: [{ name: "value", type: "number", description: "Constant output" }] },
   knob:           { zone: "any", description: "Interactive knob. Scroll wheel to change value. Args: init [min] [max] [curve].", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Current value" }] },
@@ -314,11 +314,11 @@ const BOX_TYPES = {
                     outlets: [{ name: "out", type: "number", description: "Value" }] },
 
   // --- message routing (Pd-style) ---
-  trigger:        { zone: "any", description: "Right-to-left outlet firing. Args: b (bang/event) or f (float/value) per outlet.", args: "types...", example: "trigger b f",
+  trigger:        { zone: "any", description: "Right-to-left outlet firing. Args: e (null event) or f (float/value) per outlet.", args: "types...", example: "trigger e f",
                     dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", hot: true, firesEvent: true, description: "Input value or event" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Output" }] },
-  t:              { zone: "any", description: "Trigger (shorthand). Right-to-left outlet firing.", args: "types...", example: "t b f",
+  t:              { zone: "any", description: "Trigger (shorthand). Right-to-left outlet firing.", args: "types...", example: "t e f",
                     dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", hot: true, firesEvent: true, description: "Input value or event" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Output" }] },

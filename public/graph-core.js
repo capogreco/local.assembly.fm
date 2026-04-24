@@ -205,7 +205,7 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
     case "fan":
       return { values: (args || "0").split(/\s+/).map(Number) };
     case "trigger": case "t":
-      return { types: (args || "b").split(/\s+/) };
+      return { types: (args || "e").split(/\s+/) };
     case "select": case "sel":
       return { matchValues: (args || "0").split(/\s+/).map(Number) };
     case "swap":
@@ -425,10 +425,10 @@ function handleBoxEvent(type, state, iv) {
       return { value: 0, propagate: false, outputs };
     }
     case "trigger": case "t": {
-      const types = state.types || ["b"];
+      const types = state.types || ["e"];
       const outputs = [];
       for (let i = types.length - 1; i >= 0; i--) {  // right-to-left
-        if (types[i] === "b") outputs.push({ outlet: i, value: null, type: "event" });
+        if (types[i] === "e") outputs.push({ outlet: i, value: null, type: "event" });
         else outputs.push({ outlet: i, value: typeof iv[0] === "number" ? iv[0] : 0, type: "value" });
       }
       return { value: 0, propagate: false, outputs };
@@ -486,7 +486,7 @@ function tickBox(type, state, iv, dt) {
       state.elapsed += dt;
       if (state.elapsed >= interval) {
         state.elapsed -= interval;
-        return { value: 1, events: [0] }; // bang on outlet 0
+        return { value: 1, events: [0] }; // null event on outlet 0
       }
       return { value: state.elapsed / interval, events: [] };
     }
