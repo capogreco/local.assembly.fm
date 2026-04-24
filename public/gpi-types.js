@@ -24,10 +24,17 @@ const BOX_TYPES = {
   cc:             { zone: "ctrl", description: "MIDI CC input. Pass one or more CC numbers as args; each gets its own outlet. No args = monitor mode (displays last cc:value, does not propagate).", args: "[n ...]", example: "cc 1 7 11",
                     dynamic: true,
                     inlets: [], outlets: [{ name: "value", type: "number", description: "CC value (0-1)" }] },
-  key:            { zone: "ctrl", description: "MIDI keyboard input.",
+  key:            { zone: "ctrl", description: "MIDI note input. No arg: any channel. Arg N: only channel N (1-16). Arg `?`: passive monitor, displays latest pitch/velocity/channel.",
+                    args: "[channel | ?]", example: "key 10",
                     inlets: [], outlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
                       { name: "velocity", type: "number", description: "Velocity (0-1)" }] },
+  pad:            { zone: "any", description: "Note-on filter. No arg: forwards pitch/velocity only on press (note-off blocked). Arg N: fires a null event on each press of pitch==N. Multiple args: one event outlet per pitch. Feed from `key` outlets.",
+                    args: "[pitch...]", example: "pad 36 37 38 39",
+                    dynamic: true,
+                    inlets: [{ name: "pitch", type: "number", description: "Note number" },
+                             { name: "velocity", type: "number", firesEvent: true, description: ">0 fires, 0 blocked" }],
+                    outlets: [{ name: "out", type: "passthrough", description: "Pitch/velocity on press (no-arg) or per-pitch null event (with args)" }] },
   held:           { zone: "ctrl", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity).",
                     inlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
@@ -37,9 +44,9 @@ const BOX_TYPES = {
                       { name: "added", type: "event", description: "Null event when a pitch was newly added" },
                       { name: "removed", type: "event", description: "Null event when a pitch was removed" },
                       { name: "count", type: "number", description: "|held|" }] },
-  "grid-trig":    { zone: "ctrl", description: "Monome Grid trigger region. Outputs 1 on press, 0 on release.", args: "x y w h", example: "grid-trig 0 0 4 2",
+  "grid-trig":    { zone: "ctrl", description: "Monome Grid trigger button (1×1). Outputs 1 on press, 0 on release.", args: "x y", example: "grid-trig 0 0",
                     inlets: [], outlets: [{ name: "trig", type: "number", description: "1 when pressed, 0 when released" }] },
-  "grid-toggle":  { zone: "ctrl", description: "Monome Grid toggle region. Press to flip between 0 and 1.", args: "x y w h", example: "grid-toggle 4 0 2 1",
+  "grid-toggle":  { zone: "ctrl", description: "Monome Grid toggle button (1×1). Press to flip between 0 and 1.", args: "x y", example: "grid-toggle 1 0",
                     inlets: [], outlets: [{ name: "state", type: "number", description: "Toggle state (0 or 1)" }] },
   "grid-array":   { zone: "ctrl", description: "Monome Grid integer array. Press to toggle values, hold+press for range fill/clear.", args: "x y w h", example: "grid-array 0 2 12 1",
                     inlets: [], outlets: [{ name: "array", type: "array", description: "Array of 1-indexed integers" }] },
@@ -645,18 +652,18 @@ const BOX_TYPES = {
                       { name: "trigger", type: "event", description: "Fire a pluck" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "swarm~":       { zone: "any", description: "Resonant event swarm. Water, rain, fizz, metallic textures via parameter regimes.",
+  "swarm~":       { zone: "any", description: "Resonant event swarm. Texture explorer — creek to champagne. All inputs 0-1.",
                     inlets: [
-                      { name: "rate", type: "number", description: "Events per second" },
-                      { name: "freqMin", type: "number", description: "Min frequency in Hz" },
-                      { name: "freqMax", type: "number", description: "Max frequency in Hz" },
-                      { name: "chirp", type: "number", description: "Freq sweep rate (Hz/s)" },
-                      { name: "decay", type: "number", description: "Event decay (0=fast, 1=slow)" },
-                      { name: "amplitude", type: "number", description: "Output level (0-1)" },
+                      { name: "freqCenter", type: "number", description: "0-1 → 50 Hz to 20 kHz (log)" },
+                      { name: "freqRange", type: "number", description: "0-1 → 0 to 5 octaves spread around center" },
+                      { name: "rate", type: "number", description: "0-1 → 2 to 2000 events/sec (log)" },
+                      { name: "chirp", type: "number", description: "0-1 bipolar (0.5=flat). 0=-1/sec relative downward, 1=+1/sec upward" },
+                      { name: "decay", type: "number", description: "0-1 → Q 1 to 80 (log). Low=short pops, high=sustained rings" },
+                      { name: "resonatorQ", type: "number", description: "0 (off, sinusoid) or 0.01-1 → Q 2-100 (log biquad resonator)" },
+                      { name: "density", type: "number", description: "Post-filter gain (0-1)" },
                       { name: "transientMix", type: "number", description: "Noise burst probability (0-1)" },
-                      { name: "resonatorQ", type: "number", description: "Biquad Q (0=sinusoid, >0=resonator)" },
-                      { name: "density", type: "number", description: "Output scaling (0-1)" },
-                      { name: "chaosSpeed", type: "number", description: "Chaos attractor speed (0.1=slow, 1=normal, 10=fast)" }],
+                      { name: "chaosSpeed", type: "number", description: "0-1 → 0.1x to 10x, log-symmetric around 0.5=1x" },
+                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
 };
 
@@ -698,6 +705,11 @@ function getBoxPorts(text) {
     if (name === "cc") {
       const nArgs = Math.max(0, text.split(/\s+/).length - 1);
       return { inlets: 0, outlets: Math.max(1, nArgs) };
+    }
+    if (name === "pad") {
+      const tokens = text.split(/\s+/);
+      // No args: 2 outlets (pitch, vel). With N args: one event outlet per pitch.
+      return { inlets: 2, outlets: tokens.length === 1 ? 2 : tokens.length - 1 };
     }
     if (name === "sendup" || name === "sall") {
       const n = Math.max(1, text.split(/\s+/).length - 1);
@@ -775,6 +787,19 @@ function getOutletDef(text, index) {
     const ccN = parseInt(tokens[index + 1]);
     if (!isNaN(ccN)) return { name: `cc${ccN}`, type: "number", description: `CC #${ccN} value (0-1)` };
     return def.outlets[0];
+  }
+  if (name === "pad") {
+    const tokens = text.split(/\s+/);
+    if (tokens.length === 1) {
+      // No-arg: pitch + velocity outlets
+      if (index === 0) return { name: "pitch", type: "number", description: "Pitch on press" };
+      if (index === 1) return { name: "velocity", type: "number", description: "Velocity on press" };
+      return null;
+    }
+    // With pitch args: one event outlet per pitch, named by the pitch number
+    const pitch = tokens[index + 1];
+    if (pitch !== undefined) return { name: `p${pitch}`, type: "event", description: `Null event on press of pitch ${pitch}` };
+    return null;
   }
   if (def.dynamic && def.outlets.length === 1) return def.outlets[0];
   return def.outlets?.[index] || null;

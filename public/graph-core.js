@@ -214,6 +214,12 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return {};
     case "held":
       return { pitches: [] };
+    case "pad": {
+      // Empty array = no pitch filter (forward pitch/vel on press).
+      // Non-empty = per-pitch event outlets, one per arg.
+      const tokens = (args || "").split(/\s+/).filter(Boolean);
+      return { filterPitches: tokens.map(Number) };
+    }
     default:
       return null;
   }
@@ -424,6 +430,22 @@ function handleBoxEvent(type, state, iv) {
       outputs.push({ outlet: 3, value: state.pitches.length, type: "value" });
       return { value: 0, propagate: false, outputs };
     }
+    case "pad": {
+      const pitch = iv[0];
+      const velocity = iv[1];
+      if (!(velocity > 0)) return { value: 0, propagate: false, outputs: [] };
+      if (state.filterPitches.length === 0) {
+        // `pad` no-arg: forward pitch + velocity
+        return { value: 0, propagate: false, outputs: [
+          { outlet: 0, value: pitch, type: "value" },
+          { outlet: 1, value: velocity, type: "value" },
+        ] };
+      }
+      // `pad N1 N2 ...`: find matching pitch index, fire its outlet
+      const idx = state.filterPitches.indexOf(pitch);
+      if (idx === -1) return { value: 0, propagate: false, outputs: [] };
+      return { value: 0, propagate: false, outputs: [{ outlet: idx, value: null, type: "event" }] };
+    }
     case "trigger": case "t": {
       const types = state.types || ["e"];
       const outputs = [];
@@ -631,7 +653,7 @@ function tickBox(type, state, iv, dt) {
 function isEventTrigger(type, inlet) {
   if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle" || type === "const")) return true;
   if (inlet === 0 && type === "phasor") return true;
-  if (inlet === 1 && (type === "sample-hold" || type === "held")) return true;
+  if (inlet === 1 && (type === "sample-hold" || type === "held" || type === "pad")) return true;
   return false;
 }
 
@@ -854,6 +876,8 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   if (node.type === "sample-hold" && inlet === 0) return { updates, deferEvent: false };
   if (node.type === "adsr" && inlet === 0) return { updates, deferEvent: false };
   if (node.type === "seq" && inlet >= 1) return { updates, deferEvent: false };
+  // `pad` inlet 0 (pitch) is cold — pitch only fires the filter via inlet 1 (velocity).
+  if (node.type === "pad" && inlet === 0) return { updates, deferEvent: false };
 
   // Data-driven inlet map (adsr/ar/ramp/sigmoid/cosine/lfo/phasor/metro/slew/lag/step).
   if (node.state && applyInletToState(node.type, node.state, inlet, value)) {

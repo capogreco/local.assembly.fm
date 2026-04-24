@@ -1888,3 +1888,98 @@ Once numbers are in hand, decide between:
 - Audit/parse-time warning for `scale` arg misuse (5-arg Max/MSP form).
 - Open ticket to migrate any abstractions still shipping `trigger b` syntax (none
   found in the current `abstractions/` dir, confirmed via audit).
+
+## 2026-04-25 — Performance-ready: epimetheus + ks_arp
+
+Session of object additions, DSP fixes, and nomenclature tuning ahead of a
+performance run. Two patches (`epimetheus.json`, `ks_arp.json`) promoted to
+performance-ready; sparkly-keys and the remaining `*_test.json` patches moved
+to `patches/archive/`.
+
+### Object additions / changes
+
+- **`pad`** (`public/gpi-types.js`, `public/graph-core.js`) — new ctrl-zone
+  filter box. Three forms:
+  - `pad` — 2 outlets (pitch, velocity); forwards on press only (note-off
+    blocked).
+  - `pad N` — 1 event outlet; fires on press of pitch N.
+  - `pad N1 N2 …` — one event outlet per pitch; outlet *i* fires on press of
+    pitch *Ni*. Replaces the 5-box "toggle on specific pad hit" idiom with
+    a single dedicated box.
+  - Pitch inlet is cold-store only; velocity inlet is event-triggered
+    (follows the `held` pattern). Fires `isEventTrigger` on inlet 1.
+
+- **`key` box overhaul** (`server.ts`, `public/ctrl.js`, `public/gpi-types.js`,
+  `public/patch-editor.js`):
+  - `ctrl.js` `onMIDIMessage` now extracts channel (`(status & 0x0f) + 1`)
+    and forwards it with every `midi` message.
+  - `key` with no arg = all channels (backwards-compatible default).
+  - `key N` = channel filter (1–16).
+  - `key ?` = passive monitor. Displays `key ? <pitch> <vel> ch<N>` in
+    the patch editor; does not fire outlets. Extended the passive-monitor
+    display predicate in `patch-editor.js` (previously print/bare-cc only).
+
+- **`grid-trig` / `grid-toggle` defaults** (`hardware.ts`,
+  `public/gpi-types.js`) — both now take `x y` only; size is always 1×1.
+  `grid-array` retains `x y w h`. `rebuildGridRegions` uses a type-specific
+  minimum-arg count.
+
+### DSP fixes
+
+- **`karplus-strong~` stiffness stability** (`public/ks-processor.js:104`) —
+  at high stiffness + high pitch, the stiffness cascade's phase delay could
+  exceed the physical delay-line budget; `intDelay` clamped to 1 left the
+  tuning allpass's fractional delay `d` outside `[0.5, 1.5]`, driving
+  `C = (1-d)/(1+d)` past the unit circle and causing DC blow-up. Fixed by
+  clamping `d` to the well-conditioned range; tuning bends flat at the
+  extreme rather than going unstable.
+
+- **`swarm~` full parameter normalisation** (`public/swarm-processor.js`,
+  `public/gpi-types.js`) — all 10 inlets now 0–1. Reframed around
+  texture-space exploration (creek ↔ champagne) instead of frequency-domain.
+  Interface changes:
+  - `freqMin` / `freqMax` → `freqCenter` / `freqRange`; center log-maps
+    50 Hz → 20 kHz, range linear 0 → 5 octaves.
+  - `rate` log-maps 2 → 2000 events/sec.
+  - `chirp` bipolar around 0.5 (flat); `0 → 1 = ±100 %` of event frequency
+    per second (preserves watery "plink" at any pitch). Three-regime
+    branching in old code collapsed to one formula.
+  - `decay` log-maps Q 1 → 80 (widened from old 5 → 30 linear).
+  - `resonatorQ` snaps to 0 below 0.01, otherwise log-maps 2 → 100.
+  - `chaosSpeed` log-symmetric around 0.5 = 1×.
+  - `amplitude` moved to the RHS (inlet 9, last).
+- **`swarm~` pitch anchor fix** (`swarm-processor.js`) — a distinct ~350 Hz
+  tone was emerging on default settings from two compounding issues:
+  (a) siblings spawned at `f * (0.7–1.2)` could dip below the user's
+  `freqRange` window and cluster near the low edge, and (b) initial phase
+  was chaos-driven so events spawned near each other in attractor state
+  summed coherently into an audible pitch. Fixed by (a) sampling sibling
+  frequencies uniformly from the same log-freq window as parents, (b)
+  randomising per-event phase with `Math.random()`.
+
+### Grid hot-plug robustness
+
+- **Source-port adoption fallback** (`hardware.ts` in the OSC receive loop):
+  when the server cold-starts against an already-connected monome,
+  serialosc's subscription cache sometimes skips us and `/serialosc/add`
+  never arrives, so `gridDevicePort` stays null. Keys still flow through
+  (cached from a prior session), but every LED write fails. Now: any
+  incoming message with `GRID_PREFIX + "/"` address, while
+  `gridDevicePort === null`, adopts the sender's source port, re-asserts
+  `/sys/prefix`, clears all LEDs, and repaints registered regions.
+  Self-heals without requiring unplug/replug.
+
+### Dev ergonomics
+
+- **Reveal patches folder** (`server.ts` + `public/ctrl.js`) — new
+  `POST /patches/reveal` endpoint that shells out to `open PATCHES_DIR` on
+  macOS. Bound to the `p` key in the ctrl editor; no modal, one keystroke
+  from anywhere in the editor.
+
+### Patches
+
+- `patches/epimetheus.json` — performance-ready.
+- `patches/ks_arp.json` — new, performance-ready.
+- All other patches (`sparkly-keys`, `sparkly_keys`, `captive_portal`,
+  various `*_test.json`, `symbiogenesis`, etc.) moved into
+  `patches/archive/`. Kept out of the live listing for the performance.

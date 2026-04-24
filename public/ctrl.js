@@ -476,6 +476,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "s" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); savePatch(); return; }
   if (e.key === "N" && !e.metaKey && !e.ctrlKey && e.shiftKey) { e.preventDefault(); newAbstraction(); return; }
   if (e.key === "o" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); loadPatch(); return; }
+  if (e.key === "p" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); fetch("/patches/reveal", { method: "POST" }); return; }
   if (e.key === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); mainEditor.pushUndo(); mainEditor.boxes.clear(); mainEditor.cables.clear(); mainEditor.selection.clear(); mainEditor.cableSelection.clear(); mainEditor.nextId = 1; mainEditor.dirty = true; mainEditor.onDirty(); mainEditor.resetView(); currentPatchName = null; mainEditor.render(); return; }
   if (e.key === "h" && mainEditor.selection.size === 1) {
     e.preventDefault();
@@ -638,10 +639,10 @@ function autoCreateSources(deviceName) {
 }
 
 function onMIDIMessage(e) {
-  const [status, d1, d2] = e.data, type = status & 0xf0;
-  if (type === 0xb0) send({ type: "midi", cc: d1, value: d2 });
-  else if (type === 0x90) send({ type: "midi", note: d1, velocity: d2 });
-  else if (type === 0x80) send({ type: "midi", note: d1, velocity: 0 });
+  const [status, d1, d2] = e.data, type = status & 0xf0, channel = (status & 0x0f) + 1;
+  if (type === 0xb0) send({ type: "midi", cc: d1, value: d2, channel });
+  else if (type === 0x90) send({ type: "midi", note: d1, velocity: d2, channel });
+  else if (type === 0x80) send({ type: "midi", note: d1, velocity: 0, channel });
 }
 
 async function initMIDI() {

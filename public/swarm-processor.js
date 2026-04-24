@@ -1,27 +1,33 @@
 /**
  * Stochastic Event Swarm Worklet — chaos-driven resonant event synthesis
  *
+ * Normalised parameter interface (0–1 across the board). Internal mappings
+ * cover the "burbling creek ↔ fizzing champagne" texture axis.
+ *
  * Embedded Rössler attractor replaces randomness for event parameters.
  * Chaos outputs drive: event timing (x), frequency selection (y),
  * amplitude (z). Creates temporally correlated, non-repeating events.
- *
- * Parameters via AudioParam: rate, freqMin, freqMax, chirp, decay,
- * amplitude, transientMix, resonatorQ, density, chaosSpeed.
  */
+
+// --- parameter mapping helpers ---
+
+const mapLog = (t, min, max) => Math.exp(Math.log(min) + t * (Math.log(max) - Math.log(min)));
+const mapBipolar = (t, range) => (t - 0.5) * 2 * range;
 
 class SwarmProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
+    // All inputs 0–1. See `updateParams()` for the actual ranges.
     return [
-      { name: "rate",         defaultValue: 20,   automationRate: "k-rate" },
-      { name: "freqMin",      defaultValue: 500,  automationRate: "k-rate" },
-      { name: "freqMax",      defaultValue: 3000, automationRate: "k-rate" },
-      { name: "chirp",        defaultValue: 0,    automationRate: "k-rate" },
-      { name: "decay",        defaultValue: 0.5,  automationRate: "k-rate" },
-      { name: "amplitude",    defaultValue: 0.5,  automationRate: "k-rate" },
-      { name: "transientMix", defaultValue: 0.3,  automationRate: "k-rate" },
-      { name: "resonatorQ",   defaultValue: 5,    automationRate: "k-rate" },
-      { name: "density",      defaultValue: 1,    automationRate: "k-rate" },
-      { name: "chaosSpeed",   defaultValue: 1,    automationRate: "k-rate" },
+      { name: "freqCenter",   defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "freqRange",    defaultValue: 0.4, automationRate: "k-rate" },
+      { name: "rate",         defaultValue: 0.4, automationRate: "k-rate" },
+      { name: "chirp",        defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "decay",        defaultValue: 0.4, automationRate: "k-rate" },
+      { name: "resonatorQ",   defaultValue: 0.0, automationRate: "k-rate" },
+      { name: "density",      defaultValue: 1.0, automationRate: "k-rate" },
+      { name: "transientMix", defaultValue: 0.3, automationRate: "k-rate" },
+      { name: "chaosSpeed",   defaultValue: 0.5, automationRate: "k-rate" },
+      { name: "amplitude",    defaultValue: 0.5, automationRate: "k-rate" },
     ];
   }
 
@@ -57,20 +63,48 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.dcY = 0;
 
     // Embedded Rössler attractor — replaces Math.random()
-    // Random initial conditions for per-instance divergence
     this.cx = (Math.random() - 0.5) * 2;
     this.cy = (Math.random() - 0.5) * 2;
     this.cz = (Math.random() - 0.5) * 0.5;
-    // Normalisation tracking
     this.cMaxX = 10; this.cMaxY = 10; this.cMaxZ = 5;
 
-    this.c = {};
+    // `m` holds the mapped (internal-unit) values updated per block from the
+    // normalised k-rate parameters.
+    this.m = {
+      freqCenterHz: 1000,
+      freqRangeOct: 2,
+      rate: 30,
+      chirpRelPerSec: 0,   // fraction of event frequency per second
+      Q: 9,
+      resonatorQ: 0,       // 0 = sinusoid, else biquad Q
+      density: 1,
+      transientMix: 0.3,
+      chaosSpeed: 1,
+      amplitude: 0.5,
+    };
   }
 
-  // Step the Rössler attractor and return normalised (0-1) values
+  updateParams(p) {
+    const m = this.m;
+    m.freqCenterHz   = mapLog(p.freqCenter[0], 50, 20000);
+    m.freqRangeOct   = p.freqRange[0] * 5;
+    m.rate           = mapLog(p.rate[0], 2, 2000);
+    m.chirpRelPerSec = mapBipolar(p.chirp[0], 1);           // ±1 = ±100 % of f per sec
+    m.Q              = mapLog(p.decay[0], 1, 80);
+    m.resonatorQ     = p.resonatorQ[0] < 0.01
+                         ? 0
+                         : mapLog((p.resonatorQ[0] - 0.01) / 0.99, 2, 100);
+    m.density        = p.density[0];
+    m.transientMix   = p.transientMix[0];
+    // chaosSpeed log-symmetric around 0.5 → 1.0
+    m.chaosSpeed     = mapLog(p.chaosSpeed[0], 0.1, 10);
+    m.amplitude      = p.amplitude[0];
+  }
+
+  // Step the Rössler attractor and return normalised (0–1) values
   stepChaos(speed) {
     const a = 0.2, b = 0.2, c = 5.7;
-    const dt = speed * 0.05; // scale for reasonable traversal speed
+    const dt = speed * 0.05;
 
     // RK4
     const dx1 = -(this.cy + this.cz);
@@ -94,16 +128,16 @@ class SwarmProcessor extends AudioWorkletProcessor {
     this.cz += (dz1 + 2 * dz2 + 2 * dz3 + dz4) * dt / 6;
 
     // Blow-up protection
-    const m = Math.max(Math.abs(this.cx), Math.abs(this.cy), Math.abs(this.cz));
-    if (m > 1e6 || isNaN(m)) { this.cx = 0.1; this.cy = 0; this.cz = 0; }
+    const mm = Math.max(Math.abs(this.cx), Math.abs(this.cy), Math.abs(this.cz));
+    if (mm > 1e6 || isNaN(mm)) { this.cx = 0.1; this.cy = 0; this.cz = 0; }
 
-    // Adaptive normalisation to 0-1
+    // Adaptive normalisation to 0–1
     this.cMaxX = Math.max(this.cMaxX * 0.9999, Math.abs(this.cx));
     this.cMaxY = Math.max(this.cMaxY * 0.9999, Math.abs(this.cy));
     this.cMaxZ = Math.max(this.cMaxZ * 0.9999, Math.abs(this.cz));
 
     return {
-      x: (this.cx / this.cMaxX) * 0.5 + 0.5,  // 0-1
+      x: (this.cx / this.cMaxX) * 0.5 + 0.5,
       y: (this.cy / this.cMaxY) * 0.5 + 0.5,
       z: (this.cz / this.cMaxZ) * 0.5 + 0.5,
     };
@@ -117,7 +151,10 @@ class SwarmProcessor extends AudioWorkletProcessor {
     if (slot < 0) return;
 
     this.active[slot] = 1;
-    this.phase[slot] = this.lastChaos.z * 6.2832; // chaos-driven initial phase
+    // Random initial phase: chaos-driven phase would correlate across events
+    // spawned in the same attractor neighbourhood, summing constructively into
+    // an audible pitch where none was intended.
+    this.phase[slot] = Math.random() * 6.2832;
     this.freq[slot] = f;
     this.evChirp[slot] = chirpVal;
     this.chirpDecay[slot] = chirpDk;
@@ -135,7 +172,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
       this.transLP[slot] = 0;
     }
 
-    const resQ = this.c.resonatorQ || 0;
+    const resQ = this.m.resonatorQ;
     if (resQ > 0) {
       this.useRes[slot] = 1;
       const w0 = 6.2832 * f / this.sr;
@@ -154,53 +191,51 @@ class SwarmProcessor extends AudioWorkletProcessor {
   }
 
   spawnEvent() {
-    const c = this.c;
-    const ch = this.stepChaos(c.chaosSpeed || 1);
+    const m = this.m;
+    const ch = this.stepChaos(m.chaosSpeed);
     this.lastChaos = ch;
 
-    // Chaos y drives frequency (log-uniform, chaos-weighted)
-    const logMin = Math.log(c.freqMin || 20);
-    const logMax = Math.log(c.freqMax || 20000);
+    // freqCenter + freqRange → log-frequency window, sampled by chaos.y
+    const halfOct = m.freqRangeOct * 0.5;
+    const logCenter = Math.log(m.freqCenterHz);
+    const logMin = logCenter - halfOct * Math.LN2;
+    const logMax = logCenter + halfOct * Math.LN2;
     const f = Math.exp(logMin + ch.y * (logMax - logMin));
 
-    // Chaos z drives amplitude (with 1/f correlation)
+    // Chaos z drives amplitude (with 1/f correlation to tame HF harshness)
     const fRef = Math.exp((logMin + logMax) * 0.5);
     const ampScale = Math.min(fRef / f, 4.0);
-    const a = ch.z * c.amplitude * ampScale;
+    const a = ch.z * m.amplitude * ampScale;
 
-    // Constant-Q decay
-    const Q = 5 + c.decay * 25;
-    const t60 = Q / f;
+    // Constant-Q decay from mapped Q
+    const t60 = m.Q / f;
     const dm = Math.exp(-6.9 / (t60 * this.sr));
 
-    // Chirp
-    let chirpVal, chirpDk;
-    if (c.chirp > 0) {
-      chirpVal = c.chirp / this.sr;
-      chirpDk = 1;
-    } else if (c.chirp < 0) {
-      chirpVal = c.chirp / this.sr;
-      chirpDk = Math.exp(-10 / (0.003 * this.sr));
-    } else {
-      chirpVal = -f * 0.1 / this.sr;
-      chirpDk = Math.exp(-10 / (0.003 * this.sr));
-    }
+    // Chirp: frequency-proportional rate that decays quickly over the event's
+    // attack — preserves the watery "plink" character at any pitch.
+    const chirpVal = (m.chirpRelPerSec * f) / this.sr;
+    const chirpDk = Math.exp(-10 / (0.003 * this.sr));
 
     // Chaos x drives transient probability
-    const hasTransient = ch.x < c.transientMix;
+    const hasTransient = ch.x < m.transientMix;
     this.spawnEventAt(f, a, dm, chirpVal, chirpDk, hasTransient);
 
-    // Sibling spawning — chaos-driven probability and count
+    // Sibling spawning — chaos-driven probability and count.
+    // Sibling frequency picks a fresh point in the log-freq window using the
+    // sibling's own chaos.y, rather than a fixed 0.7–1.2× multiplier around
+    // the parent. That multiplier would push siblings below the user's
+    // intended freqRange and cluster audibly around the low edge.
     if (ch.x > 0.7) {
       const numSiblings = 1 + Math.floor(ch.z * 3);
       for (let s = 0; s < numSiblings; s++) {
-        const sibCh = this.stepChaos(c.chaosSpeed || 1);
-        const sibF = f * (0.7 + sibCh.y * 0.5);
+        const sibCh = this.stepChaos(m.chaosSpeed);
+        const sibF = Math.exp(logMin + sibCh.y * (logMax - logMin));
         const sibAmpScale = Math.min(fRef / sibF, 4.0);
-        const sibA = sibCh.z * c.amplitude * sibAmpScale * 0.5;
-        const sibT60 = Q / sibF;
+        const sibA = sibCh.z * m.amplitude * sibAmpScale * 0.5;
+        const sibT60 = m.Q / sibF;
         const sibDm = Math.exp(-6.9 / (sibT60 * this.sr));
-        this.spawnEventAt(sibF, sibA, sibDm, chirpVal * 0.7, chirpDk, false);
+        const sibChirpVal = (m.chirpRelPerSec * sibF) / this.sr * 0.7;
+        this.spawnEventAt(sibF, sibA, sibDm, sibChirpVal, chirpDk, false);
       }
     }
   }
@@ -210,38 +245,28 @@ class SwarmProcessor extends AudioWorkletProcessor {
     if (!out) return true;
     const blockSize = out.length;
 
-    const c = this.c;
-    c.rate         = parameters.rate[0];
-    c.freqMin      = parameters.freqMin[0];
-    c.freqMax      = parameters.freqMax[0];
-    c.chirp        = parameters.chirp[0];
-    c.decay        = parameters.decay[0];
-    c.amplitude    = parameters.amplitude[0];
-    c.transientMix = parameters.transientMix[0];
-    c.resonatorQ   = parameters.resonatorQ[0];
-    c.density      = parameters.density[0];
-    c.chaosSpeed   = parameters.chaosSpeed[0];
+    this.updateParams(parameters);
+    const m = this.m;
 
     // Step chaos continuously — multiple steps per block for proper traversal
-    const chaosSteps = Math.max(1, Math.ceil((c.chaosSpeed || 1) * 10));
-    for (let i = 0; i < chaosSteps; i++) this.lastChaos = this.stepChaos(c.chaosSpeed || 1);
+    const chaosSteps = Math.max(1, Math.ceil(m.chaosSpeed * 10));
+    for (let i = 0; i < chaosSteps; i++) this.lastChaos = this.stepChaos(m.chaosSpeed);
 
-    // Don't spawn if amplitude is zero
-    if (c.amplitude > 0) {
+    if (m.amplitude > 0) {
       const rateModulator = 0.3 + this.lastChaos.x * 1.4;
-      const effectiveRate = Math.max(0.01, c.rate * rateModulator);
+      const effectiveRate = Math.max(0.01, m.rate * rateModulator);
 
       const blockDuration = blockSize / this.sr;
       this.nextEvent -= blockDuration;
       while (this.nextEvent <= 0) {
         this.spawnEvent();
-        this.lastChaos = this.stepChaos(c.chaosSpeed || 1);
+        this.lastChaos = this.stepChaos(m.chaosSpeed);
         this.nextEvent += -Math.log(Math.max(1e-10, 1 - this.lastChaos.y)) / effectiveRate;
       }
     }
 
     const twoPiOverSr = 6.2832 / this.sr;
-    const density = c.density;
+    const density = m.density;
     const transientLP = 0.5;
 
     for (let s = 0; s < blockSize; s++) {
@@ -255,7 +280,7 @@ class SwarmProcessor extends AudioWorkletProcessor {
           const t = 1 - this.transLeft[i] / this.transLen[i];
           const noiseEnv = Math.exp(-5 * t);
           const toneEnv = t;
-          const noise = Math.random() * 2 - 1; // noise stays random (it IS noise)
+          const noise = Math.random() * 2 - 1;
           this.transLP[i] = this.transLP[i] * (1 - transientLP) + noise * transientLP;
           const sinSample = Math.sin(this.phase[i]);
           sample = this.amp[i] * (this.transLP[i] * noiseEnv + sinSample * toneEnv);

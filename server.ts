@@ -625,9 +625,24 @@ function handleCtrlWs(req: Request): Response {
             }
           }
         } else if (msg.note !== undefined) {
-          const id = findBoxByText("key");
-          if (id !== null) {
-            const velocity = (msg.velocity ?? 0) / 127;
+          // Iterate every `key` box and dispatch based on its args:
+          //   `key`       — all channels, fire outlets
+          //   `key N`     — channel N only (1–16), fire outlets
+          //   `key ?`     — all channels, display-only monitor (no outlets)
+          const velocity = (msg.velocity ?? 0) / 127;
+          for (const [id, box] of boxes) {
+            if (boxTypeName(box.text) !== "key") continue;
+            const arg = box.text.split(/\s+/)[1];
+            if (arg === "?") {
+              const display = `? ${msg.note} ${velocity.toFixed(2)} ch${msg.channel}`;
+              boxValues.set(id, display);
+              queueValueUpdate(id, display);
+              continue;
+            }
+            if (arg !== undefined) {
+              const ch = parseInt(arg);
+              if (!isNaN(ch) && ch !== msg.channel) continue;
+            }
             boxValues.set(id, msg.note);
             queueValueUpdate(id, msg.note);
             propagateAndNotify(id, 0, msg.note);   // outlet 0: pitch
@@ -864,6 +879,17 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
     await Deno.writeTextFile(`${PATCHES_DIR}/${name}.json`, data);
     event(`saved patch: ${name}`);
     return new Response(JSON.stringify({ ok: true, name }), { headers });
+  }
+
+  // POST /patches/reveal — open the patches folder in Finder (macOS)
+  if (req.method === "POST" && url.pathname === "/patches/reveal") {
+    try {
+      const cmd = new Deno.Command("open", { args: [PATCHES_DIR] });
+      await cmd.output();
+      return new Response(JSON.stringify({ ok: true }), { headers });
+    } catch (err) {
+      return new Response(JSON.stringify({ ok: false, err: String(err) }), { status: 500, headers });
+    }
   }
 
   // DELETE /patches/name — delete a patch

@@ -101,7 +101,14 @@ class KSProcessor extends AudioWorkletProcessor {
       const stiffPhaseDelay = -STIFF_K * (phaseNum - phaseDen) / w;
       const totalDelay = sampleRate / fSafe - 0.5 - stiffPhaseDelay;
       this.intDelay = Math.max(1, Math.min(this.maxLen, Math.round(totalDelay - 1)));
-      const d = totalDelay - this.intDelay;
+      // Clamp fractional delay to the well-conditioned range of the one-pole
+      // allpass. Without this, high stiffness (or high pitch) can push
+      // totalDelay below what the delay line can physically accommodate, and
+      // `d = totalDelay - intDelay` drops out of [0.5, 1.5]. C = (1-d)/(1+d)
+      // then leaves the unit disk and the loop goes unstable — reads as severe
+      // DC offset. When clamped, the fundamental is slightly detuned at
+      // extreme stiffness but the loop stays stable.
+      const d = Math.max(0.5, Math.min(1.5, totalDelay - this.intDelay));
       this.C = (1 - d) / (1 + d);
       this.pluck(this.intDelay, brightness);
       this.pendingPluck = false;

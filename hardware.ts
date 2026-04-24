@@ -202,18 +202,23 @@ export function rebuildGridRegions(): void {
     const type = _boxTypeName(box.text);
 
     // Grid regions
+    // grid-trig / grid-toggle: `x y` — always 1×1
+    // grid-array:              `x y w h` — width/height configurable
     if (type === "grid-trig" || type === "grid-toggle" || type === "grid-array") {
       const args = box.text.split(/\s+/).slice(1).map(Number);
-      if (args.length >= 4) {
+      const needed = type === "grid-array" ? 4 : 2;
+      if (args.length >= needed) {
+        const w = type === "grid-array" ? args[2] : 1;
+        const h = type === "grid-array" ? args[3] : 1;
         gridRegions.set(boxId, {
           boxId,
           x: args[0],
           y: args[1],
-          w: args[2],
-          h: args[3],
+          w,
+          h,
           type: type as "grid-trig" | "grid-toggle" | "grid-array",
         });
-        _event(`registered ${type} region: box ${boxId} at (${args[0]},${args[1]}) size ${args[2]}×${args[3]}`);
+        _event(`registered ${type} region: box ${boxId} at (${args[0]},${args[1]}) size ${w}×${h}`);
         if (type === "grid-toggle") {
           gridToggleStates.set(boxId, false);
           _setBoxValueAndNotify(boxId, 0);

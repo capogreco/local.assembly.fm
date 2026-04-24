@@ -576,7 +576,10 @@ class PatchEditor {
     let text = (id !== undefined && id === this.editingBoxId && this.input)
       ? (this.input.value || " ") : (box.text || " ");
     const _type = boxTypeName(box.text);
-    if ((_type === "print" || (_type === "cc" && box.text.trim() === "cc")) && id !== undefined && this.boxValues.has(id)) {
+    const _isMonitor = _type === "print"
+      || (_type === "cc" && box.text.trim() === "cc")
+      || (_type === "key" && box.text.split(/\s+/)[1] === "?");
+    if (_isMonitor && id !== undefined && this.boxValues.has(id)) {
       const v = this.boxValues.get(id);
       text = _type + " " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
@@ -969,7 +972,10 @@ class PatchEditor {
         this.ctx.fillStyle = COLORS.text;
         this.ctx.textBaseline = "middle";
         const _bt = boxTypeName(box.text);
-        if ((_bt === "print" || (_bt === "cc" && box.text.trim() === "cc")) && this.boxValues.has(id)) {
+        const _isMon = _bt === "print"
+          || (_bt === "cc" && box.text.trim() === "cc")
+          || (_bt === "key" && box.text.split(/\s+/)[1] === "?");
+        if (_isMon && this.boxValues.has(id)) {
           const v = this.boxValues.get(id);
           const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
           this.ctx.fillText(_bt + " " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
