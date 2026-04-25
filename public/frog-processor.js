@@ -17,7 +17,7 @@
  *   - Biphonation: secondary pulse train at +3 Hz constant detune,
  *     30% mix relative to primary, sharing the formant bank.
  *
- * Args: optional pitch glide time in ms (default 150). 0 = instant.
+ * Args: optional pitch glide time in seconds (default 0.15). 0 = instant.
  */
 
 const mapLog = (t, min, max) => Math.exp(Math.log(min) + t * (Math.log(max) - Math.log(min)));
@@ -50,8 +50,8 @@ class FrogProcessor extends AudioWorkletProcessor {
     super();
     this.sr = sampleRate;
 
-    const glideMs = (options?.processorOptions?.glideMs ?? 150);
-    this.glideCoeff = glideMs > 0 ? Math.exp(-1 / (glideMs * 0.001 * this.sr)) : 0;
+    const glideSec = (options?.processorOptions?.glideSec ?? 0.15);
+    this.glideCoeff = glideSec > 0 ? Math.exp(-1 / (glideSec * this.sr)) : 0;
     this.pitchCurrent = 110;
 
     this.holdSmoothCoeff = Math.exp(-1 / (0.05 * this.sr));

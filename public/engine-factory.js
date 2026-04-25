@@ -246,11 +246,11 @@ async function createEngine(ctx, modulesLoaded, nativeNodes, type, args, special
     modulesLoaded.add(def.module);
   }
   const opts = def.channels > 1 ? { outputChannelCount: [def.channels] } : {};
-  // frog~ / ewing~ take an optional pitch-glide-ms arg via processorOptions.
+  // frog~ / ewing~ take an optional pitch-glide-seconds arg via processorOptions.
   if (type === "frog~" || type === "ewing~") {
-    const glideMs = parseFloat((args || "").split(/\s+/)[0]);
-    const defaultMs = type === "ewing~" ? 100 : 150;
-    opts.processorOptions = { glideMs: isNaN(glideMs) ? defaultMs : glideMs };
+    const glideSec = parseFloat((args || "").split(/\s+/)[0]);
+    const defaultSec = type === "ewing~" ? 1.0 : 0.15;
+    opts.processorOptions = { glideSec: isNaN(glideSec) ? defaultSec : glideSec };
   }
   const worklet = new AudioWorkletNode(ctx, def.worklet, opts);
   if (def.channels > 1) {

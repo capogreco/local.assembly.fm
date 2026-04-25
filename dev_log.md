@@ -2069,3 +2069,62 @@ First performance-ready distributed-chorus patch:
   climbing-then-plateau arc I built initially. The climbing arc is *verreauxii*
   (amp increases across the call); ewingii stays roughly uniform after
   the intro.
+
+## 2026-04-25 — ewing~ polish: grain-continuity morph, IR library, density gate
+
+Further refinements to the ewing~ engine and environment around it.
+
+### Hold-mode morph is now grain-continuity, not held-tone crossfade
+
+The earlier "held tone" model was wrong. There IS no separate tone —
+there's just the same grain stream continuously exciting the formant.
+Hold just flattens the chatter envelope's wedges and silences toward 1.0
+so the already-continuous ring reads as sustained. Pulses fire
+unconditionally at pulseRateHz regardless of call state; the chatter
+envelope is applied POST-biquad as a gate on the ring. Much more natural
+morph because nothing turns on or off — structures just smooth out.
+
+Single `glideSec` arg now governs both pitch portamento AND the
+chatter→singing morph (they're the same phenomenon: settling onto a
+pitch). Default: 1.0 s.
+
+### Unit convention — seconds, not ms
+
+Project convention is seconds throughout (metro, delay, envelopes, etc.).
+`ewing~ 1.0` not `ewing~ 1000`. Fixed both ewing~ and frog~.
+
+### `active` gate inlet (was `amplitude`)
+
+Replaced the amplitude-scaling inlet with an on/off gate. Internal
+`densityCurrent` tracks the gate via a single-pole smoother at
+`glideSec × DENSITY_SMOOTH_MULT` (= 6). Scheduler samples a
+density-modulated Poisson per sample: probability of firing a call
+= `density / burstIntervalSec × dt`. When gate goes high, calls wind up
+over ~6s; when gate drops, intervals stretch exponentially and the
+chorus fades. Calls in progress always complete naturally — no
+truncation.
+
+Output level baked in (`OUTPUT_GAIN = 4.5` = 30 × 0.15, matching the
+old "quiet frog" amplitude). Volume control is downstream via `*~` if
+needed.
+
+### Name collision gotcha
+
+Used `gate` as the paramName initially — silently broken because
+`graph-core.js:771,862` special-cases paramName="gate" and "trigger" to
+skip AudioParam writes (those names are reserved for port-message
+events on ADSR-style engines). Renamed to `active`. Worth remembering
+when adding future engines: don't name an AudioParam `gate` or
+`trigger`.
+
+### Impulse response library
+
+New mono FLAC IRs in `public/impulse_responses/` (~230 KB each):
+- `CaveAnimals.flac` — VT Cave Animals 1. Capture intended for animal
+  vocalisations in a cave. Thematic match for frog chorus.
+- `CaveBinaural.flac` — VT Cave Binaural 4 folded to mono. Longer tail,
+  wet stone, some spatial character preserved.
+- `WetTunnel.flac` — BLJ Wet Tunnel A Thud. Darker, more enclosed,
+  anchors the 2-3 kHz formants with low-end body.
+
+Plus existing `GiantCave.flac`. All loadable via `conv~ <filename>`.
