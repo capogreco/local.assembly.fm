@@ -4,7 +4,7 @@
 import {
   type Box, type BoxValue,
   boxes, cables, boxValues, inletValues, boxState,
-  routerState, groupState, latestValues,
+  routerState, groupState, latestValues, assignState,
   cablesFromOutlet, isSynthZone,
 } from "./patch-state.ts";
 import { arcValues } from "./hardware.ts";
@@ -180,6 +180,12 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     const state = routerState.get(routerBoxId)!;
     const clients = _getSynthClientIds();
     if (clients.length > 0) state.index = (state.index + 1) % clients.length;
+    return;
+  }
+
+  // assign — stable voice allocation across phones with minimum movement
+  if (routerType === "assign") {
+    if (Array.isArray(value)) reassign(routerBoxId, value as number[]);
     return;
   }
 
@@ -564,14 +570,96 @@ export function evaluateAllDevices(): void {
 
 // Push the live synth-client count to every `clients` box. Called from
 // server.ts on patch deploy and on every client connect/disconnect.
+// Also re-runs `assign` allocation against its last-seen notes array, so
+// new phones get an assignment immediately and departing phones cause an
+// audible reshuffle. (User-spec behaviour 3.)
 export function evaluateAllClients(): void {
   const count = _getSynthClientIds().length;
   for (const [id, box] of boxes) {
     if (!isCtrlSide(box)) continue;
-    if (_boxTypeName(box.text) === "clients") {
+    const name = _boxTypeName(box.text);
+    if (name === "clients") {
       setBoxValueAndNotify(id, count);
+    } else if (name === "assign") {
+      const s = assignState.get(id);
+      if (s && s.lastNotes.length > 0) reassign(id, s.lastNotes);
     }
   }
+}
+
+// Stable voice allocation. Notes array represents currently-held pitches in
+// press order (e.g. from `held` outlet 0). Distributes one note per phone
+// such that:
+//   - per-note count is balanced (±1) across phones
+//   - phones already at a note that's still held don't move (minimum motion)
+//   - if more notes than phones, the OLDEST notes (front of array) are dropped
+//     so the most recently pressed notes always have coverage
+//   - empty array stops emitting; phones keep their last value
+function reassign(routerBoxId: number, notes: number[]): void {
+  if (!assignState.has(routerBoxId)) {
+    assignState.set(routerBoxId, { assignment: new Map(), lastNotes: [] });
+  }
+  const state = assignState.get(routerBoxId)!;
+  state.lastNotes = notes.slice();
+
+  const clients = _getSynthClientIds();
+  const N = clients.length;
+  if (N === 0 || notes.length === 0) return;
+
+  // Overflow: keep most recently pressed notes, drop the oldest.
+  const active = notes.length > N ? notes.slice(notes.length - N) : notes;
+  const M = active.length;
+
+  // Target counts per note: first (N % M) notes get ⌈N/M⌉, rest get ⌊N/M⌋.
+  const ceilCount = Math.ceil(N / M);
+  const floorCount = Math.floor(N / M);
+  const numCeil = N % M;
+  const targetByNote = new Map<number, number>();
+  for (let i = 0; i < M; i++) {
+    targetByNote.set(active[i], i < numCeil ? ceilCount : floorCount);
+  }
+
+  // Phase 1: keep phones already at notes still held, up to the target count.
+  const noteToPhones = new Map<number, number[]>();
+  for (const note of active) noteToPhones.set(note, []);
+  const displaced: number[] = [];
+
+  for (let i = 0; i < N; i++) {
+    const currentNote = state.assignment.get(i);
+    if (currentNote !== undefined && targetByNote.has(currentNote)) {
+      const list = noteToPhones.get(currentNote)!;
+      if (list.length < targetByNote.get(currentNote)!) {
+        list.push(i);
+        continue;
+      }
+    }
+    displaced.push(i);
+  }
+
+  // Phase 2: distribute displaced phones across under-filled notes.
+  for (const note of active) {
+    const list = noteToPhones.get(note)!;
+    while (list.length < targetByNote.get(note)! && displaced.length > 0) {
+      list.push(displaced.shift()!);
+    }
+  }
+
+  // Build new assignment, push updates only for phones whose value changed.
+  const newAssignment = new Map<number, number>();
+  for (const [note, phoneList] of noteToPhones) {
+    for (const clientIdx of phoneList) newAssignment.set(clientIdx, note);
+  }
+
+  for (let i = 0; i < N; i++) {
+    const newNote = newAssignment.get(i);
+    if (newNote === undefined) continue;
+    const oldNote = state.assignment.get(i);
+    if (newNote !== oldNote) {
+      _sendToClient(clients[i], { type: "rv", r: routerBoxId, ch: 0, v: newNote });
+    }
+  }
+
+  state.assignment = newAssignment;
 }
 
 // --- Time-based box tick ---

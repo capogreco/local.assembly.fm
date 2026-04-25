@@ -48,6 +48,9 @@ export const groupState = new Map<number, number[][]>();
 export const latestValues = new Map<string, string>();
 export const uplinkIndex = new Map<string, Array<{ boxId: number; outletIndex: number }>>();
 
+// Per-`assign` box state: clientIdx → assigned note. lastNotes used to detect changes.
+export const assignState = new Map<number, { assignment: Map<number, number>; lastNotes: number[] }>();
+
 // --- Helpers ---
 
 export function clearPatchState(): void {
@@ -56,6 +59,9 @@ export function clearPatchState(): void {
   boxValues.clear();
   inletValues.clear();
   boxState.clear();
+  routerState.clear();
+  groupState.clear();
+  assignState.clear();
 }
 
 export function removeCablesForBox(boxId: number): void {

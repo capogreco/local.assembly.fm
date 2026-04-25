@@ -1983,3 +1983,89 @@ to `patches/archive/`.
 - All other patches (`sparkly-keys`, `sparkly_keys`, `captive_portal`,
   various `*_test.json`, `symbiogenesis`, etc.) moved into
   `patches/archive/`. Kept out of the live listing for the performance.
+
+## 2026-04-25 — Species-specific frog engines + voice-allocation router
+
+### New engines
+
+- **`frog~`** (`public/frog-processor.js`) — generic single-frog voice.
+  Sawtooth + biphonic detuned secondary → 3-formant biquad bank; bursts of
+  pulse-train "calls" with built-in biological micro-modulations (vocal-sac
+  6 Hz AM, formant Q breathing, per-call pitch variation). Trigger-driven.
+  `hold` morphs to sustained pitched tone for chord work. Moved toward
+  species-specific engines when generic didn't capture enough character.
+
+- **`ewing~`** (`public/ewing-processor.js`) — species-specific synthesis of
+  *Litoria ewingii* (Southern Brown Tree Frog). Fully autonomous — each
+  instance is one frog that calls on its own schedule, no triggers. Random
+  per-frog personality at construction (formantHz, formantQ, pulseRateHz,
+  call template, inter-call interval). Call structure matches Elliott-Tate
+  & Rowley 2024 + direct listening: long introductory note (~0.35s) + 6
+  stereotyped body notes with wedge envelopes; first 3 notes climb in
+  amplitude, rest plateau. Per-call formant drift (±1.5-3.5%) for organic
+  pitch arc. Pulses are 3-sample noise bursts (broadband excitation) into a
+  high-Q biquad formant (Q 14-22) at 2-3 kHz — pulses fuse into the
+  formant ring, matching the species' "pulses not individually audible"
+  literature characterisation.
+
+  Architecture highlight — the hold-mode morph doesn't create a separate
+  "held tone". It modifies the ongoing grain stream: the same pulses that
+  excite the formant in chatter keep firing continuously, the post-biquad
+  envelope gets flooded toward 1.0 (flattening the note-gaps and wedges),
+  and the formant frequency glides from species-formant → user pitch.
+  Morph timescale ~1s. The formant being rung by continuous grains IS the
+  chord pitch; there's no separate oscillator. Feels natural because
+  nothing turns on or off — things just smooth out.
+
+  Audit done by a DSP-wizard agent against the PDF to catch acoustic
+  structure mismatches (pulse fusion regime, wedge orientation, long
+  introductory note, absence of accelerando/ritardando). Recommendations
+  R1, R2, R3, R4, R5, R6 all applied.
+
+### `pad` box (supporting)
+
+Ctrl-zone filter box with three forms:
+- `pad` (no arg): forwards pitch/velocity on press only (note-off blocked)
+- `pad N`: fires null event on press of pitch N
+- `pad N1 N2 ...`: one event outlet per pitch, each fires on press of its
+  own pitch
+
+### `assign` router
+
+New router-zone box for stable voice allocation. Takes an array of notes
+(typically from `held` outlet 0) and distributes across phones with
+minimum movement:
+- Notes added → new note pulls phones from over-populated notes
+  proportionally (no A↔B swaps when C joins)
+- Notes removed → displaced phones distribute to remaining notes
+- More notes than phones → oldest notes dropped (priority to recent)
+- Phone joins/leaves → audibly reshuffles via `evaluateAllClients` hook
+
+Server-side state in `patch-state.ts` (`assignState`), dispatch in
+`eval-engine.ts` `handleRouterInlet`. Wire: `key → held → assign → mtof →
+ewing~.pitch`.
+
+### `frogs.json` patch
+
+First performance-ready distributed-chorus patch:
+- `key 1` → `held` accumulates MIDI notes
+- `held` out0 (array) → `assign` → `mtof` → per-phone `ewing~.pitch`
+- `held` out3 (count) → `> 0` → `all 1` → `ewing~.hold`
+- `key 10` → `pad 43` → `toggle` → `all` → `ewing~.amplitude`
+  (MPK pad 43 enables the chorus)
+
+### Key ewing~ DSP audit findings (worth remembering)
+
+- Single-sample impulses through high-Q BPF produce pure sinusoidal ring
+  (too tonal). Short noise bursts (3 samples) broaden the excitation
+  spectrum and restore "harsh" character.
+- Biquad impulse response peak ≈ 2α/a₀ (NOT Q — that's sustained-sinusoid
+  gain). Required OUTPUT_GAIN calibration: 25 at Q=6-10, 30 at Q=14-22.
+- Wedge envelope applied POST biquad, not to pulse amplitudes — gives
+  clean silhouette that terminates abruptly at note end, matching Fig. 2
+  wedge shape in Elliott-Tate & Rowley 2024.
+- Envelope/rhythm structure for ewingii is "long intro + stereotyped
+  shorter body" with roughly uniform intervals — NOT the
+  climbing-then-plateau arc I built initially. The climbing arc is *verreauxii*
+  (amp increases across the call); ewingii stays roughly uniform after
+  the intro.

@@ -12,6 +12,8 @@ const ENGINES = {
   "sine-osc~":         { module: "sine-processor.js",  worklet: "sine-processor",   channels: 1 },
   "noise-engine~":     { module: "noise-processor.js", worklet: "noise-processor",  channels: 1 },
   "swarm~":            { module: "swarm-processor.js", worklet: "swarm-processor",  channels: 1 },
+  "frog~":             { module: "frog-processor.js",  worklet: "frog-processor",   channels: 1 },
+  "ewing~":            { module: "ewing-processor.js", worklet: "ewing-processor",  channels: 1 },
   "reverb~":           { module: "reverb-processor.js", worklet: "reverb-processor", channels: 1 },
   "cute-sine~":        { module: "cute-sine-processor.js", worklet: "cute-sine-processor", channels: 1 },
 };
@@ -244,6 +246,12 @@ async function createEngine(ctx, modulesLoaded, nativeNodes, type, args, special
     modulesLoaded.add(def.module);
   }
   const opts = def.channels > 1 ? { outputChannelCount: [def.channels] } : {};
+  // frog~ / ewing~ take an optional pitch-glide-ms arg via processorOptions.
+  if (type === "frog~" || type === "ewing~") {
+    const glideMs = parseFloat((args || "").split(/\s+/)[0]);
+    const defaultMs = type === "ewing~" ? 100 : 150;
+    opts.processorOptions = { glideMs: isNaN(glideMs) ? defaultMs : glideMs };
+  }
   const worklet = new AudioWorkletNode(ctx, def.worklet, opts);
   if (def.channels > 1) {
     const splitter = ctx.createChannelSplitter(def.channels);
