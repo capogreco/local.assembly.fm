@@ -830,7 +830,32 @@ function handleEventBox(id: number, _value: number): void {
   }
 }
 
-setInterval(tick, 1000 / TICK_RATE);
+// Tick-interval instrumentation. Enabled when EWING_PROFILE_TICK env is set
+// (any non-empty value). Logs p50/p95/max inter-tick delta once per second.
+// Cross-correlate with --v8-flags=--trace-gc output to see if outliers
+// coincide with GC events.
+const PROFILE_TICK = !!Deno.env.get("EWING_PROFILE_TICK");
+let _tickProfileLast = 0;
+let _tickProfileBuf: number[] = [];
+const _tickProfileWindow = TICK_RATE; // 1 second worth of intervals
+
+setInterval(() => {
+  if (PROFILE_TICK) {
+    const now = performance.now();
+    if (_tickProfileLast > 0) _tickProfileBuf.push(now - _tickProfileLast);
+    _tickProfileLast = now;
+    if (_tickProfileBuf.length >= _tickProfileWindow) {
+      _tickProfileBuf.sort((a, b) => a - b);
+      const p50 = _tickProfileBuf[_tickProfileWindow >> 1];
+      const p95 = _tickProfileBuf[Math.floor(_tickProfileWindow * 0.95)];
+      const p99 = _tickProfileBuf[Math.floor(_tickProfileWindow * 0.99)];
+      const max = _tickProfileBuf[_tickProfileWindow - 1];
+      console.log(`[tick-profile] p50=${p50.toFixed(2)}ms p95=${p95.toFixed(2)}ms p99=${p99.toFixed(2)}ms max=${max.toFixed(2)}ms (target=${(1000/TICK_RATE).toFixed(2)}ms)`);
+      _tickProfileBuf.length = 0;
+    }
+  }
+  tick();
+}, 1000 / TICK_RATE);
 
 // --- MIDI CC mapping ---
 

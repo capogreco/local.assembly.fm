@@ -2128,3 +2128,74 @@ New mono FLAC IRs in `public/impulse_responses/` (~230 KB each):
   anchors the 2-3 kHz formants with low-end body.
 
 Plus existing `GiantCave.flac`. All loadable via `conv~ <filename>`.
+
+## 2026-05-02 — Server timing analysis: "is this Deno's fault?"
+
+Question raised by listening to ensemble-client-on-Mac-Studio behaviour
+when controlling from MBP. All synth voices in one process sharing one
+WS connection — WiFi largely controlled out — but still hearing
+"galloping, chaotic rhythms" in patches like `ks_arp` (metro → one
+router → KS pluck across voices).
+
+Galloping (clumped — bursts of events with gaps) vs spreading (smeared
+— random independent jitter) is acoustically diagnostic. Galloping is
+consistent with garbage-collection-induced clumping: a major V8 GC
+stalls the JS thread for 10–50 ms; events that should have been
+distributed evenly cluster around GC boundaries.
+
+Captured the analysis and the fix tree (Tier 0 scheduler refactor →
+Tier 1 GC hygiene → Tier 2 Bun trial → Tier 3a native sidecar
+scheduler → Tier 3b full Rust/Go port → Tier 4 C++) in
+`notes/server-timing-runtime-analysis.md`. Includes instrumentation
+recipe (tick-interval logging + `--v8-flags=--trace-gc`) for confirming
+the GC hypothesis with numbers before committing to any port.
+
+The ensemble galloping is reproducible without audience or hardware,
+which means we can measure deterministically. Recommendation: do
+Tier 0 + Tier 1 first (both happen regardless of port decision),
+profile, then decide. Don't port speculatively.
+
+Same doc later got an "Elegance as the dominant constraint" section
+appended after a senior-architect agent analysis: catalogues what the
+current architecture gets right (graph-core.js unification, zone
+system, box-type registry, value/event split), names the existing
+seams (TS/JS split, dynamic value polymorphism, uncontrolled
+randomness, tick paradigm), evaluates five system configurations,
+and lists the restrictions elegance would actually demand on the
+object regime — ranked by severity. Recommendation if elegance tops
+the priorities: WASM-everywhere graph engine (Rust→WASM) plus
+tightened patch semantics, ~3 months. Recommendation if iteration
+speed also matters: scheduler refactor + GC hygiene + lighter
+language tightening (seeded determinism, lift remaining special
+cases into the registry), ~2-3 weeks. The language-side tightening
+work is recoverable separately and makes any future port mechanical.
+
+### Tick-profile instrumentation landed (gated, dormant by default)
+
+`eval-engine.ts` setInterval block now wraps `tick()` with optional
+profiling. Enabled by setting env var `EWING_PROFILE_TICK=1` before
+running; otherwise zero overhead. Logs `[tick-profile] p50=... p95=...
+p99=... max=... (target=Xms)` once per second. Combine with
+`--v8-flags=--trace-gc` to cross-correlate tick outliers with GC events.
+
+**Pending profiling session — not yet run.** Needs to happen at homebase
+with full hardware setup (phones, ensemble client on Mac Studio, MPK
+Mini, monome) so we can capture both an idle baseline AND a realistic
+load test driving `ks_arp`. Remote scheduled agents can't run this
+because the test is interactive and local. Plan for the next session:
+
+```
+# Terminal 1 — server with profiling
+EWING_PROFILE_TICK=1 deno run -A --unstable-net \
+  --v8-flags=--trace-gc server.ts 2>&1 | tee /tmp/ewing-gc.log
+
+# Run 1: 60s idle baseline (server up, no clients connected)
+# Run 2: ~2min stress — start ensemble client on Mac Studio,
+#        deploy ks_arp, drive metro for ~2 min via MIDI
+```
+
+Then parse `/tmp/ewing-gc.log` for `[tick-profile]` lines and `[gc]`
+trace events; cross-correlate timestamps. Write findings as a
+"Measured results" section in `notes/server-timing-runtime-analysis.md`.
+The instrumentation is harmless and can stay; activates only with the
+env var.
