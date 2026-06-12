@@ -13,7 +13,7 @@ set -e
 # Fixed config
 SUBNET="192.168.178"
 STATIC_IP="192.168.178.24"  # must match FritzBox DNS server setting
-PROJECT_DIR="/Users/capo_greco/Documents/local.assembly.fm"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DNSMASQ_BIN="/opt/homebrew/opt/dnsmasq/sbin/dnsmasq"
 DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
 
@@ -137,12 +137,6 @@ address=/#/$MAC_IP" | sudo tee "$DNSMASQ_CONF" > /dev/null
 check_prerequisites() {
     echo_info "Checking prerequisites..."
 
-    # Check if dnsmasq is installed
-    if [ ! -f "$DNSMASQ_BIN" ]; then
-        echo_error "dnsmasq not found. Install with: brew install dnsmasq"
-        exit 1
-    fi
-
     # Check if deno is installed
     if ! command -v deno &> /dev/null; then
         echo_error "deno not found. Install from https://deno.land/"
@@ -156,6 +150,13 @@ check_prerequisites() {
         echo "  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \\"
         echo "    -nodes -keyout key.pem -out cert.pem -days 365 \\"
         echo "    -subj '/CN=local.assembly.fm'"
+        exit 1
+    fi
+}
+
+check_dnsmasq() {
+    if [ ! -f "$DNSMASQ_BIN" ]; then
+        echo_error "dnsmasq not found. Install with: brew install dnsmasq"
         exit 1
     fi
 }
@@ -259,6 +260,7 @@ show_status() {
 case "${1:-}" in
     dns)
         check_prerequisites
+        check_dnsmasq
         start_dns
         ;;
     server)
@@ -267,6 +269,7 @@ case "${1:-}" in
         ;;
     dev)
         check_prerequisites
+        check_dnsmasq
         detect_network
         ensure_clean_dnsmasq
         ensure_dnsmasq_conf
@@ -309,6 +312,7 @@ case "${1:-}" in
         ;;
     *)
         check_prerequisites
+        check_dnsmasq
         detect_network
         ensure_clean_dnsmasq
         ensure_dnsmasq_conf

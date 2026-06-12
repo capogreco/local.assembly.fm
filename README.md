@@ -1,347 +1,155 @@
 # local.assembly.fm
-http://localhost stack for distributed synthesis
 
-Here is a structured, professional README.md designed for your GitHub repo. It captures the technical depth ("Deno", "WebAudio") while explaining the physical setup, which is crucial for this specific project.
+A networked instrument for live performance. The audience joins a local WiFi, opens a captive portal, and their phones become voices of a distributed synthesiser. The performer plays it from a laptop on the same network.
 
-I have included the Mermaid diagram we discussed, as GitHub renders these natively now.
-
----
-
-# Distributed Synthesis
-
-**A co-located networked music instrument utilizing audience smartphones as distributed synthesizer voices.**
+This is a personal instrument under active development — built by and for one performer, used in live shows. Not a product, not a framework. Expect rough edges and breaking changes.
 
 
-## 📖 Overview
+## What it is
 
-**Distributed Synthesis** is a system for live performance that turns a crowd of people into a polyphonic digital music instrument.
+- A Deno HTTPS server running on a laptop, on a local network with no internet.
+- A patch editor (`ctrl` client) in the browser on that laptop, where patches are built from small typed boxes connected by cables — a visual dataflow language called GPI.
+- A synth client that runs in any modern mobile browser. The audience visits a URL, taps a button, and their phone starts rendering audio with the Web Audio API.
+- A captive portal that pops the synth client open automatically when phones join the WiFi.
+- Hardware control surfaces: Monome Grid/Arc, MIDI keyboards, BBC2 breath/bite/head controller — all hot-pluggable.
 
-Instead of broadcasting audio *to* the audience, the audio is generated *by* the audience. A central server broadcasts rhythm, pitch, and timbre data via WebSockets to connected smartphones. The phones synthesize the audio locally using the Web Audio API, creating a textural sound field capable of expressing multi-channel sonic works.
 
-Designed for high-density, offline environments (venues, galleries) where internet connectivity is unreliable or undesirable.
+## What it isn't
+
+- **There is no inter-client clock sync.** Phones render on their own AudioContext clocks. The server sends control messages; each phone applies them when they arrive. Timing drift between phones is part of the sound, not a bug to fix.
+- **It does not work over the public internet.** The whole point is a local-only LAN: ~100 phones, two access points, no ISP. Round-trip latency on a local 5 GHz network is small enough that control feels immediate.
+- **It is not a multi-user editor.** One performer, one ctrl client, one patch at a time.
 
 
-## 🏗 Architecture
-
-The system uses a "V-Shape" topology to minimize latency. The Router handles DHCP, but high-frequency musical data flows strictly between the Server and Access Points.
+## Architecture
 
 ```mermaid
 graph TD
-    subgraph STAGE ["STAGE (Control)"]
-        MBP[("Server (Deno)<br>192.168.178.10")]
+    subgraph STAGE ["STAGE"]
+        MBP[("Laptop (Deno server + ctrl client)")]
     end
 
-    subgraph INFRA ["LOCAL NETWORK (No Internet)"]
-        Switch["PoE Switch"]
-        AP1(("Access Point 1<br>(Ubiquiti U6+)"))
-        AP2(("Access Point 2<br>(Ubiquiti U6+)"))
-        Fritz["Router (DHCP Only)<br>192.168.178.1"]
+    subgraph INFRA ["LOCAL NETWORK (no internet)"]
+        Switch["PoE switch"]
+        AP1(("AP 1"))
+        AP2(("AP 2"))
+        Router["FritzBox (DHCP only)"]
     end
 
-    subgraph AUDIENCE ["AUDIENCE (~100+ Nodes)"]
-        Phone1["Client A (Safari/Chrome)"]
-        Phone2["Client B (Safari/Chrome)"]
+    subgraph AUDIENCE ["AUDIENCE"]
+        Phone1["Synth client A"]
+        Phone2["Synth client B"]
+        PhoneN["…"]
     end
 
     MBP <==> Switch
-    Fritz --> Switch
+    Router --> Switch
     Switch --> AP1 & AP2
-    AP1 & AP2 -.-> Phone1 & Phone2
-
+    AP1 & AP2 -.WiFi.-> Phone1 & Phone2 & PhoneN
 ```
 
-## ⚡ Features
+**Server** (`server.ts`, `eval-engine.ts`, `patch-state.ts`, `hardware.ts`) holds the canonical patch, evaluates ctrl-zone boxes, and broadcasts state to clients.
 
-* **Low-Latency Sync:** Implements a custom NTP-style handshake to synchronize the `AudioContext` clock of 100+ devices to a central server time (typically <10ms variance).
-* **Distributed Audio Engine:** All DSP (synthesis) happens on the client side to save bandwidth. The server only sends lightweight control messages (JSON).
-* **Captive Portal:** Phones joining the WiFi land on a portal page automatically; tapping "ENTER" opens the synth client in the real browser.
-* **Offline-First:** Runs entirely on a local LAN; no ISP required.
-* **Phase-Distorted Envelopes:** Sigmoid (S-curve transition) and cosine (asymmetric hump) envelopes with duty cycle and curve parameters — two envelopes that cover everything from percussive spikes to smooth fades to hard steps.
-* **Two-Phase Propagation:** Values always arrive at inlets before triggers fire, regardless of cable draw order. No Pd-style right-to-left convention needed.
+**Ctrl client** (`public/ctrl.*`) is the patch editor and live performance surface on the laptop. It has an AudioContext too — ctrl-zone audio objects (e.g. ctrl-side reverb, scope, monitor) run here, so the laptop can drive the PA.
 
+**Synth clients** (`public/main.js`, `public/processor.js`, and the many `*-processor.js` AudioWorklets) run on audience phones. Each phone instantiates its own copy of the synth-side graph and renders audio locally.
 
-## Prerequisites
-
-* **Runtime:** [Deno 2](https://deno.land/) (tested with v2.7.1)
-* **Hardware:**
-  * Intel NUC (or similar) as server
-  * Netgear GS305PP PoE switch
-  * 2x Ubiquiti U6+ access points
-  * FritzBox 7490 (DHCP only)
+**Transport.** WebSocket is the primary channel. An SSE fallback exists because older iOS Captive Network Assistant browsers don't support WebSocket — without it, those phones can't play. Both flow through the same broadcast pipeline.
 
 
-## Getting Started
+## The patch language: GPI
 
-### Development (localhost)
+Patches are graphs of typed boxes joined by cables. Each box has inlets, outlets, and a zone.
+
+- **ctrl zone** runs on the server. Sources (`breath`, `bite`, `key`, `arc`, `cc`, `grid-*`), event generators (`metro`, `delay`), value-on-trigger boxes (`sig`, `sequence`, `counter`, `drunk`, `spread`), reactive math (`+`, `-`, `*`, `/`, `scale`, `clip`, `mtof`, `quantize`, `pow`, `sample-hold`, `gate`).
+- **synth zone** runs on clients. Envelopes (`adsr`, `ar`, `ramp`), smoothers (`slew`, `lag`, `inertia`, `follow`), oscillators (`phasor`, `sine`, `tri`), engines (`formant~`, `ks~`, `swarm~`, `chaos~`, `cosine~`, `sigmoid~`, `frog~`, `ewing~`, `noise~`, `cute-sine~`), effects (`conv~`).
+- **router zone** sits on the border between ctrl and synth: `all`, `one`, `sweep`, `fraction`, plus voice-allocation routers like `assign`.
+
+### The border rule
+
+The patch canvas has a horizontal **synth border**. Above it = the ctrl side (one laptop). Below it = the synth side (N phones). Synth-zone boxes can be on either side, but **they cannot cross the border** — an `adsr` above the border drives a ctrl-side engine; an `adsr` below the border drives a synth-side engine. The border means "one instance vs many", not "no audio above".
+
+Routers carry **events** (onsets, ticks, gates) and **instant values** (a SIG output, a math result) across the border. They never carry continuous interpolation, because that would mean shipping a sample stream over WebSocket. Smoothing happens locally on whichever side the engine lives.
+
+### Two-phase propagation
+
+When a cable updates, values arrive at all relevant inlets *before* any trigger fires. This means the right-to-left ordering convention from Pure Data isn't necessary — cables can be drawn in any order and behaviour is deterministic. See the snapshot tests under `tests/`.
+
+### Box reference
+
+There are ~120 box types. The patch editor shows inline help (`?` next to the box name in tooltips) sourced from `public/gpi-types.js`. That file is the canonical reference.
+
+
+## Hardware control surfaces
+
+- **Monome Grid 128** — `grid-trig`, `grid-toggle`, `grid-array` boxes map screen regions to grid regions with LED feedback.
+- **Monome Arc 4** — `arc` box, continuous rotary input with LED ring feedback.
+- **MIDI** — `key` (note), `cc` (control change, one outlet per CC number), `pad` (note-on filter / event router).
+- **BBC2** — `breath`, `bite`, `nod`, `tilt` (CC1/CC2/CC12/CC13 with named outlets).
+
+All four are hot-pluggable. Connect/disconnect is detected via serialosc (Monome) and the Web MIDI API; the status bar reflects current state.
+
+
+## Running it
+
+### Prerequisites
+
+- Deno 2 (`brew install deno`)
+- dnsmasq (`brew install dnsmasq`) — only needed for the captive portal flow on a real LAN
+- certbot (`brew install certbot`) — for Let's Encrypt cert renewal
+- A TLS cert (`cert.pem`, `key.pem`) in the project root. Either Let's Encrypt for `local.assembly.fm`, or a self-signed cert for localhost.
+
+### Localhost (patch editing, no audience)
 
 ```bash
 deno task dev
 ```
 
-Opens `https://localhost:8443`.
+Opens `https://localhost:8443`. Open the synth client in another browser tab to test patches without setting up the network.
 
-### Network Setup (performance LAN)
+### Performance LAN (macOS)
 
-The server runs on an isolated local network — no internet required.
-
-```
-NUC (server)                    Phones
-192.168.178.10 ──→ GS305PP ──→ U6+ APs ···WiFi "assembly"···→ audience
-                      │
-                   FritzBox
-                   192.168.178.1 (DHCP, DNS → .10)
-```
-
-**Bring up the NUC ethernet** (required after every boot or cable change due to igc driver bug):
-```bash
-sudo modprobe -r igc && sudo modprobe igc
-sudo ip addr add 192.168.178.10/24 dev enp86s0
-sudo ip link set enp86s0 up
-```
-
-**Start dnsmasq** (resolves all DNS to server IP for captive portal + TLS):
-```bash
-sudo dnsmasq --bind-interfaces --conf-file=/etc/dnsmasq.d/assembly.conf
-```
-
-**Port redirects** (captive portal + HTTPS without port number):
-```bash
-sudo iptables -t nat -A PREROUTING -i enp86s0 -p tcp --dport 80 -j REDIRECT --to-port 8080
-sudo iptables -t nat -A PREROUTING -i enp86s0 -p tcp --dport 443 -j REDIRECT --to-port 8443
-```
-
-**Start the server:**
-```bash
-deno task dev
-```
-
-**Connect phones:**
-1. Put phone in airplane mode, turn WiFi back on
-2. Join WiFi SSID `assembly`
-3. Captive portal appears automatically → tap "TAP TO START" → audio begins
-4. Fallback: open browser, type `local.assembly.fm`
-
-### macOS Setup (M2 MacBook Pro)
-
-**Alternative deployment on macOS** (tested on M2 2022 MBP). Key differences: no iptables (use direct ports), dnsmasq via Homebrew, Docker networking limitations.
-
-**Network Topology:**
-```
-Mac (192.168.178.24, USB ethernet — auto-detected)
-  ↓
-GS305PP PoE Switch
-  ├─ FritzBox (192.168.178.1) — DHCP + gateway
-  ├─ U6+ AP #1 (192.168.178.20)
-  └─ U6+ AP #2 (192.168.178.21)
-```
-
-**Prerequisites:**
-```bash
-# Install dependencies
-brew install certbot dnsmasq
-
-# Generate Let's Encrypt certificate
-sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm
-# Follow prompts to add TXT record to Namecheap DNS
-
-# Copy certificates
-sudo cp /etc/letsencrypt/live/local.assembly.fm/fullchain.pem cert.pem
-sudo cp /etc/letsencrypt/live/local.assembly.fm/privkey.pem key.pem
-sudo chown $(whoami) cert.pem key.pem
-```
-
-**Configure DNS (dnsmasq):**
-```bash
-# Config is auto-managed by start-macos.sh — no manual setup needed.
-# It detects the correct interface and writes /opt/homebrew/etc/dnsmasq.d/assembly.conf
-
-# FritzBox must hand out 192.168.178.24 as DNS server:
-# 1. Open http://192.168.178.1
-# 2. Navigate to DNS settings (in Network or DHCP section)
-# 3. Set DNS server to: 192.168.178.24
-```
-
-**Adopt U6+ APs (if not already configured):**
-```bash
-# 1. Start UniFi controller
-cd unifi && docker compose up -d
-
-# 2. Factory reset APs (press reset button 10-15 seconds)
-
-# 3. SSH into each AP and set inform URL
-ssh ubnt@192.168.178.20  # password: ubnt
-set-inform http://192.168.178.24:8080/inform
-exit
-
-ssh ubnt@192.168.178.21
-set-inform http://192.168.178.24:8080/inform
-exit
-
-# 4. Open https://localhost:8443
-# 5. Complete setup wizard (skip cloud, create local admin)
-# 6. Adopt both APs in Devices section
-# 7. Create WiFi: Settings → WiFi Networks → Create New
-#    - Type: Standard
-#    - Name: assembly
-#    - Password: assembly
-
-# 8. Stop controller (APs retain config)
-docker compose down
-```
-
-**Run System (single terminal):**
+`start-macos.sh` handles the full bringup — sets the static IP, configures dnsmasq to resolve `local.assembly.fm` to the laptop, and launches the server.
 
 ```bash
-./start-macos.sh start
+./start-macos.sh           # dnsmasq + server
+./start-macos.sh dev       # same, with auto-reload
+./start-macos.sh local     # patch-editing only, no DNS or subnet check
+./start-macos.sh status    # check what's running
 ```
 
-This auto-detects the ethernet interface, sets the static IP (192.168.178.24) if needed, starts dnsmasq in the background, and launches the Deno server. Ctrl+C stops both.
+The server must bind ports 80 and 443 directly (pfctl forwarding is unreliable on macOS), so it needs `sudo`. The script enforces the laptop's IP is `192.168.178.24` — this has to match the DNS server entry the FritzBox hands out via DHCP.
 
-Separate commands are also available:
-```bash
-./start-macos.sh dns       # DNS only
-./start-macos.sh server    # Server only
-./start-macos.sh status    # Check system status
-```
-
-**Test:**
-- Connect phone to "assembly" WiFi (password: `assembly`)
-- Captive portal should auto-appear, or visit any URL to trigger redirect
-- Tap "TAP TO START" to begin audio synthesis
-
-**Important Notes:**
-- **Server must run on ports 80/443** (pfctl port forwarding unreliable on macOS)
-- **Requires sudo** for both dnsmasq and server (privileged ports)
-- **Mac IP must be 192.168.178.24** — startup script enforces this automatically
-- **Ethernet interface auto-detected** — works on any USB adapter (en5, en6, etc.)
-- See `dev_log.md` for full troubleshooting details
-
-### TLS Certificates (Let's Encrypt)
-
-Uses a real CA-signed cert for `local.assembly.fm` — no browser warnings. dnsmasq resolves the domain to `192.168.178.24` on the LAN. For dev/testing, a self-signed cert also works:
-```bash
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-  -nodes -keyout key.pem -out cert.pem -days 365 \
-  -subj "/CN=local.assembly.fm"
-```
-
-**Renew** (every 90 days, needs internet):
-```bash
-sudo certbot certonly --manual --preferred-challenges dns -d local.assembly.fm
-# Add the TXT record _acme-challenge.local in Namecheap Advanced DNS
-# Then copy certs:
-sudo cp /etc/letsencrypt/live/local.assembly.fm/fullchain.pem cert.pem
-sudo cp /etc/letsencrypt/live/local.assembly.fm/privkey.pem key.pem
-sudo chown $(whoami) cert.pem key.pem
-```
-
-Current cert expires: **2026-05-30**
-
-### AP Adoption (one-time setup)
-
-The U6+ APs need to be adopted via a UniFi controller. A temporary Docker setup is in `unifi/`:
+### Self-signed cert (dev only)
 
 ```bash
-cd unifi && sudo docker compose up -d
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout key.pem -out cert.pem -days 365 \
+  -subj "/CN=local.assembly.fm" \
+  -addext "subjectAltName=DNS:local.assembly.fm,DNS:localhost,IP:127.0.0.1"
 ```
 
-Open `https://localhost:8443`, adopt the APs, create WiFi network "assembly". Then shut it down — APs retain their config:
+The `-addext` flag is required — Deno's TLS stack rejects X.509 v1 certs (`UnsupportedCertVersion`), and any extension forces v3.
 
-```bash
-sudo docker compose down
-```
+Browsers will show a one-time security warning. For real performances, use a Let's Encrypt cert (DNS-01 challenge — see the existing notes in `dev_log.md`).
 
 
-## 🎵 Performance Control
+## Hardware rig
 
-The system supports monome grid 128 and monome arc 4 controllers for live parameter control.
+- M2 MacBook Pro (server + ctrl client + PA output)
+- 1× FritzBox (DHCP and gateway; no internet uplink needed)
+- 1× small Ethernet switch (PoE if powering the APs over the cable)
+- 2× WiFi access points (Ubiquiti U6+ in current rig, adopted once via a temporary UniFi controller in `unifi/`)
+- Hardware controllers as needed: Monome Grid 128, Monome Arc 4, MIDI keyboard, BBC2
 
-### Monome Grid Integration
-
-Three grid box types are available in the patch editor (ctrl zone):
-
-**grid-trig** — Momentary trigger region
-```
-grid-trig x y w h
-```
-Outputs `1` when any button in the region is pressed, `0` when released. Entire region lights up while pressed.
-
-**grid-toggle** — Latching toggle region
-```
-grid-toggle x y w h
-```
-Each press flips the state between `0` and `1`. LED feedback shows current state (off = 0, full brightness = 1).
-
-**grid-array** — Integer array with range gestures
-```
-grid-array x y w h
-```
-Outputs a 1-indexed array of integers. Supports sophisticated range selection:
-
-- **Single press:** Toggle value in/out of array (button x=0 → value 1, x=1 → value 2, etc.)
-- **Hold + press:** Fill or clear range (inclusive endpoints)
-  - Hold **inactive** button → press second button → **fill range**
-  - Hold **active** button → press second button → **clear range**
-- LED brightness indicates state (dim = in array, off = not in array)
-
-Example: In a region at (0, 0) with width 12:
-- Press x=2 → outputs `[3]`
-- Press x=5 → outputs `[3, 6]`
-- Hold x=2, press x=5 → outputs `[3, 4, 5, 6]` (range fill)
-- Hold x=3 (active), press x=5 → outputs `[6]` (range clear)
-
-**Hot-plug detection:** Grid connection/disconnection is automatically detected and displayed in the status bar.
-
-### Monome Arc Integration
-
-The monome arc 4 is a continuous rotary encoder controller with LED ring feedback. Arc support uses serialosc (same as grid) for reliable cross-platform communication.
-
-**arc** — Continuous rotation encoder
-```
-arc i m
-```
-Where:
-- `i` = encoder index (0-3 for arc 4)
-- `m` = mode (currently only 0 supported: continuous rotation, outputs 0-1)
-
-**Behavior:**
-- Turning clockwise increases the value toward 1
-- Turning counter-clockwise decreases the value toward 0
-- Values clamp at boundaries (no wrapping)
-- Fine-grained control (sensitivity: 0.0003)
-
-**LED feedback:**
-- 64-LED ring per encoder
-- Visual indicator starts at 6 o'clock (bottom), fills clockwise
-- Brightness scales with value (0 = all off, 0.5 = half ring, 1 = full ring)
-
-**Hot-plug detection:** Arc connection/disconnection is automatically detected and displayed in the status bar with device type and ID.
-
-**Requirements:**
-- serialosc must be running (`brew services start serialosc` on macOS)
-- Arc devices are automatically detected on connection
-- Supports both grid and arc connected simultaneously
-
-Example: Control a synth parameter with encoder 0:
-```
-arc 0 0  →  smooth cutoff
-```
+The captive portal redirect, TLS, and DNS setup are tuned to this specific rig. Treat it as the reference topology — localhost dev works, but the real instrument needs the LAN to behave a certain way.
 
 
-## ⚠️ Troubleshooting
+## Status
 
-**Latency / Jitter issues:**
+Active prototyping. The patch language, box set, and internal protocols change without notice. Save patches frequently and expect to port them across versions by hand. The `patches/` directory holds the most recent working performance patches (`epimetheus.json`, `frogs.json`, `ks_arp.json`); `patches/archive/` is the boneyard.
 
-* Ensure the Server is wired via **Ethernet**, not WiFi.
-* Check if clients are in "Low Power Mode" (iOS throttles JS timers).
-* Verify the router is not overwhelmed (use dedicated APs for >30 users).
-* Remember to manage Screen Wake Lock API.
 
-**Audio not starting:**
+## License
 
-* Ensure the user has interacted with the page (click/tap) to resume the `AudioContext`.
-* Check if the device is stuck in a "Captive Portal" browser (CNA). If so, tell them to open the URL in Safari/Chrome manually.
-
-## 📄 License
-
-GNU something
+GPLv3. See `LICENSE`.
