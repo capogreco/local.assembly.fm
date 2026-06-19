@@ -258,6 +258,7 @@ function evaluatePure(type, args, iv) {
       const idx = n < 0 ? arr.length + n : n;
       return (idx >= 0 && idx < arr.length) ? arr[idx] : 0;
     }
+    case "reverse": return Array.isArray(iv[0]) ? [...iv[0]].reverse() : iv[0];
     case "octaves": {
       if (!Array.isArray(iv[0])) return iv[0];
       const raw = iv[1] !== undefined ? iv[1] : (parseFloat(args[0]) || 0);

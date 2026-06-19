@@ -2173,7 +2173,7 @@ work is recoverable separately and makes any future port mechanical.
 ### Tick-profile instrumentation landed (gated, dormant by default)
 
 `eval-engine.ts` setInterval block now wraps `tick()` with optional
-profiling. Enabled by setting env var `EWING_PROFILE_TICK=1` before
+profiling. Enabled by setting env var `PROFILE_TICK=1` before
 running; otherwise zero overhead. Logs `[tick-profile] p50=... p95=...
 p99=... max=... (target=Xms)` once per second. Combine with
 `--v8-flags=--trace-gc` to cross-correlate tick outliers with GC events.
@@ -2186,7 +2186,7 @@ because the test is interactive and local. Plan for the next session:
 
 ```
 # Terminal 1 — server with profiling
-EWING_PROFILE_TICK=1 deno run -A --unstable-net \
+PROFILE_TICK=1 deno run -A --unstable-net \
   --v8-flags=--trace-gc server.ts 2>&1 | tee /tmp/ewing-gc.log
 
 # Run 1: 60s idle baseline (server up, no clients connected)

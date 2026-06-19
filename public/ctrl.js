@@ -31,7 +31,7 @@ let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
 
-const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~"]);
+const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~", "fftPeaks~"]);
 
 async function initCtrlAudio() {
   if (ctrlAudioCtx) return;
@@ -42,10 +42,28 @@ async function initCtrlAudio() {
   ctrlAudioCtx.destination.channelInterpretation = "discrete";
 }
 
-// adc~ special handler — creates audio input from shared splitter
+// Caller-specific ctrl node handler — adc~ (audio input) and fftPeaks~ (spectral analyser).
 async function adcHandler(ctx, type, args) {
-  if (type !== "adc~") return null;
   const tokens = (args || "").split(/\s+/).filter(Boolean);
+
+  // fftPeaks~ — an AnalyserNode the adc~ signal feeds into, scanned on trigger by
+  // scanPeaks(). It's a dead-end node (no audio output), so sink it at zero gain to
+  // keep it pulled by the audio graph.
+  if (type === "fftPeaks~") {
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0;
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    analyser.connect(sink);
+    sink.connect(ctx.destination);
+    return { type, node: analyser, analyser, out: sink,
+             maxPeaks: parseInt(tokens[0]) || 33,
+             minHz: parseFloat(tokens[1]) || 0,
+             freqData: new Float32Array(analyser.frequencyBinCount), paramMap: {} };
+  }
+
+  if (type !== "adc~") return null;
   if (!ctrlInputSource) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -207,6 +225,16 @@ function handleCtrlAudioParam(msg) {
   if (!inletDef) return;
   const paramName = inletDef.name;
 
+  // fftPeaks~ has no AudioParams — its `max` and `minHz` inlets update the engine directly.
+  if (engine.type === "fftPeaks~" && paramName === "max") {
+    engine.maxPeaks = Math.max(0, Math.round(msg.value));
+    return;
+  }
+  if (engine.type === "fftPeaks~" && paramName === "minHz") {
+    engine.minHz = Math.max(0, msg.value);
+    return;
+  }
+
   if (paramName === "trigger") {
     (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
   } else if (paramName === "gate") {
@@ -226,7 +254,35 @@ function handleCtrlAudioParam(msg) {
 function handleCtrlAudioEvent(msg) {
   const engine = ctrlEngines.get(msg.boxId);
   if (!engine) return;
+  if (engine.type === "fftPeaks~") { scanPeaks(engine, msg.boxId); return; }
   (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
+}
+
+// fftPeaks~ scan: read the analyser's magnitude spectrum, pick the loudest local-maxima
+// peaks, and send them up to the server as two parallel arrays (loudest first). The
+// server propagates them on the box's two outlets (freqs, amps).
+function scanPeaks(engine, boxId) {
+  const a = engine.analyser;
+  const data = engine.freqData; // dB magnitudes per bin
+  a.getFloatFrequencyData(data);
+  const binHz = ctrlAudioCtx.sampleRate / a.fftSize;
+  const FLOOR_DB = -90;
+  // Ignore bins below minHz (filters DC offset, mains hum, room rumble). Skip bin 0
+  // regardless, since a peak needs a lower neighbour to compare against.
+  const startBin = Math.max(1, engine.minHz > 0 ? Math.ceil(engine.minHz / binHz) : 1);
+  const peaks = [];
+  for (let i = startBin; i < data.length - 1; i++) {
+    const m = data[i];
+    if (m > FLOOR_DB && m > data[i - 1] && m >= data[i + 1]) peaks.push({ f: i * binHz, db: m });
+  }
+  peaks.sort((x, y) => y.db - x.db); // loudest first
+  const top = peaks.slice(0, engine.maxPeaks);
+  send({
+    type: "peaks",
+    box: boxId,
+    freqs: top.map(p => p.f),
+    amps: top.map(p => Math.pow(10, p.db / 20)), // dB → linear
+  });
 }
 
 // =============================================================================

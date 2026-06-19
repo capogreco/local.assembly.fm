@@ -49,7 +49,9 @@ export const latestValues = new Map<string, string>();
 export const uplinkIndex = new Map<string, Array<{ boxId: number; outletIndex: number }>>();
 
 // Per-`assign` box state: clientIdx → assigned note. lastNotes used to detect changes.
-export const assignState = new Map<number, { assignment: Map<number, number>; lastNotes: number[] }>();
+// `amps` (optional, inlet 1) is a parallel array index-aligned to the notes array, used to
+// send a [note, amp] pair per phone (spectral resynthesis); absent → plain scalar note send.
+export const assignState = new Map<number, { assignment: Map<number, number>; lastNotes: number[]; amps?: number[] }>();
 
 // --- Helpers ---
 
