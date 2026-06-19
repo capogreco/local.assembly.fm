@@ -18,10 +18,38 @@ import {
 
 const CERT_FILE = "cert.pem";
 const KEY_FILE = "key.pem";
-const HTTPS_PORT = 443;
-const HTTP_PORT = 80;
+// Workshop self-signed cert — distinct filenames so generation can never
+// clobber the real Let's Encrypt cert.pem/key.pem (reserved for performance).
+const SELF_CERT_FILE = "cert.selfsigned.pem";
+const SELF_KEY_FILE = "key.selfsigned.pem";
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.24";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
+
+// --- Run mode ---
+// One explicit switch drives bind host, ports, cert policy, captive portal and
+// dnsmasq expectations. Tracks *who the audience is*, not where it runs.
+// See notes/network-and-modes.md.
+type CertKind = "none" | "self-signed" | "letsencrypt";
+interface ModeConfig {
+  bindHost: string;          // "127.0.0.1" (laptop only) | "0.0.0.0" (LAN)
+  appPort: number;           // 8443 (unprivileged) | 443
+  portalPort: number | null; // captive-portal HTTP listener, or null
+  needsCaptivePortal: boolean;
+  certKind: CertKind;
+  needsDnsmasqWarning: boolean;
+  needsStaticIP: boolean;    // informational; enforced in start-macos.sh
+}
+const MODES: Record<string, ModeConfig> = {
+  practice:    { bindHost: "127.0.0.1", appPort: 8443, portalPort: null, needsCaptivePortal: false, certKind: "none",        needsDnsmasqWarning: false, needsStaticIP: false },
+  workshop:    { bindHost: "0.0.0.0",   appPort: 8443, portalPort: null, needsCaptivePortal: false, certKind: "self-signed", needsDnsmasqWarning: false, needsStaticIP: false },
+  performance: { bindHost: "0.0.0.0",   appPort: 443,  portalPort: 80,   needsCaptivePortal: true,  certKind: "letsencrypt", needsDnsmasqWarning: true,  needsStaticIP: true  },
+};
+const MODE = Deno.env.get("MODE") ?? "practice";
+const cfg = MODES[MODE];
+if (!cfg) {
+  console.error(`\x1b[31m✗ Unknown MODE "${MODE}". Valid modes: ${Object.keys(MODES).join(", ")}\x1b[0m`);
+  Deno.exit(1);
+}
 
 
 // --- Status display ---
@@ -776,21 +804,26 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
   });
 }
 
-// --- Captive portal (HTTP) ---
+// --- Request handler ---
+// One handler for every mode. The captive-portal CNA branch is active only when
+// cfg.needsCaptivePortal (performance); in practice/workshop the probe paths
+// fall through to ordinary file serving, so the redirect simply doesn't exist.
 
-function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promise<Response> {
+function appHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promise<Response> {
   const url = new URL(req.url);
   const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
-  const probes = ["/hotspot-detect.html", "/generate_204", "/canonical.html", "/connecttest.txt"];
 
-  if (probes.includes(url.pathname)) {
-    if (authenticatedIPs.has(clientIP)) {
-      if (url.pathname === "/generate_204") return new Response(null, { status: 204 });
-      if (url.pathname === "/connecttest.txt") return new Response("Microsoft Connect Test", { headers: { "content-type": "text/plain" } });
-      return new Response("<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", { headers: { "content-type": "text/html" } });
+  if (cfg.needsCaptivePortal) {
+    const probes = ["/hotspot-detect.html", "/generate_204", "/canonical.html", "/connecttest.txt"];
+    if (probes.includes(url.pathname)) {
+      if (authenticatedIPs.has(clientIP)) {
+        if (url.pathname === "/generate_204") return new Response(null, { status: 204 });
+        if (url.pathname === "/connecttest.txt") return new Response("Microsoft Connect Test", { headers: { "content-type": "text/plain" } });
+        return new Response("<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", { headers: { "content-type": "text/html" } });
+      }
+      event(`CNA redirect ${clientIP}`);
+      return Response.redirect(`https://${HOST_DOMAIN}:${cfg.appPort}/portal.html`, 302);
     }
-    event(`CNA redirect ${clientIP}`);
-    return Response.redirect(`https://${HOST_DOMAIN}:${HTTPS_PORT}/portal.html`, 302);
   }
 
   if (url.pathname === "/auth") { authenticatedIPs.add(clientIP); return new Response("ok"); }
@@ -972,22 +1005,6 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
   return new Response("Not found", { status: 404 });
 }
 
-// --- HTTPS handler ---
-
-function httpsHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promise<Response> {
-  const url = new URL(req.url);
-  // route WebSocket by path
-  if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-    if (url.pathname === "/ws/ctrl") return handleCtrlWs(req);
-    return handleSynthWs(req, info);
-  }
-  if (url.pathname === "/events") return handleSSE(req, info);
-  if (url.pathname === "/auth") { authenticatedIPs.add((info.remoteAddr as Deno.NetAddr).hostname); return new Response("ok"); }
-  if (url.pathname.startsWith("/patches")) return handlePatchAPI(req, url);
-  if (url.pathname.startsWith("/abstractions")) return handleAbstractionAPI(req, url);
-  return serveFile(url.pathname === "/" ? "/index.html" : url.pathname);
-}
-
 // --- Detect LAN IP ---
 
 function getLanIP(): string | null {
@@ -1002,16 +1019,67 @@ function getLanIP(): string | null {
   return null;
 }
 
+// --- Self-signed cert generation (workshop) ---
+// The single non-portable seam: shells out to `openssl`. A pure-Deno /
+// OS-agnostic cert path is a deliberate future replacement — keep it isolated
+// here so there's exactly one thing to swap. Writes the SELF_* files only.
+async function genSelfSignedCert(): Promise<void> {
+  const ip = getLanIP();
+  const sans = ["DNS:localhost", "IP:127.0.0.1", ...(ip ? [`IP:${ip}`] : [])].join(",");
+  try {
+    // RSA, not EC: macOS LibreSSL emits EC keys that Deno's rustls rejects with
+    // KeyMismatch even though the pair is consistent. RSA-2048 is accepted on
+    // every platform and matches what the Let's Encrypt cert uses.
+    const { success, stderr } = await new Deno.Command("openssl", {
+      args: [
+        "req", "-x509", "-newkey", "rsa:2048",
+        "-nodes", "-keyout", SELF_KEY_FILE, "-out", SELF_CERT_FILE, "-days", "365",
+        "-subj", "/CN=local.assembly.fm",
+        "-addext", `subjectAltName=${sans}`,
+      ],
+      stdout: "null", stderr: "piped",
+    }).output();
+    if (!success) {
+      console.error("\x1b[31m✗ openssl failed to generate a self-signed cert:\x1b[0m");
+      console.error(new TextDecoder().decode(stderr));
+      Deno.exit(1);
+    }
+    console.log(`\x1b[32m✓ generated self-signed cert\x1b[0m (SAN: ${sans})`);
+  } catch (e) {
+    console.error("\x1b[31m✗ workshop mode needs `openssl` on PATH to generate a self-signed cert.\x1b[0m");
+    console.error(`  ${e instanceof Error ? e.message : e}`);
+    Deno.exit(1);
+  }
+}
+
 const lanIP = getLanIP();
 
 // --- Start ---
 
-const tlsAvailable = await hasCerts();
-
 const isMacOS = Deno.build.os === "darwin";
 
-// Check if dnsmasq is running (required for captive portal)
-if (isMacOS && tlsAvailable) {
+// Resolve TLS material per mode. performance requires a real cert (fail loud);
+// workshop generates a self-signed one once; practice serves plain HTTP.
+let cert: string | undefined;
+let key: string | undefined;
+if (cfg.certKind === "letsencrypt") {
+  if (!(await hasCerts())) {
+    console.error("\x1b[31m✗ performance mode requires a real TLS cert.\x1b[0m");
+    console.error(`  Missing ${CERT_FILE} and/or ${KEY_FILE} — a Let's Encrypt cert for ${HOST_DOMAIN}.`);
+    console.error("  Use workshop mode for an auto-generated self-signed cert, or see notes/network-and-modes.md.");
+    Deno.exit(1);
+  }
+  cert = await Deno.readTextFile(CERT_FILE);
+  key = await Deno.readTextFile(KEY_FILE);
+} else if (cfg.certKind === "self-signed") {
+  const exists = (p: string) => Deno.stat(p).then(() => true).catch(() => false);
+  if (!((await exists(SELF_CERT_FILE)) && (await exists(SELF_KEY_FILE)))) await genSelfSignedCert();
+  cert = await Deno.readTextFile(SELF_CERT_FILE);
+  key = await Deno.readTextFile(SELF_KEY_FILE);
+}
+
+// dnsmasq DNS-hijack check — performance only.
+if (cfg.needsDnsmasqWarning) {
   try {
     const dnsCheck = await Deno.resolveDns("test.example.com", "A", { nameServer: { ipAddr: "127.0.0.1", port: 53 } });
     const allPointToHost = dnsCheck.every(record => record === HOST_IP);
@@ -1031,7 +1099,7 @@ if (isMacOS && tlsAvailable) {
   }
 }
 
-// Check if serialosc is running (required for monome grid/arc)
+// serialosc / monome — orthogonal to mode, macOS-only.
 if (isMacOS) {
   try {
     const psOutput = await new Deno.Command("pgrep", { args: ["serialoscd"] }).output();
@@ -1050,28 +1118,43 @@ if (isMacOS) {
   }
 }
 
-const lanLabel = lanIP && lanIP !== HOST_IP ? `\n  LAN IP:    ${lanIP}` : "";
-const lanUrls = lanIP && !tlsAvailable ? `
-  \x1b[90m— other devices on this network:\x1b[0m
-  synth:    http://${lanIP}:${HTTP_PORT}/
-  ctrl:     http://${lanIP}:${HTTP_PORT}/ctrl.html
-  ensemble: http://${lanIP}:${HTTP_PORT}/ensemble.html` : "";
-
+// --- Banner ---
+if (MODE === "workshop" && !lanIP) {
+  console.log("\x1b[33m⚠️  workshop mode: no LAN IPv4 detected — connect to a network so phones can reach the server.\x1b[0m");
+}
+const scheme = cfg.certKind === "none" ? "http" : "https";
+const appHost = MODE === "performance" ? HOST_DOMAIN : MODE === "workshop" ? (lanIP ?? "0.0.0.0") : "localhost";
+const portSuffix = cfg.appPort === 443 ? "" : `:${cfg.appPort}`;
+const base = `${scheme}://${appHost}${portSuffix}`;
+const lanNote = MODE === "performance" && lanIP && lanIP !== HOST_IP ? `\n  \x1b[90mLAN IP:   ${lanIP}\x1b[0m` : "";
 const banner = `
-  \x1b[1mlocal.assembly.fm\x1b[0m
-  ${tlsAvailable ? "HTTPS + HTTP portal" : "dev mode (HTTP only)"}
-  Server IP: ${HOST_IP}${lanLabel}
-  synth:    ${tlsAvailable ? `https://${HOST_DOMAIN}/` : `http://localhost:${HTTP_PORT}/`}
-  ctrl:     https://localhost/ctrl.html
-  ensemble: ${tlsAvailable ? `https://${HOST_DOMAIN}/ensemble.html` : `http://localhost:${HTTP_PORT}/ensemble.html`}${lanUrls}
+  \x1b[1mlocal.assembly.fm\x1b[0m  \x1b[90m[${MODE}]\x1b[0m
+  synth:    ${base}/
+  ctrl:     ${base}/ctrl.html
+  ensemble: ${base}/ensemble.html${lanNote}
 `;
 console.log(banner);
 
-if (tlsAvailable) {
-  Deno.serve({ port: HTTP_PORT, hostname: "0.0.0.0" }, (req, info) => portalHandler(req, info));
-  Deno.serve({ port: HTTPS_PORT, hostname: "0.0.0.0", cert: await Deno.readTextFile(CERT_FILE), key: await Deno.readTextFile(KEY_FILE) }, (req, info) => httpsHandler(req, info));
-} else {
-  Deno.serve({ port: HTTP_PORT, hostname: "0.0.0.0" }, (req, info) => httpsHandler(req, info));
+// --- Serve ---
+// practice: app only, plain HTTP, localhost. workshop: app only, HTTPS, LAN.
+// performance: captive-portal HTTP listener + HTTPS app listener.
+try {
+  if (cfg.portalPort !== null) {
+    Deno.serve({ port: cfg.portalPort, hostname: cfg.bindHost }, (req, info) => appHandler(req, info));
+  }
+  if (cfg.certKind === "none") {
+    Deno.serve({ port: cfg.appPort, hostname: cfg.bindHost }, (req, info) => appHandler(req, info));
+  } else {
+    Deno.serve({ port: cfg.appPort, hostname: cfg.bindHost, cert: cert!, key: key! }, (req, info) => appHandler(req, info));
+  }
+} catch (e) {
+  if (e instanceof Deno.errors.PermissionDenied) {
+    const ports = cfg.portalPort !== null ? `${cfg.portalPort}/${cfg.appPort}` : `${cfg.appPort}`;
+    console.error(`\x1b[31m✗ permission denied binding port ${ports}.\x1b[0m`);
+    console.error("  performance mode binds privileged ports 80/443 — run it with sudo (./start-macos.sh).");
+    Deno.exit(1);
+  }
+  throw e;
 }
 
 drawStatus();

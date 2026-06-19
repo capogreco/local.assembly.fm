@@ -1,6 +1,11 @@
 {
   "tasks": {
-    "dev": "deno run -A --unstable-net --watch server.ts",
+    "practice": "deno run -A --unstable-net server.ts",
+    "practice:watch": "deno run -A --unstable-net --watch server.ts",
+    "workshop": "MODE=workshop deno run -A --unstable-net server.ts",
+    "workshop:watch": "MODE=workshop deno run -A --unstable-net --watch server.ts",
+    "performance": "MODE=performance deno run -A --unstable-net server.ts",
+    "performance:watch": "MODE=performance deno run -A --unstable-net --watch server.ts",
     "start": "deno run -A --unstable-net server.ts"
   }
 }

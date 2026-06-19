@@ -1,12 +1,14 @@
 #!/bin/bash
-# Startup script for local.assembly.fm on macOS
+# Startup script for local.assembly.fm on macOS — convenience wrapper that sets
+# MODE and does the macOS-only bits (sudo, static IP, dnsmasq) for performance.
+# server.ts is mode-driven and runs standalone on any OS: `MODE=… deno run …`.
 # Usage:
-#   ./start-macos.sh            Start everything (dnsmasq + server)
-#   ./start-macos.sh dns        Start DNS server only
-#   ./start-macos.sh server     Start Deno server only
-#   ./start-macos.sh dev        Start with auto-reload on file changes
-#   ./start-macos.sh local      Patch-editing only — no dnsmasq, no subnet check (localhost)
-#   ./start-macos.sh status     Show system status
+#   ./start-macos.sh practice     Solo, laptop only — localhost:8443, no sudo/cert/dnsmasq (default)
+#   ./start-macos.sh workshop     Phones on a LAN — 0.0.0.0:8443, self-signed cert, no sudo
+#   ./start-macos.sh performance  Public show — ports 80+443, captive portal, dnsmasq, sudo
+#   ./start-macos.sh dns          Start dnsmasq DNS server only
+#   ./start-macos.sh status       Show system status
+#   (append --watch to any mode for auto-reload)
 
 set -e
 
@@ -134,22 +136,20 @@ address=/#/$MAC_IP" | sudo tee "$DNSMASQ_CONF" > /dev/null
     fi
 }
 
-check_prerequisites() {
-    echo_info "Checking prerequisites..."
-
-    # Check if deno is installed
+check_deno() {
     if ! command -v deno &> /dev/null; then
         echo_error "deno not found. Install from https://deno.land/"
         exit 1
     fi
+}
 
-    # Check if certificates exist
+# performance requires a real Let's Encrypt cert (server.ts also fails loud, but
+# we check here too so the error arrives before sudo prompts).
+check_cert() {
     if [ ! -f "$PROJECT_DIR/cert.pem" ] || [ ! -f "$PROJECT_DIR/key.pem" ]; then
-        echo_error "TLS certificates not found. Generate with:"
-        echo "  cd $PROJECT_DIR"
-        echo "  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \\"
-        echo "    -nodes -keyout key.pem -out cert.pem -days 365 \\"
-        echo "    -subj '/CN=local.assembly.fm'"
+        echo_error "performance mode needs a real TLS cert (cert.pem + key.pem)."
+        echo_error "Use './start-macos.sh workshop' for an auto-generated self-signed cert,"
+        echo_error "or obtain a Let's Encrypt cert for local.assembly.fm."
         exit 1
     fi
 }
@@ -177,32 +177,18 @@ start_dns() {
         --conf-file="$DNSMASQ_CONF"
 }
 
-start_server() {
-    detect_network
-
-    echo_info "Starting Deno server on ports 80 (HTTP) and 443 (HTTPS)..."
-    echo_info "Captive portal: http://$MAC_IP (auto-redirects)"
-    echo_info "Synth client: https://$MAC_IP"
-    echo_info "Control interface: https://$MAC_IP/ctrl.html"
-    echo_info "Press Ctrl+C to stop"
-    echo ""
-
+# Launch the Deno server. $1 = MODE; $2 = "sudo" to elevate (performance only).
+# $WATCH (set from --watch) appends --watch=... ; empty otherwise.
+run_deno() {
+    local mode="$1"
+    local elevate="$2"
     cd "$PROJECT_DIR"
-    sudo $(which deno) run -A --unstable-net server.ts
-}
-
-start_dev() {
-    detect_network
-
-    echo_info "Starting Deno server in dev mode (auto-reload on file changes)..."
-    echo_info "Captive portal: http://$MAC_IP (auto-redirects)"
-    echo_info "Synth client: https://$MAC_IP"
-    echo_info "Control interface: https://$MAC_IP/ctrl.html"
-    echo_info "Press Ctrl+C to stop"
-    echo ""
-
-    cd "$PROJECT_DIR"
-    sudo $(which deno) run -A --unstable-net --watch=server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js server.ts
+    if [ "$elevate" = "sudo" ]; then
+        # `sudo VAR=val cmd` passes the env var through to the elevated process.
+        sudo MODE="$mode" "$(which deno)" run -A --unstable-net $WATCH server.ts
+    else
+        MODE="$mode" "$(which deno)" run -A --unstable-net $WATCH server.ts
+    fi
 }
 
 show_status() {
@@ -224,7 +210,7 @@ show_status() {
         echo_info "✓ Deno server is running on port 443"
     else
         echo_warn "✗ Deno server is NOT running"
-        echo "  Start with: ./start-macos.sh server"
+        echo "  Start with: ./start-macos.sh performance"
     fi
 
     # Check network
@@ -256,62 +242,41 @@ show_status() {
     echo "  3. Or visit any URL (e.g., example.com) to trigger redirect"
 }
 
+# --- Parse args: first non-flag token is the mode; --watch is orthogonal ---
+WATCH_FILES="server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js"
+MODE_ARG=""
+WATCH=""
+for arg in "$@"; do
+    case "$arg" in
+        --watch) WATCH="--watch=$WATCH_FILES" ;;
+        *) if [ -z "$MODE_ARG" ]; then MODE_ARG="$arg"; fi ;;
+    esac
+done
+
 # Main
-case "${1:-}" in
-    dns)
-        check_prerequisites
-        check_dnsmasq
-        start_dns
-        ;;
-    server)
-        check_prerequisites
-        start_server
-        ;;
-    dev)
-        check_prerequisites
-        check_dnsmasq
-        detect_network
-        ensure_clean_dnsmasq
-        ensure_dnsmasq_conf
-
-        if [ "$DNSMASQ_ALREADY_OK" = false ]; then
-            echo_info "Starting dnsmasq in background..."
-            sudo "$DNSMASQ_BIN" \
-                --bind-interfaces \
-                --conf-file="$DNSMASQ_CONF"
-            echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
-        fi
-
-        echo_info "Starting Deno server in dev mode (auto-reload on file changes)..."
-        echo_info "Captive portal: http://$MAC_IP"
-        echo_info "Ctrl+C to stop (will also kill dnsmasq)"
-        echo ""
-
-        trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
-
-        cd "$PROJECT_DIR"
-        sudo $(which deno) run -A --unstable-net --watch=server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js server.ts
-        ;;
-    local)
-        # Patch-editing mode — no dnsmasq, no network hardware required.
-        # Serves on localhost so you can open https://localhost/ctrl.html
-        # (or https://local.assembly.fm/ctrl.html if 127.0.0.1 is in /etc/hosts).
-        check_prerequisites
-
-        echo_info "Starting Deno server in local mode (auto-reload on file changes)..."
-        echo_info "ctrl:     https://localhost/ctrl.html"
-        echo_info "synth:    https://localhost/"
+case "$MODE_ARG" in
+    practice|"")
+        check_deno
+        echo_info "practice mode — http://localhost:8443/ (no sudo, no cert, no dnsmasq)"
         echo_info "Ctrl+C to stop"
         echo ""
-
-        cd "$PROJECT_DIR"
-        sudo $(which deno) run -A --unstable-net --watch=server.ts,eval-engine.ts,hardware.ts,patch-state.ts,public/gpi-types.js,public/graph-core.js server.ts
+        run_deno practice
         ;;
-    status)
-        show_status
+    workshop)
+        check_deno
+        if ! command -v openssl &> /dev/null; then
+            echo_error "workshop mode needs openssl to generate a self-signed cert."
+            exit 1
+        fi
+        echo_info "workshop mode — https://<lan-ip>:8443/ (self-signed, no sudo)"
+        echo_info "Phones open the URL and tap through the certificate warning."
+        echo_info "Ctrl+C to stop"
+        echo ""
+        run_deno workshop
         ;;
-    *)
-        check_prerequisites
+    performance)
+        check_deno
+        check_cert
         check_dnsmasq
         detect_network
         ensure_clean_dnsmasq
@@ -325,15 +290,26 @@ case "${1:-}" in
             echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
         fi
 
-        echo_info "Starting Deno server..."
-        echo_info "Captive portal: http://$MAC_IP"
+        echo_info "performance mode — https://local.assembly.fm/ (captive portal, ports 80+443)"
         echo_info "Ctrl+C to stop (will also kill dnsmasq)"
         echo ""
 
         # kill dnsmasq when the server exits
         trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
 
-        cd "$PROJECT_DIR"
-        sudo $(which deno) run -A --unstable-net server.ts
+        run_deno performance sudo
+        ;;
+    dns)
+        check_deno
+        check_dnsmasq
+        start_dns
+        ;;
+    status)
+        show_status
+        ;;
+    *)
+        echo_error "Unknown mode: $MODE_ARG"
+        echo "Usage: ./start-macos.sh [practice|workshop|performance|dns|status] [--watch]"
+        exit 1
         ;;
 esac
