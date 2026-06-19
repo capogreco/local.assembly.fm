@@ -665,6 +665,12 @@ function handleCtrlWs(req: Request): Response {
         // Flash the event box briefly
         queueValueUpdate(msg.id, 1);
         setTimeout(() => queueValueUpdate(msg.id, 0), 100);
+      } else if (msg.type === "peaks") {
+        // fftPeaks~ spectral analysis injected from the ctrl client (audio→control).
+        // Propagate amps first (outlet 1) so a downstream `assign` stores them before
+        // freqs (outlet 0) trigger its reallocation.
+        propagateAndNotify(msg.box, 1, msg.amps);
+        propagateAndNotify(msg.box, 0, msg.freqs);
       } else if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }
@@ -794,6 +800,8 @@ function portalHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Pr
     if (url.pathname === "/ws/ctrl") return handleCtrlWs(req);
     return handleSynthWs(req, info);
   }
+  if (url.pathname.startsWith("/patches")) return handlePatchAPI(req, url);
+  if (url.pathname.startsWith("/abstractions")) return handleAbstractionAPI(req, url);
   const ext = url.pathname.split(".").pop()?.toLowerCase();
   if (ext && ["html", "js", "css", "json", "png", "ico", "flac", "wav", "aiff", "aif", "ogg", "mp3", "m4a"].includes(ext)) return serveFile(url.pathname);
   return serveFile("/index.html");

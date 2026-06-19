@@ -48,9 +48,9 @@ section says how to confirm it.
 
 Two metrics. Run both during a 2-minute `ks_arp` ensemble session.
 
-**Status (2026-05-02): instrumentation is in place, profiling session
-not yet run.** `eval-engine.ts:833` wraps `tick()` with an
-`EWING_PROFILE_TICK`-gated profiler. Dormant by default; activate by
+**Status (2026-06-13): profiling session run — see §Measured results
+below. The GC hypothesis did not survive.** `eval-engine.ts:833` wraps `tick()` with an
+`PROFILE_TICK`-gated profiler. Dormant by default; activate by
 setting the env var before running. Output format:
 `[tick-profile] p50=Xms p95=Xms p99=Xms max=Xms (target=Xms)` once per
 second. Pair with `--v8-flags=--trace-gc` to cross-correlate. The
@@ -86,6 +86,66 @@ events with GC events. If they line up, the runtime IS the cause.
 Expected reading if GC is the culprit: max tick interval episodically
 spiking to 15–50 ms with periodicity of seconds, each spike coinciding
 with a GC log line.
+
+## Measured results (2026-06-13)
+
+The session above was finally run — **localhost on the MBP, no APs/switch**
+(taking the network out *isolates* the GC question rather than degrading it).
+`ks_arp` self-drove via its internal `metro`; the ensemble client connected as
+**24 voices receiving per-client round-robin sends** (`re:110:4` trigger +
+`rv:110:0` pitch), so the allocation load was realistic, not a toy. Captured
+with `PROFILE_TICK=1 PROFILE_ONSET=1 … --v8-flags=--trace-gc` over ~10 min and
+parsed with `notes/gc-correlate.ts`.
+
+**Headline numbers** (519 one-second tick windows, 1177 GC events, 3322 onsets):
+
+- **GC: 1173 minor (Scavenge), 4 major (Mark-Compact). Major-GC pause mean
+  1.19 ms, max 1.88 ms. Heap flat at ~10–16 MB the whole run.**
+- Tick: target 4.17 ms; **p50 steady at ~5.66 ms idle *and* under load**;
+  median per-second p99 5.85 ms; worst single tick 28.9 ms (6.9×); 26 of 519
+  seconds carried a >2×-target spike — sporadic, *not* GC-aligned.
+- Onsets: the arp stream is mostly metronomic (92 % of inter-onset intervals
+  cluster near the median rate) but with rare **0.5–1.3 s dropouts early in the
+  run** that inflate the mean IOI to 35.6 ms and CV to 1.46 — coinciding with
+  the ensemble thrashing its WS connections (0↔24) before settling. A
+  connection-settling artifact, not timing.
+
+**Verdict: NOT GC.** The hypothesis predicted 10–50 ms Mark-Compact stalls
+bunching events; the measurement shows **~1 ms major GCs against a flat, tiny
+heap, even under realistic 24-client dispatch.** This **falsifies item 2** of
+"What's actually contributing to looseness" below — V8 GC is ~1 ms here,
+negligible, not the 5–50 ms that section assumed.
+
+**What the looseness actually is:**
+
+- The **steady ~5.66 ms tick floor** (36 % over the 240 Hz target), present at
+  idle and under load, is the dominant always-present source. That is **item 3
+  (tick quantization) → Tier 0** — architecture, not language. The 240 Hz
+  `setInterval` simply cannot hold rate.
+- The sporadic >2× spikes (up to 28.9 ms) are not GC-aligned — most likely OS
+  scheduling / `setInterval` jitter. Also not a language problem.
+
+**No acoustic half.** The ensemble received all 3322 onsets but rendered
+silent — most likely the patch's excitation is gated on `breath`/`bite`, which
+read 0 with no controller attached, so notes triggered at zero amplitude. Purely
+client-side; it does **not** affect the server-side GC verdict, but it means the
+*audible* gallop was not reproduced here. The original galloping was heard with
+breath/bite live; combined with a clean server side, that points **downstream of
+the server** (wifi between phones = constitutive, or phone-side audio
+scheduling), not the runtime.
+
+**Decision impact.** The empirical case for a native port collapses: **NOT GC →
+a runtime port (Tier 2 / 3a / 3b / C) would not fix the measured looseness.** The
+lever is **Tier 0** (scheduler off the tick). Tier 1 (GC hygiene) drops to
+general-cleanliness priority — GC is not the timing problem. The closing line of
+this document still holds — *don't burn down the building because the boiler is
+loud* — except the loud part is the tick quantization, not the collector.
+
+**Caveat (unchanged).** Single machine, 24 local clients. A real show (100+
+phones over wifi, far more WS handlers) could shift event-loop pressure — the
+"connection-fanout at scale" unknown stands. But ~1 ms major GC against a flat
+heap makes a GC-driven blowup at scale unlikely; if galloping persists at scale,
+look at wifi and connection fanout, not the collector.
 
 ## What's actually contributing to "looseness"
 

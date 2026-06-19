@@ -9,6 +9,19 @@ import {
 } from "./patch-state.ts";
 import { arcValues } from "./hardware.ts";
 
+// --- Timing instrumentation (gated; zero overhead when env vars unset) ---
+// See notes/server-timing-runtime-analysis.md. Timestamps are performance.now()
+// (≈ ms since process start) so they cross-correlate with --v8-flags=--trace-gc.
+//   PROFILE_TICK=1   → per-second tick aggregate + [tick-late] outliers
+//   PROFILE_ONSET=1  → one [onset] line per outbound synth message
+// Parse the combined log with:  deno run -R notes/gc-correlate.ts <logfile>
+const PROFILE_ONSET = !!Deno.env.get("PROFILE_ONSET");
+function logOnset(dst: string, msg: Record<string, unknown>): void {
+  const t = msg.type;
+  if (t !== "re" && t !== "rv") return; // router events/values are the audible onsets
+  console.log(`[onset] t=${performance.now().toFixed(2)} k=${t}:${msg.r}:${msg.ch ?? ""} dst=${dst}`);
+}
+
 // --- Callbacks injected by server.ts ---
 
 let _broadcastSynth: (msg: Record<string, unknown>) => void;
@@ -62,8 +75,12 @@ export function initEvalEngine(deps: {
   // deno-lint-ignore no-explicit-any
   deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 }): void {
-  _broadcastSynth = deps.broadcastSynth;
-  _sendToClient = deps.sendToClient;
+  _broadcastSynth = PROFILE_ONSET
+    ? (msg) => { logOnset("b", msg); deps.broadcastSynth(msg); }
+    : deps.broadcastSynth;
+  _sendToClient = PROFILE_ONSET
+    ? (clientId, msg) => { logOnset(String(clientId), msg); deps.sendToClient(clientId, msg); }
+    : deps.sendToClient;
   _getSynthClientIds = deps.getSynthClientIds;
   _sendCtrl = deps.sendCtrl;
   _event = deps.event;
@@ -183,9 +200,18 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     return;
   }
 
-  // assign — stable voice allocation across phones with minimum movement
+  // assign — stable voice allocation across phones with minimum movement.
+  // inlet 0 = notes/freqs array (triggers reallocation); inlet 1 = parallel amps array
+  // (stored, index-aligned to notes; turns each per-phone send into a [note, amp] pair).
   if (routerType === "assign") {
-    if (Array.isArray(value)) reassign(routerBoxId, value as number[]);
+    if (inlet === 1 && Array.isArray(value)) {
+      if (!assignState.has(routerBoxId)) {
+        assignState.set(routerBoxId, { assignment: new Map(), lastNotes: [] });
+      }
+      assignState.get(routerBoxId)!.amps = value as number[];
+    } else if (Array.isArray(value)) {
+      reassign(routerBoxId, value as number[]);
+    }
     return;
   }
 
@@ -650,12 +676,23 @@ function reassign(routerBoxId: number, notes: number[]): void {
     for (const clientIdx of phoneList) newAssignment.set(clientIdx, note);
   }
 
+  // Spectral mode: if an amps array (inlet 1) is present, send each phone a [note, amp]
+  // pair. amps are index-aligned to the full `notes` array, so map note→amp before the
+  // active slice. Continuous spectral data changes every frame, so always send in this
+  // mode (a stable, bin-quantized note would otherwise freeze its amplitude); held-notes
+  // mode keeps the diffed scalar send.
+  const amps = state.amps ?? [];
+  const spectral = amps.length > 0;
+  const ampByNote = new Map<number, number>();
+  if (spectral) for (let i = 0; i < notes.length; i++) ampByNote.set(notes[i], amps[i] ?? 1);
+
   for (let i = 0; i < N; i++) {
     const newNote = newAssignment.get(i);
     if (newNote === undefined) continue;
     const oldNote = state.assignment.get(i);
-    if (newNote !== oldNote) {
-      _sendToClient(clients[i], { type: "rv", r: routerBoxId, ch: 0, v: newNote });
+    if (newNote !== oldNote || spectral) {
+      const v = spectral ? [newNote, ampByNote.get(newNote) ?? 1] : newNote;
+      _sendToClient(clients[i], { type: "rv", r: routerBoxId, ch: 0, v });
     }
   }
 
@@ -830,11 +867,12 @@ function handleEventBox(id: number, _value: number): void {
   }
 }
 
-// Tick-interval instrumentation. Enabled when EWING_PROFILE_TICK env is set
+// Tick-interval instrumentation. Enabled when PROFILE_TICK env is set
 // (any non-empty value). Logs p50/p95/max inter-tick delta once per second.
 // Cross-correlate with --v8-flags=--trace-gc output to see if outliers
 // coincide with GC events.
-const PROFILE_TICK = !!Deno.env.get("EWING_PROFILE_TICK");
+const PROFILE_TICK = !!Deno.env.get("PROFILE_TICK");
+const _TICK_LATE_MS = (1000 / TICK_RATE) * 2; // outlier threshold: 2× the target interval
 let _tickProfileLast = 0;
 let _tickProfileBuf: number[] = [];
 const _tickProfileWindow = TICK_RATE; // 1 second worth of intervals
@@ -842,7 +880,13 @@ const _tickProfileWindow = TICK_RATE; // 1 second worth of intervals
 setInterval(() => {
   if (PROFILE_TICK) {
     const now = performance.now();
-    if (_tickProfileLast > 0) _tickProfileBuf.push(now - _tickProfileLast);
+    if (_tickProfileLast > 0) {
+      const delta = now - _tickProfileLast;
+      _tickProfileBuf.push(delta);
+      if (delta > _TICK_LATE_MS) {
+        console.log(`[tick-late] t=${now.toFixed(2)} interval=${delta.toFixed(2)} over=${(delta - 1000 / TICK_RATE).toFixed(2)}`);
+      }
+    }
     _tickProfileLast = now;
     if (_tickProfileBuf.length >= _tickProfileWindow) {
       _tickProfileBuf.sort((a, b) => a - b);
