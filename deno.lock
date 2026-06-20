@@ -1,8 +1,14 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@paulmillr/qr@0.6": "0.6.0",
     "npm:@peculiar/x509@2": "2.0.0",
     "npm:reflect-metadata@~0.2.2": "0.2.2"
+  },
+  "jsr": {
+    "@paulmillr/qr@0.6.0": {
+      "integrity": "7aea6b79f54390829a3a4b2e955bb3ea452a0a13249d034223547d478e028c9e"
+    }
   },
   "npm": {
     "@peculiar/asn1-cms@2.8.0": {
@@ -157,6 +163,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@paulmillr/qr@0.6",
       "npm:@peculiar/x509@2",
       "npm:reflect-metadata@~0.2.2"
     ]

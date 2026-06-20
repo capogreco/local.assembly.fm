@@ -15,6 +15,7 @@ import {
   initBoxState, shouldServerEval, initAllBoxState,
   findBoxByText, CC_SOURCE, queueValueUpdate,
 } from "./eval-engine.ts";
+import { getLanIP, qrText } from "./onboarding.ts";
 
 const CERT_FILE = "cert.pem";
 const KEY_FILE = "key.pem";
@@ -24,6 +25,9 @@ const SELF_CERT_FILE = "cert.selfsigned.pem";
 const SELF_KEY_FILE = "key.selfsigned.pem";
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.24";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
+// WiFi creds for the join QR / banner (defaults match the performance rig).
+const WIFI_SSID = Deno.env.get("WIFI_SSID") || "assembly";
+const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "assembly";
 
 // --- Run mode ---
 // One explicit switch drives bind host, ports, cert policy, captive portal and
@@ -1005,20 +1009,6 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
   return new Response("Not found", { status: 404 });
 }
 
-// --- Detect LAN IP ---
-
-function getLanIP(): string | null {
-  try {
-    const ifaces = Deno.networkInterfaces();
-    for (const iface of ifaces) {
-      if (iface.family === "IPv4" && !iface.address.startsWith("127.")) {
-        return iface.address;
-      }
-    }
-  } catch { /* permission denied or unavailable */ }
-  return null;
-}
-
 // --- Self-signed cert generation (workshop) ---
 // Pure-Deno and OS-agnostic: WebCrypto generates the key, @peculiar/x509 builds
 // the cert — no openssl, no system tool. RSA-2048 (not EC): Deno's rustls accepts
@@ -1154,6 +1144,14 @@ const banner = `
   ensemble: ${base}/ensemble.html${lanNote}
 `;
 console.log(banner);
+
+// Onboarding QR — workshop/performance only (a localhost QR is useless in
+// practice). qrText lazy-loads the encoder, so practice never pulls the dep.
+if (MODE !== "practice") {
+  console.log(`  \x1b[90mwifi:\x1b[0m     ${WIFI_SSID} / ${WIFI_PASSWORD}`);
+  console.log(await qrText(`${base}/`, "ascii"));
+  console.log("  \x1b[90mscan to play · run `deno task qr` for a printable WiFi + URL poster\x1b[0m\n");
+}
 
 // --- Serve ---
 // practice: app only, plain HTTP, localhost. workshop: app only, HTTPS, LAN.
