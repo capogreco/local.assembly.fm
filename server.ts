@@ -1020,33 +1020,53 @@ function getLanIP(): string | null {
 }
 
 // --- Self-signed cert generation (workshop) ---
-// The single non-portable seam: shells out to `openssl`. A pure-Deno /
-// OS-agnostic cert path is a deliberate future replacement — keep it isolated
-// here so there's exactly one thing to swap. Writes the SELF_* files only.
+// Pure-Deno and OS-agnostic: WebCrypto generates the key, @peculiar/x509 builds
+// the cert — no openssl, no system tool. RSA-2048 (not EC): Deno's rustls accepts
+// RSA reliably, whereas macOS LibreSSL's EC output was rejected with KeyMismatch.
+// Deps are lazy-imported so only workshop mode loads the tree. Writes SELF_* only.
 async function genSelfSignedCert(): Promise<void> {
   const ip = getLanIP();
-  const sans = ["DNS:localhost", "IP:127.0.0.1", ...(ip ? [`IP:${ip}`] : [])].join(",");
   try {
-    // RSA, not EC: macOS LibreSSL emits EC keys that Deno's rustls rejects with
-    // KeyMismatch even though the pair is consistent. RSA-2048 is accepted on
-    // every platform and matches what the Let's Encrypt cert uses.
-    const { success, stderr } = await new Deno.Command("openssl", {
-      args: [
-        "req", "-x509", "-newkey", "rsa:2048",
-        "-nodes", "-keyout", SELF_KEY_FILE, "-out", SELF_CERT_FILE, "-days", "365",
-        "-subj", "/CN=local.assembly.fm",
-        "-addext", `subjectAltName=${sans}`,
+    await import("reflect-metadata"); // tsyringe polyfill — must load before x509
+    const x509 = await import("@peculiar/x509");
+
+    const alg: RsaHashedKeyGenParams = {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256",
+      publicExponent: new Uint8Array([1, 0, 1]),
+      modulusLength: 2048,
+    };
+    const keys = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]) as CryptoKeyPair;
+
+    const names = [
+      { type: "dns", value: "localhost" },
+      { type: "ip", value: "127.0.0.1" },
+      ...(ip ? [{ type: "ip", value: ip }] : []),
+    ];
+    const cert = await x509.X509CertificateGenerator.createSelfSigned({
+      serialNumber: "01",
+      name: "CN=local.assembly.fm",
+      notBefore: new Date(),
+      notAfter: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      signingAlgorithm: alg,
+      keys,
+      extensions: [
+        new x509.BasicConstraintsExtension(false, undefined, true),
+        new x509.SubjectAlternativeNameExtension(
+          names as ConstructorParameters<typeof x509.SubjectAlternativeNameExtension>[0],
+        ),
       ],
-      stdout: "null", stderr: "piped",
-    }).output();
-    if (!success) {
-      console.error("\x1b[31m✗ openssl failed to generate a self-signed cert:\x1b[0m");
-      console.error(new TextDecoder().decode(stderr));
-      Deno.exit(1);
-    }
-    console.log(`\x1b[32m✓ generated self-signed cert\x1b[0m (SAN: ${sans})`);
+    }, crypto);
+
+    const pkcs8 = await crypto.subtle.exportKey("pkcs8", keys.privateKey);
+    await Deno.writeTextFile(SELF_CERT_FILE, cert.toString("pem"));
+    await Deno.writeTextFile(SELF_KEY_FILE, x509.PemConverter.encode([pkcs8], "PRIVATE KEY"));
+
+    const san = names.map((n) => `${n.type}:${n.value}`).join(",");
+    console.log(`\x1b[32m✓ generated self-signed cert\x1b[0m (SAN: ${san})`);
   } catch (e) {
-    console.error("\x1b[31m✗ workshop mode needs `openssl` on PATH to generate a self-signed cert.\x1b[0m");
+    console.error("\x1b[31m✗ workshop mode could not generate a self-signed cert.\x1b[0m");
+    console.error("  The cert dependencies may not be installed — run `deno task setup` once with internet.");
     console.error(`  ${e instanceof Error ? e.message : e}`);
     Deno.exit(1);
   }

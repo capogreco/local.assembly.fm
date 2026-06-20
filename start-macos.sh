@@ -264,10 +264,6 @@ case "$MODE_ARG" in
         ;;
     workshop)
         check_deno
-        if ! command -v openssl &> /dev/null; then
-            echo_error "workshop mode needs openssl to generate a self-signed cert."
-            exit 1
-        fi
         echo_info "workshop mode — https://<lan-ip>:8443/ (self-signed, no sudo)"
         echo_info "Phones open the URL and tap through the certificate warning."
         echo_info "Ctrl+C to stop"

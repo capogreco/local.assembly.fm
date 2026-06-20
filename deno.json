@@ -1,5 +1,11 @@
 {
+  "nodeModulesDir": "manual",
+  "imports": {
+    "@peculiar/x509": "npm:@peculiar/x509@^2.0.0",
+    "reflect-metadata": "npm:reflect-metadata@^0.2.2"
+  },
   "tasks": {
+    "setup": "deno install",
     "practice": "deno run -A --unstable-net server.ts",
     "practice:watch": "deno run -A --unstable-net --watch server.ts",
     "workshop": "MODE=workshop deno run -A --unstable-net server.ts",

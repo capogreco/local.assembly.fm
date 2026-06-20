@@ -146,10 +146,11 @@ requirement drops out of *this* mode without touching the other two.
   the CNA-probe redirect doesn't exist in those modes.
 - **Portability:** the `MODE` switch and all binding/cert-policy logic live in
   `server.ts` so `MODE=… deno run server.ts` works on any OS. `start-macos.sh`
-  stays a macOS convenience wrapper. The one non-portable seam is self-signed
-  cert generation (shells out to `openssl`) — isolate it behind a single
-  function; a pure-Deno / OS-agnostic cert path is a **later conversation**, not
-  this refactor.
+  stays a macOS convenience wrapper. Self-signed cert generation
+  (`genSelfSignedCert`) is **pure-Deno** — WebCrypto (RSA-2048) + `@peculiar/x509`,
+  no `openssl`, no system tool; deps are lazy-imported so only workshop loads them
+  and are pinned via `deno.lock` (`deno task setup` installs them once online).
+  RSA, not EC: Deno's rustls rejected LibreSSL's EC keys with `KeyMismatch`.
 - Existing config knobs already present and reused: `HOST_IP`, `HOST_DOMAIN`
   (`server.ts:23`–`24`).
 
