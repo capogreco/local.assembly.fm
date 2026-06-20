@@ -126,6 +126,32 @@ requirement drops out of *this* mode without touching the other two.
 
 ---
 
+## Onboarding (QR)
+
+Audience onboarding has two friction hops — **join the WiFi**, then **reach the
+synth** — and QR codes kill both *without* DNS-hijack or a captive portal:
+
+- **WiFi-join QR** (`WIFI:T:WPA;S:<ssid>;P:<password>;;`) — scan → "join network"
+  (iOS 11+/Android). Creds come from `WIFI_SSID`/`WIFI_PASSWORD`/`WIFI_AUTH`
+  (default `assembly`/`assembly`/`WPA`).
+- **Synth-URL QR** — the per-mode audience base URL.
+
+`deno task qr` fabricates **asset files** into `./onboarding/` —
+`poster.svg` (both QRs + readable SSID/password/URL, ready for a flyer/slide),
+plus individual `wifi`/`synth` as `.svg` (vector) and `.gif` (raster). Assets are
+static and work offline at showtime — more portable than a live page. The server
+banner also prints a terminal ASCII QR of the synth URL in workshop/performance.
+
+Two caveats: a QR solves URL *discovery*, not *trust* — in `workshop` (self-signed)
+the audience still taps through the cert warning after scanning; `performance`
+(real cert) is clean. And the `workshop` URL embeds the LAN IP, so re-run
+`deno task qr` per session; `performance` assets are static.
+
+Built with `@paulmillr/qr` (JSR, single-file, zero-dep). PNG isn't emitted (SVG +
+GIF cover posters/flyers/slides).
+
+---
+
 ## Implementation notes (for the refactor that follows this doc)
 
 - Add `MODE` (env var or `start-macos.sh` arg), **default `practice`** (the safe,
