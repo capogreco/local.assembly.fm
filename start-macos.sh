@@ -6,6 +6,7 @@
 #   ./start-macos.sh practice     Solo, laptop only — localhost:8443, no sudo/cert/dnsmasq (default)
 #   ./start-macos.sh workshop     Phones on a LAN — 0.0.0.0:8443, self-signed cert, no sudo
 #   ./start-macos.sh performance  Public show — ports 80+443, captive portal, dnsmasq, sudo
+#   ./start-macos.sh renew        Renew the Let's Encrypt cert (DNS-01, interactive)
 #   ./start-macos.sh dns          Start dnsmasq DNS server only
 #   ./start-macos.sh status       Show system status
 #   (append --watch to any mode for auto-reload)
@@ -18,6 +19,27 @@ STATIC_IP="192.168.178.24"  # must match FritzBox DNS server setting
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DNSMASQ_BIN="/opt/homebrew/opt/dnsmasq/sbin/dnsmasq"
 DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
+
+# Cert resolution — mirrors server.ts. Prefer certbot's live paths so renewal is
+# zero-copy; fall back to a hand-copied pair in the repo root.
+HOST_DOMAIN="${HOST_DOMAIN:-local.assembly.fm}"
+LE_CERT="/etc/letsencrypt/live/$HOST_DOMAIN/fullchain.pem"
+LE_KEY="/etc/letsencrypt/live/$HOST_DOMAIN/privkey.pem"
+REPO_CERT="$PROJECT_DIR/cert.pem"
+REPO_KEY="$PROJECT_DIR/key.pem"
+
+# Sets CERT_PATH / KEY_PATH to the first readable pair, or empty on miss.
+# Uses sudo -n so we can stat root-owned letsencrypt files without prompting
+# (performance-mode call sites cache credentials via `sudo -v` before this).
+resolve_cert_path() {
+    if sudo -n test -r "$LE_CERT" 2>/dev/null && sudo -n test -r "$LE_KEY" 2>/dev/null; then
+        CERT_PATH="$LE_CERT"; KEY_PATH="$LE_KEY"
+    elif [ -r "$REPO_CERT" ] && [ -r "$REPO_KEY" ]; then
+        CERT_PATH="$REPO_CERT"; KEY_PATH="$REPO_KEY"
+    else
+        CERT_PATH=""; KEY_PATH=""
+    fi
+}
 
 # Colors for output
 RED='\033[0;31m'
@@ -41,7 +63,6 @@ echo_error() {
 
 detect_network() {
     local found_if=""
-    local found_ip=""
 
     # scan all interfaces for one with an IP on the assembly subnet
     while IFS= read -r line; do
@@ -50,7 +71,6 @@ detect_network() {
         fi
         if [[ "$line" =~ inet\ ($SUBNET\.[0-9]+) ]]; then
             found_if="$current_if"
-            found_ip="${BASH_REMATCH[1]}"
             break
         fi
     done < <(ifconfig)
@@ -66,15 +86,37 @@ detect_network() {
 
     ETHERNET_IF="$found_if"
 
-    # ensure the interface has the static IP the FritzBox expects
-    if [ "$found_ip" != "$STATIC_IP" ]; then
-        echo_warn "Interface $ETHERNET_IF has IP $found_ip, FritzBox expects $STATIC_IP"
-        echo_info "Setting static IP $STATIC_IP on $ETHERNET_IF..."
-        sudo ifconfig "$ETHERNET_IF" "$STATIC_IP" netmask 255.255.255.0
-        # re-add the gateway so we stay routable on the subnet
-        sudo route -n add -net "$SUBNET.0/24" "$STATIC_IP" 2>/dev/null || true
-        echo_info "IP set to $STATIC_IP"
+    # Remove any subnet IPs on the interface that aren't STATIC_IP (DHCP-
+    # assigned aliases, leftovers from a previous run). Leaving them behind
+    # keeps their /32 lo0 route around and can block macOS from installing
+    # one for STATIC_IP.
+    for ip in $(ifconfig "$ETHERNET_IF" | awk '/inet /{print $2}' | grep "^$SUBNET\." || true); do
+        if [ "$ip" != "$STATIC_IP" ]; then
+            echo_info "Removing stale IP $ip from $ETHERNET_IF"
+            sudo ifconfig "$ETHERNET_IF" -alias "$ip" 2>/dev/null || true
+        fi
+    done
+
+    # Ensure STATIC_IP is present AND has the /32 lo0 route macOS uses for
+    # source-address selection. That route is normally installed automatically
+    # when the address is added — but `ifconfig <if> <ip>` used as a replace-
+    # in-place can skip it, leaving `connect(STATIC_IP)` from this host failing
+    # with EADDRNOTAVAIL. Detect the miss and force a clean -alias/inet cycle.
+    if ! netstat -rn -f inet | grep -qE "^$STATIC_IP[[:space:]].*lo0"; then
+        echo_info "Assigning $STATIC_IP to $ETHERNET_IF"
+        sudo ifconfig "$ETHERNET_IF" -alias "$STATIC_IP" 2>/dev/null || true
+        sudo ifconfig "$ETHERNET_IF" inet "$STATIC_IP" netmask 255.255.255.0
+        sudo route -n add -net "$SUBNET.0/24" "$STATIC_IP" >/dev/null 2>&1 || true
     fi
+
+    # Sweep any stale lo0-scoped host routes for other subnet IPs (leftovers
+    # from prior DHCP leases). Keeps the routing table tidy.
+    while read -r stale; do
+        [ -z "$stale" ] && continue
+        [ "$stale" = "$STATIC_IP" ] && continue
+        echo_info "Cleaning stale lo0 route for $stale"
+        sudo route delete -host "$stale" >/dev/null 2>&1 || true
+    done < <(netstat -rn -f inet | awk -v s="$SUBNET" '$1 ~ "^"s"\\." && $NF == "lo0" {print $1}')
 
     MAC_IP="$STATIC_IP"
     echo_info "Detected interface: $ETHERNET_IF ($MAC_IP)"
@@ -146,17 +188,68 @@ check_deno() {
 # performance requires a real Let's Encrypt cert (server.ts also fails loud, but
 # we check here too so the error arrives before sudo prompts).
 check_cert() {
-    if [ ! -f "$PROJECT_DIR/cert.pem" ] || [ ! -f "$PROJECT_DIR/key.pem" ]; then
-        echo_error "performance mode needs a real TLS cert (cert.pem + key.pem)."
-        echo_error "Use './start-macos.sh workshop' for an auto-generated self-signed cert,"
-        echo_error "or obtain a Let's Encrypt cert for local.assembly.fm."
+    resolve_cert_path
+    if [ -z "$CERT_PATH" ]; then
+        echo_error "performance mode needs a real TLS cert."
+        echo_error "  Looked for (in order):"
+        echo_error "    $LE_CERT"
+        echo_error "    $REPO_CERT (repo-root fallback)"
+        echo_error "  Get one with: ./start-macos.sh renew"
+        echo_error "  Or use './start-macos.sh workshop' for an auto-generated self-signed cert."
         exit 1
     fi
+
+    # openssl -checkend needs a readable file; root-owned letsencrypt files
+    # require sudo (already cached by the performance branch's `sudo -v`).
+    local pfx=""; [ -r "$CERT_PATH" ] || pfx="sudo -n"
+
+    # rustls will happily serve an expired cert; browsers won't. Fail before startup.
+    if ! $pfx openssl x509 -checkend 0 -noout -in "$CERT_PATH" > /dev/null 2>&1; then
+        local expiry=$($pfx openssl x509 -enddate -noout -in "$CERT_PATH" | cut -d= -f2)
+        echo_error "$CERT_PATH is expired (notAfter: $expiry)."
+        echo_error "Every browser will reject the connection. Renew with: ./start-macos.sh renew"
+        exit 1
+    fi
+
+    # Warn well before load-in — DNS-01 renewal needs internet + registrar access.
+    if ! $pfx openssl x509 -checkend $((7*86400)) -noout -in "$CERT_PATH" > /dev/null 2>&1; then
+        local expiry=$($pfx openssl x509 -enddate -noout -in "$CERT_PATH" | cut -d= -f2)
+        echo_warn "$CERT_PATH expires within 7 days (notAfter: $expiry). Renew soon."
+    fi
+    echo_info "cert:  $CERT_PATH"
 }
 
 check_dnsmasq() {
     if [ ! -f "$DNSMASQ_BIN" ]; then
         echo_error "dnsmasq not found. Install with: brew install dnsmasq"
+        exit 1
+    fi
+}
+
+renew_cert() {
+    if ! command -v certbot &> /dev/null; then
+        echo_error "certbot not found. Install with: brew install certbot"
+        exit 1
+    fi
+
+    echo_info "Renewing Let's Encrypt cert for $HOST_DOMAIN via DNS-01."
+    echo_info "You will be prompted to add a TXT record at your DNS registrar."
+    echo_info "  Host:  _acme-challenge.$(echo "$HOST_DOMAIN" | cut -d. -f1)"
+    echo_info "  (i.e. leave off the trailing '.$(echo "$HOST_DOMAIN" | cut -d. -f2-)' — most registrars append it)"
+    echo ""
+
+    sudo certbot certonly --manual --preferred-challenges dns -d "$HOST_DOMAIN"
+
+    # Confirm the new cert with its notAfter — server + start-macos.sh now read
+    # /etc/letsencrypt/live directly, so no copy step is needed.
+    if [ -r "$LE_CERT" ] || sudo -n test -r "$LE_CERT" 2>/dev/null; then
+        local pfx=""; [ -r "$LE_CERT" ] || pfx="sudo -n"
+        local expiry=$($pfx openssl x509 -enddate -noout -in "$LE_CERT" | cut -d= -f2)
+        echo ""
+        echo_info "✓ cert at $LE_CERT (notAfter: $expiry)"
+        echo_info "Ready. Start the show with: ./start-macos.sh performance"
+    else
+        echo_error "Cert not found at $LE_CERT after renewal — check certbot output above."
         exit 1
     fi
 }
@@ -272,6 +365,10 @@ case "$MODE_ARG" in
         ;;
     performance)
         check_deno
+        # Front-load sudo so check_cert can probe root-owned letsencrypt paths
+        # non-interactively. Performance mode always needs sudo (ports 80/443,
+        # dnsmasq); this just moves the prompt earlier in the pipeline.
+        sudo -v
         check_cert
         check_dnsmasq
         detect_network
@@ -300,12 +397,15 @@ case "$MODE_ARG" in
         check_dnsmasq
         start_dns
         ;;
+    renew)
+        renew_cert
+        ;;
     status)
         show_status
         ;;
     *)
         echo_error "Unknown mode: $MODE_ARG"
-        echo "Usage: ./start-macos.sh [practice|workshop|performance|dns|status] [--watch]"
+        echo "Usage: ./start-macos.sh [practice|workshop|performance|renew|dns|status] [--watch]"
         exit 1
         ;;
 esac

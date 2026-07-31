@@ -100,6 +100,25 @@ function cosineShape(t, duty, curve) {
   return Math.pow(base, curve);
 }
 
+// mulberry32 — small deterministic PRNG. Given the same seed, produces the
+// same sequence of floats in [0, 1). Adequate for a Fisher-Yates shuffle.
+function seededShuffle(arr, seed) {
+  const out = [...arr];
+  let s = (seed | 0) || 1;
+  const rand = () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = s ^ s >>> 15;
+    t = Math.imul(t, 1 | t);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 // --- Box state creation ---
 
 function createBoxState(type, args, instanceIndex, instanceCount) {
@@ -133,6 +152,12 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { value: parseFloat(args) || 0 };
     case "map":
       return { table: (args || "0").split(/\s+/).map(Number) };
+    case "shuffle": {
+      const parsed = parseFloat(args);
+      // With an explicit seed, deterministic (same input → same permutation).
+      // Without, `hasSeed` is false and each pass rolls a fresh random seed.
+      return Number.isFinite(parsed) ? { seed: parsed | 0, hasSeed: true } : { hasSeed: false };
+    }
     case "change":
       return { prev: undefined };
     case "toggle":
@@ -911,6 +936,17 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
     return { updates, deferEvent: false };
   }
 
+  // Shuffle: Fisher-Yates over a copy. If a seed was declared in args, uses it
+  // every pass (deterministic). If not, rolls a fresh seed each pass (musical
+  // reshuffle-on-each-array).
+  if (node.type === "shuffle") {
+    const st = node.state || {};
+    const seed = st.hasSeed ? st.seed : (Math.random() * 0x100000000) | 0;
+    const out = Array.isArray(value) ? seededShuffle(value, seed) : value;
+    mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, out));
+    return { updates, deferEvent: false };
+  }
+
   // Change: only propagate when value differs from previous.
   if (node.type === "change") {
     if (node.state && value !== node.state.prev) {
@@ -934,7 +970,7 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
 
 if (typeof exports === "object") Object.assign(exports, {
   expandIntegerNotation, SIG_BEHAVIOURS, createSigState, advanceSig,
-  sigmoidShape, cosineShape,
+  sigmoidShape, cosineShape, seededShuffle,
   createBoxState, evaluatePure, evaluateStateful,
   handleBoxEvent, tickBox,
   isEventTrigger, firesEvent, isHotInlet, isEventOutlet, parseValues,

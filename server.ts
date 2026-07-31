@@ -17,14 +17,19 @@ import {
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
 
-const CERT_FILE = "cert.pem";
-const KEY_FILE = "key.pem";
 // Workshop self-signed cert — distinct filenames so generation can never
-// clobber the real Let's Encrypt cert.pem/key.pem (reserved for performance).
+// clobber a hand-copied Let's Encrypt pair sitting in the repo root.
 const SELF_CERT_FILE = "cert.selfsigned.pem";
 const SELF_KEY_FILE = "key.selfsigned.pem";
+// Repo-root fallback pair — used when no certbot install is present (e.g.
+// hand-copied onto a router). Not the primary source anymore.
+const CERT_FALLBACK = "cert.pem";
+const KEY_FALLBACK = "key.pem";
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.24";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
+// certbot's live paths — preferred so renewal is zero-copy.
+const LE_CERT = `/etc/letsencrypt/live/${HOST_DOMAIN}/fullchain.pem`;
+const LE_KEY = `/etc/letsencrypt/live/${HOST_DOMAIN}/privkey.pem`;
 // WiFi creds for the join QR / banner (defaults match the performance rig).
 const WIFI_SSID = Deno.env.get("WIFI_SSID") || "assembly";
 const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "assembly";
@@ -117,16 +122,19 @@ initEvalEngine({
 });
 initHardware({ setBoxValueAndNotify, sendCtrl, event, boxTypeName, getBoxDef });
 
-// --- TLS cert check ---
+// --- TLS cert resolution ---
+// Prefer certbot's live paths (zero-copy renewal); fall back to the repo-root
+// pair for hosts without certbot. Returns null if neither pair is readable.
 
-async function hasCerts(): Promise<boolean> {
-  try {
-    await Deno.stat(CERT_FILE);
-    await Deno.stat(KEY_FILE);
-    return true;
-  } catch {
-    return false;
+async function resolveLetsEncryptCert(): Promise<{ cert: string; key: string } | null> {
+  for (const pair of [{ cert: LE_CERT, key: LE_KEY }, { cert: CERT_FALLBACK, key: KEY_FALLBACK }]) {
+    try {
+      await Deno.stat(pair.cert);
+      await Deno.stat(pair.key);
+      return pair;
+    } catch { /* try next */ }
   }
+  return null;
 }
 
 // --- Static file serving ---
@@ -1072,15 +1080,47 @@ const isMacOS = Deno.build.os === "darwin";
 // workshop generates a self-signed one once; practice serves plain HTTP.
 let cert: string | undefined;
 let key: string | undefined;
+let certSource: string | null = null;
 if (cfg.certKind === "letsencrypt") {
-  if (!(await hasCerts())) {
+  const paths = await resolveLetsEncryptCert();
+  if (!paths) {
     console.error("\x1b[31m✗ performance mode requires a real TLS cert.\x1b[0m");
-    console.error(`  Missing ${CERT_FILE} and/or ${KEY_FILE} — a Let's Encrypt cert for ${HOST_DOMAIN}.`);
-    console.error("  Use workshop mode for an auto-generated self-signed cert, or see notes/network-and-modes.md.");
+    console.error(`  Looked for (in order):`);
+    console.error(`    ${LE_CERT}`);
+    console.error(`    ./${CERT_FALLBACK} (repo-root fallback)`);
+    console.error(`  Get one with: ./start-macos.sh renew`);
     Deno.exit(1);
   }
-  cert = await Deno.readTextFile(CERT_FILE);
-  key = await Deno.readTextFile(KEY_FILE);
+  cert = await Deno.readTextFile(paths.cert);
+  key = await Deno.readTextFile(paths.key);
+  certSource = paths.cert;
+
+  // Defense-in-depth for callers that bypass start-macos.sh (raw `deno run …`).
+  // rustls happily serves expired certs; browsers reject client-side. openssl is
+  // a fair assumption on any host that already has a Let's Encrypt cert.
+  const checkend = (sec: number) => new Deno.Command("openssl", {
+    args: ["x509", "-checkend", String(sec), "-noout", "-in", paths.cert],
+    stdout: "null", stderr: "null",
+  }).output();
+  const notAfter = async () => {
+    const o = await new Deno.Command("openssl", {
+      args: ["x509", "-enddate", "-noout", "-in", paths.cert],
+      stdout: "piped", stderr: "null",
+    }).output();
+    return new TextDecoder().decode(o.stdout).trim().replace(/^notAfter=/, "");
+  };
+  try {
+    if (!(await checkend(0)).success) {
+      console.error(`\x1b[31m✗ ${paths.cert} expired (notAfter: ${await notAfter()}).\x1b[0m`);
+      console.error("  Every browser will reject the connection. Renew with: ./start-macos.sh renew");
+      Deno.exit(1);
+    }
+    if (!(await checkend(7 * 86400)).success) {
+      console.warn(`\x1b[33m⚠ ${paths.cert} expires within 7 days (${await notAfter()}). Renew soon.\x1b[0m`);
+    }
+  } catch {
+    // openssl missing — shell wrapper covers macOS; on other hosts, operator's call.
+  }
 } else if (cfg.certKind === "self-signed") {
   const exists = (p: string) => Deno.stat(p).then(() => true).catch(() => false);
   if (!((await exists(SELF_CERT_FILE)) && (await exists(SELF_KEY_FILE)))) await genSelfSignedCert();
@@ -1137,11 +1177,18 @@ const appHost = MODE === "performance" ? HOST_DOMAIN : MODE === "workshop" ? (la
 const portSuffix = cfg.appPort === 443 ? "" : `:${cfg.appPort}`;
 const base = `${scheme}://${appHost}${portSuffix}`;
 const lanNote = MODE === "performance" && lanIP && lanIP !== HOST_IP ? `\n  \x1b[90mLAN IP:   ${lanIP}\x1b[0m` : "";
+const certNote = certSource ? `\n  \x1b[90mcert:     ${certSource}\x1b[0m` : "";
+// Operator click-target on the same host as the server. Loopback sidesteps
+// two MBP-local issues: (1) dnsmasq binds to en6:53, macOS resolver doesn't
+// query it; (2) after a DHCP→static IP swap, en6's own IP has no lo0 alias,
+// so outbound connections to it fail with EADDRNOTAVAIL. Expect a one-time
+// cert warning (SAN is local.assembly.fm, not 127.0.0.1).
+const opNote = MODE === "performance" ? `\n  \x1b[90mop:       https://127.0.0.1/ctrl.html\x1b[0m` : "";
 const banner = `
   \x1b[1mlocal.assembly.fm\x1b[0m  \x1b[90m[${MODE}]\x1b[0m
   synth:    ${base}/
   ctrl:     ${base}/ctrl.html
-  ensemble: ${base}/ensemble.html${lanNote}
+  ensemble: ${base}/ensemble.html${lanNote}${certNote}${opNote}
 `;
 console.log(banner);
 
