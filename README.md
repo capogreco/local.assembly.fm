@@ -13,14 +13,6 @@ This is a personal instrument under active development — built by and for one 
 - A captive portal that pops the synth client open automatically when phones join the WiFi.
 - Hardware control surfaces: Monome Grid/Arc, MIDI keyboards, BBC2 breath/bite/head controller — all hot-pluggable.
 
-
-## What it isn't
-
-- **There is no inter-client clock sync.** Phones render on their own AudioContext clocks. The server sends control messages; each phone applies them when they arrive. Timing drift between phones is part of the sound, not a bug to fix.
-- **It does not work over the public internet.** The whole point is a local-only LAN: ~100 phones, two access points, no ISP. Round-trip latency on a local 5 GHz network is small enough that control feels immediate.
-- **It is not a multi-user editor.** One performer, one ctrl client, one patch at a time.
-
-
 ## Architecture
 
 ```mermaid

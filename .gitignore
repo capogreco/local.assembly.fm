@@ -1,6 +1,6 @@
 *.pem
 .DS_Store
 **/.DS_Store
-reference/impulse_responses/
+reference/
 node_modules/
 onboarding/
