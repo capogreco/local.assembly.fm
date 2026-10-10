@@ -238,7 +238,11 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
     case "spigot":
       return {};
     case "held":
-      return { pitches: [] };
+      // Optional arg: release window (s). Released notes linger in the array
+      // for the window; if every key is up before it elapses, the array never
+      // shrinks (chord release lands as one chunk).
+      const window = parseFloat(args) || 0;
+      return window > 0 ? { pitches: [], down: [], pending: [], window } : { pitches: [] };
     case "pad": {
       // Empty array = no pitch filter (forward pitch/vel on press).
       // Non-empty = per-pitch event outlets, one per arg.
@@ -439,8 +443,30 @@ function handleBoxEvent(type, state, iv) {
       const pitch = iv[0];
       const velocity = iv[1];
       if (typeof pitch !== "number") return null;
-      const idx = state.pitches.indexOf(pitch);
       const outputs = [];
+      if (state.window > 0) {
+        if (velocity > 0) {
+          if (state.down.includes(pitch)) return null;
+          // first key from silence: drop the lingering previous chord
+          if (state.down.length === 0) { state.pitches = []; state.pending = []; }
+          state.pending = state.pending.filter(p => p.pitch !== pitch);
+          state.down.push(pitch);
+          if (!state.pitches.includes(pitch)) state.pitches.push(pitch);
+          outputs.push({ outlet: 1, value: null, type: "event" });
+          outputs.push({ outlet: 0, value: [...state.pitches], type: "value" });
+        } else {
+          const d = state.down.indexOf(pitch);
+          if (d === -1) return null;
+          state.down.splice(d, 1);
+          outputs.push({ outlet: 2, value: null, type: "event" });
+          // all keys up inside the window: keep the chord, cancel removals
+          if (state.down.length === 0) state.pending = [];
+          else state.pending.push({ pitch, remaining: state.window });
+        }
+        outputs.push({ outlet: 3, value: state.down.length, type: "value" });
+        return { value: 0, propagate: false, outputs };
+      }
+      const idx = state.pitches.indexOf(pitch);
       if (velocity > 0) {
         if (idx === -1) {
           state.pitches.push(pitch);
@@ -508,6 +534,17 @@ function handleBoxEvent(type, state, iv) {
 
 function tickBox(type, state, iv, dt) {
   switch (type) {
+    case "held": {
+      if (!state.pending || state.pending.length === 0) return null;
+      let removed = false;
+      for (const p of state.pending) p.remaining -= dt;
+      for (const p of state.pending.filter(p => p.remaining <= 0)) {
+        state.pitches = state.pitches.filter(x => x !== p.pitch);
+        removed = true;
+      }
+      state.pending = state.pending.filter(p => p.remaining > 0);
+      return removed ? { value: [...state.pitches], events: [] } : null;
+    }
     case "lfo": {
       const period = iv[0] > 0 ? iv[0] : state.period;
       state.phase += dt / period;

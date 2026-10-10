@@ -1,7 +1,7 @@
 /**
  * LFO — audio-rate sine oscillator for modulation.
  * Output: single channel, unipolar (0–1) or bipolar (−1–1).
- * Controlled via message port: { type: "params", period, bipolar }
+ * Controlled via message port: { bipolar, phase }
  */
 class LFOProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
@@ -16,6 +16,7 @@ class LFOProcessor extends AudioWorkletProcessor {
     this.bipolar = false;
     this.port.onmessage = (e) => {
       if (e.data.bipolar !== undefined) this.bipolar = !!e.data.bipolar;
+      if (e.data.phase !== undefined) this.phase = e.data.phase;
     };
   }
 

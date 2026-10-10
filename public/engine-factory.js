@@ -31,6 +31,7 @@ const SIGNAL_WORKLETS = {
   "trig~":    { module: "trig-processor.js",    worklet: "trig-processor" },
   "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
   "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
+  "noise~-pink-worklet": { module: "pink-noise-processor.js", worklet: "pink-noise-processor" },
 };
 
 const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~"]);
@@ -93,7 +94,7 @@ async function createNativeNode(ctx, modulesLoaded, type, args, specialHandler) 
     node.start();
     paramMap = { frequency: node.frequency, detune: node.detune };
   } else if (type === "noise~") {
-    const def = SIGNAL_WORKLETS["noise~-worklet"];
+    const def = SIGNAL_WORKLETS[tokens[0] === "pink" ? "noise~-pink-worklet" : "noise~-worklet"];
     if (!modulesLoaded.has(def.module)) {
       await ctx.audioWorklet.addModule(def.module);
       modulesLoaded.add(def.module);
@@ -164,6 +165,10 @@ async function createSignalWorklet(ctx, modulesLoaded, type, args) {
   // Set initial values from args
   if (type === "lfo~") {
     if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
+    node.port.postMessage({
+      bipolar: tokens.includes("bipolar"),
+      ...(tokens.includes("random") && { phase: Math.random() }),
+    });
   } else if (type === "phasor~") {
     if (tokens[0]) node.parameters.get("period")?.setValueAtTime(parseFloat(tokens[0]), 0);
   } else if (type === "ar~") {

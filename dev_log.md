@@ -2199,3 +2199,41 @@ trace events; cross-correlate timestamps. Write findings as a
 "Measured results" section in `notes/server-timing-runtime-analysis.md`.
 The instrumentation is harmless and can stay; activates only with the
 env var.
+
+## 2026-10-10 — cute-sine_keys: MPK mini patch for the Hugh F house show
+
+New patch `patches/cute-sine_keys.json`: MPK mini → `held 0.15` →
+`assign` → per-phone `cute-sine~` with a gated AR (`adsr~` d≈0, s=1:
+attack on the first key from silence, release when the last key lifts).
+Knobs pair vertically: K1/K5 attack/release, K2/K6 vibrato width/rate,
+K3 brightness, K4 portamento, K7 vibrato-rate diversity, K8 volume.
+Pad 43 (same as frogs) toggles pink noise at 0.1 for calibrating phone
+volume at the start of a set.
+
+- **Portamento only while keys are held** — `gate hot` multiplies the
+  portamento value by (count > 0). `held` emits its array before its
+  count, so a note from silence reaches the phone with portamento 0,
+  then portamento is restored. First note of a phrase is just the note.
+- **Linear vibrato** — freq = mtof(pitch) · (1 + w·lfo), not
+  pitch-domain. Exponential (semitone) FM shifts the mean Hz upward, so
+  fast rates made notes read sharp; linear keeps the mean on f0. Width
+  is a fraction (0–±6%).
+- **Vibrato-rate diversity** — K7 sets K = 1..6; each phone draws fixed
+  `range 0 1` values for numerator and denominator, n,d = floor(u·K)+1,
+  rate = base · n/d. Stable draws: turning the knob steps phones, never
+  reshuffles. Rate changes glide via `sig~` on the period, using the
+  (ungated) portamento time.
+
+Engine changes:
+
+- **`noise~ pink`** — new `pink-noise-processor.js` (Paul Kellet's
+  refined filter, ×0.11 → peak ≈0.84, RMS ≈0.19).
+- **`lfo~` bipolar fix** — the factory never posted `bipolar` to the
+  worklet, so every `lfo~` ran unipolar. Now posted at creation. New
+  `random` arg starts each instance at a random phase.
+- **`held [window]`** — optional release window (s). Released notes
+  stay in the array for the window; if every key is up before it
+  elapses, the array keeps the last chord, so each phone's release tail
+  stays on its own note when a chord is let go with ragged fingers.
+  Count still drops immediately (gate closes on the last key). Plain
+  `held` is unchanged (propagation snapshots pass).

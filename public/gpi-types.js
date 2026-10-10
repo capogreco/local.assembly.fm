@@ -35,7 +35,7 @@ const BOX_TYPES = {
                     inlets: [{ name: "pitch", type: "number", description: "Note number" },
                              { name: "velocity", type: "number", firesEvent: true, description: ">0 fires, 0 blocked" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Pitch/velocity on press (no-arg) or per-pitch null event (with args)" }] },
-  held:           { zone: "ctrl", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity).",
+  held:           { zone: "ctrl", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity). Optional release window (s): released notes stay in the array for the window, and if all keys are up before it elapses the array keeps the last chord (count still drops immediately).", args: "[window]", example: "held 0.15",
                     inlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
                       { name: "velocity", type: "number", firesEvent: true, description: ">0 adds pitch to set; 0 removes" }],
@@ -483,7 +483,7 @@ const BOX_TYPES = {
                       { name: "frequency", type: "number", description: "Frequency in Hz" },
                       { name: "detune", type: "number", description: "Detune in cents" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio signal" }] },
-  "lfo~":         { zone: "any", description: "Audio-rate LFO. Unipolar (0-1) or bipolar (-1 to 1).", args: "period [bipolar]", example: "lfo~ 4",
+  "lfo~":         { zone: "any", description: "Audio-rate LFO. Unipolar (0-1) or bipolar (-1 to 1). Append 'random' to start at a random phase (per instance).", args: "period [bipolar] [random]", example: "lfo~ 4 bipolar random",
                     inlets: [
                       { name: "period", type: "number", description: "Cycle period in seconds" }],
                     outlets: [{ name: "out", type: "audio", description: "LFO signal" }] },
@@ -491,7 +491,7 @@ const BOX_TYPES = {
                     inlets: [
                       { name: "period", type: "number", description: "Cycle period in seconds" }],
                     outlets: [{ name: "out", type: "audio", description: "Ramp signal" }] },
-  "noise~":       { zone: "any", description: "White noise source.",
+  "noise~":       { zone: "any", description: "Noise source. White by default; arg `pink` for -3 dB/octave pink noise.", args: "[pink]", example: "noise~ pink",
                     inlets: [],
                     outlets: [{ name: "out", type: "audio", description: "Noise signal" }] },
   "ar~":          { zone: "any", description: "Audio-rate attack-release envelope.", args: "attack release", example: "ar~ 0.01 0.3",

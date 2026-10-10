@@ -54,7 +54,7 @@ graph TD
 Patches are graphs of typed boxes joined by cables. Each box has inlets, outlets, and a zone.
 
 - **ctrl zone** runs on the server. Sources (`breath`, `bite`, `key`, `arc`, `cc`, `grid-*`), event generators (`metro`, `delay`), value-on-trigger boxes (`sig`, `sequence`, `counter`, `drunk`, `spread`), reactive math (`+`, `-`, `*`, `/`, `scale`, `clip`, `mtof`, `quantize`, `pow`, `sample-hold`, `gate`).
-- **synth zone** runs on clients. Envelopes (`adsr`, `ar`, `ramp`), smoothers (`slew`, `lag`, `inertia`, `follow`), oscillators (`phasor`, `sine`, `tri`), engines (`formant~`, `ks~`, `swarm~`, `chaos~`, `cosine~`, `sigmoid~`, `frog~`, `ewing~`, `noise~`, `cute-sine~`), effects (`conv~`).
+- **synth zone** runs on clients. Envelopes (`adsr`, `ar`, `ramp`), smoothers (`slew`, `lag`, `inertia`, `follow`), oscillators (`phasor`, `sine`, `tri`), engines (`formant~`, `ks~`, `swarm~`, `chaos~`, `cosine~`, `sigmoid~`, `frog~`, `ewing~`, `noise~` (white, or `noise~ pink`), `cute-sine~`), effects (`conv~`).
 - **router zone** sits on the border between ctrl and synth: `all`, `one`, `sweep`, `fraction`, plus voice-allocation routers like `assign`.
 
 ### The border rule
