@@ -711,6 +711,9 @@ function handleCtrlWs(req: Request): Response {
         // freqs (outlet 0) trigger its reallocation.
         propagateAndNotify(msg.box, 1, msg.amps);
         propagateAndNotify(msg.box, 0, msg.freqs);
+      } else if (msg.type === "sampled") {
+        // sample-hold~ audio-to-control sample from the ctrl client.
+        propagateAndNotify(msg.box, 0, msg.value);
       } else if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }

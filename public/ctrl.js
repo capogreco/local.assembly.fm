@@ -31,7 +31,7 @@ let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
 
-const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~", "fftPeaks~"]);
+const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~", "fftPeaks~", "sample-hold~"]);
 
 async function initCtrlAudio() {
   if (ctrlAudioCtx) return;
@@ -61,6 +61,20 @@ async function adcHandler(ctx, type, args) {
              maxPeaks: parseInt(tokens[0]) || 33,
              minHz: parseFloat(tokens[1]) || 0,
              freqData: new Float32Array(analyser.frequencyBinCount), paramMap: {} };
+  }
+
+  // sample-hold~ — an AnalyserNode with minimum fftSize. On trigger we read the
+  // time-domain buffer and take the most recent sample. Zero-gain sink pulls it.
+  if (type === "sample-hold~") {
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 32; // smallest allowed; we only need the latest sample
+    analyser.smoothingTimeConstant = 0;
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    analyser.connect(sink);
+    sink.connect(ctx.destination);
+    return { type, node: analyser, analyser, out: sink,
+             timeData: new Float32Array(analyser.fftSize), paramMap: {} };
   }
 
   if (type !== "adc~") return null;
@@ -255,7 +269,16 @@ function handleCtrlAudioEvent(msg) {
   const engine = ctrlEngines.get(msg.boxId);
   if (!engine) return;
   if (engine.type === "fftPeaks~") { scanPeaks(engine, msg.boxId); return; }
+  if (engine.type === "sample-hold~") { sampleAudio(engine, msg.boxId); return; }
   (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
+}
+
+// sample-hold~ read: grab the most recent time-domain sample and send it up.
+// The server propagates it on the box's outlet.
+function sampleAudio(engine, boxId) {
+  engine.analyser.getFloatTimeDomainData(engine.timeData);
+  const value = engine.timeData[engine.timeData.length - 1];
+  send({ type: "sampled", box: boxId, value });
 }
 
 // fftPeaks~ scan: read the analyser's magnitude spectrum, pick the loudest local-maxima
