@@ -77,10 +77,29 @@ detect_network() {
 
     if [ -z "$found_if" ]; then
         echo_error "No interface found on $SUBNET.x subnet"
-        echo_error "Is the ethernet cable connected to the network hardware?"
         echo ""
         echo "Available interfaces with IPs:"
         ifconfig | grep -E "^[a-z]|inet " | grep -B1 "inet " | grep -v "^--$"
+
+        # A USB ethernet dongle that re-enumerates under a new BSD name leaves
+        # macOS's configured services bound to the old one (en5 -> en6 -> ...),
+        # so the interface never comes up and never gets a lease. That looks
+        # identical to an unplugged cable but is fixed in software — tell them
+        # apart instead of always blaming the cable.
+        if ioreg -p IOUSB -l -w 0 2>/dev/null | grep -qiE '"USB Product Name" = .*(LAN|Ethernet)'; then
+            echo ""
+            echo_warn "A USB ethernet device IS present on the bus:"
+            ioreg -p IOUSB -l -w 0 2>/dev/null | grep -iE '"USB Product Name" = .*(LAN|Ethernet)' | sed 's/.*= /  /'
+            echo_warn "If no network service is bound to its current interface name,"
+            echo_warn "macOS will not run DHCP on it. Configured services:"
+            networksetup -listnetworkserviceorder 2>/dev/null | grep -iE 'lan|ethernet|ax88' | sed 's/^/  /'
+            echo_warn "Fix: find the live interface in the list above, then"
+            echo_warn "  sudo networksetup -createnetworkservice \"assembly-eth\" <enN>"
+            echo_warn "  sudo networksetup -setdhcp \"assembly-eth\""
+        else
+            echo ""
+            echo_error "No USB ethernet device on the bus — check the dongle and cable."
+        fi
         exit 1
     fi
 

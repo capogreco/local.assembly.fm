@@ -821,7 +821,7 @@ function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
 // cfg.needsCaptivePortal (performance); in practice/workshop the probe paths
 // fall through to ordinary file serving, so the redirect simply doesn't exist.
 
-function appHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promise<Response> {
+function appHandler(req: Request, info: Deno.ServeHandlerInfo, insecure = false): Response | Promise<Response> {
   const url = new URL(req.url);
   const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
 
@@ -839,6 +839,16 @@ function appHandler(req: Request, info: Deno.ServeHandlerInfo): Response | Promi
   }
 
   if (url.pathname === "/auth") { authenticatedIPs.add(clientIP); return new Response("ok"); }
+
+  // The portal listener is plaintext. Never serve the app over it: AudioWorklet
+  // requires a secure context, so an http client connects, starts, and is
+  // silently inert (cost a set's worth of debugging at the 2026-10-10 show).
+  // The CNA probes above must still answer on http to trigger the portal.
+  if (insecure) {
+    const port = cfg.appPort === 443 ? "" : `:${cfg.appPort}`;
+    return Response.redirect(`https://${HOST_DOMAIN}${port}${url.pathname}${url.search}`, 302);
+  }
+
   if (url.pathname === "/events") return handleSSE(req, info);
   // route WebSocket by path
   if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -1205,7 +1215,7 @@ if (MODE !== "practice") {
 // performance: captive-portal HTTP listener + HTTPS app listener.
 try {
   if (cfg.portalPort !== null) {
-    Deno.serve({ port: cfg.portalPort, hostname: cfg.bindHost }, (req, info) => appHandler(req, info));
+    Deno.serve({ port: cfg.portalPort, hostname: cfg.bindHost }, (req, info) => appHandler(req, info, true));
   }
   if (cfg.certKind === "none") {
     Deno.serve({ port: cfg.appPort, hostname: cfg.bindHost }, (req, info) => appHandler(req, info));

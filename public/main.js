@@ -256,39 +256,50 @@ async function loadPatchForVoice(voice, patch) {
   }
   voice.engines.clear();
 
-  voice.graph = buildGraph({ ...patch, instanceIndex: voice.index, instanceCount: N });
+  // patchLoading gates voiceOnMessage, so it MUST be cleared on every exit: a
+  // throw in here used to leave it true forever, queueing every later message
+  // and leaving a connected, started, permanently silent client.
+  try {
+    voice.graph = buildGraph({ ...patch, instanceIndex: voice.index, instanceCount: N });
 
-  // Create all engines and effects (unconnected)
-  for (const [id, def] of voice.graph.engines) {
-    const engine = await createEngine(def.type, def.args);
-    if (engine) voice.engines.set(id, engine);
-  }
-
-  // Wire audio topology from patch audioCables (engines → effects → dac → destination)
-  buildAudioTopology(voice, patch);
-
-  // apply const box values to engines
-  for (const [engineId, engineDef] of voice.graph.engines) {
-    const engineNode = voice.graph.boxes.get(engineId);
-    if (!engineNode) continue;
-
-    const engine = voice.engines.get(engineId);
-    if (!engine) continue;
-
-    const params = {};
-    for (let i = 0; i < engineNode.inletValues.length; i++) {
-      const value = engineNode.inletValues[i];
-      if (value !== undefined) {
-        const paramName = engineDef.paramNames[i];
-        if (paramName) params[paramName] = value;
+    // Create all engines and effects (unconnected). One engine failing to load
+    // (e.g. addModule rejecting) shouldn't cost us the rest of the patch.
+    for (const [id, def] of voice.graph.engines) {
+      try {
+        const engine = await createEngine(def.type, def.args);
+        if (engine) voice.engines.set(id, engine);
+      } catch (err) {
+        console.error(`engine ${def.type} (box ${id}) failed to load:`, err);
       }
     }
 
-    if (Object.keys(params).length > 0) {
-      sendParams(engine, params);
+    // Wire audio topology from patch audioCables (engines → effects → dac → destination)
+    buildAudioTopology(voice, patch);
+
+    // apply const box values to engines
+    for (const [engineId, engineDef] of voice.graph.engines) {
+      const engineNode = voice.graph.boxes.get(engineId);
+      if (!engineNode) continue;
+
+      const engine = voice.engines.get(engineId);
+      if (!engine) continue;
+
+      const params = {};
+      for (let i = 0; i < engineNode.inletValues.length; i++) {
+        const value = engineNode.inletValues[i];
+        if (value !== undefined) {
+          const paramName = engineDef.paramNames[i];
+          if (paramName) params[paramName] = value;
+        }
+      }
+
+      if (Object.keys(params).length > 0) {
+        sendParams(engine, params);
+      }
     }
+  } finally {
+    voice.patchLoading = false;
   }
-  voice.patchLoading = false;
   for (const msg of voice.pendingMessages) voiceOnMessage(voice, msg);
   voice.pendingMessages = [];
 
@@ -670,5 +681,13 @@ document.addEventListener("visibilitychange", () => {
 if (btnMinus) btnMinus.addEventListener("click", () => { if (N > 1 && audioCtx) { N--; rebuild(); } });
 if (btnPlus) btnPlus.addEventListener("click", () => { if (N < 32 && audioCtx) { N++; rebuild(); } });
 
-overlay.addEventListener("touchend", (e) => { e.preventDefault(); handleStart(); }, { once: true });
-overlay.addEventListener("click", () => handleStart(), { once: true });
+// AudioWorklet only exists in a secure context, but `new AudioContext()` does
+// not — over plain http the overlay dismisses, the client connects, and the
+// failure only surfaces later as silence with nothing on screen. Say so up
+// front rather than letting anyone tap into a dead page.
+if (!window.isSecureContext) {
+  overlay.querySelector("span").textContent = "insecure origin — open via https";
+} else {
+  overlay.addEventListener("touchend", (e) => { e.preventDefault(); handleStart(); }, { once: true });
+  overlay.addEventListener("click", () => handleStart(), { once: true });
+}

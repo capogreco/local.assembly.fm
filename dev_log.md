@@ -2237,3 +2237,82 @@ Engine changes:
   stays on its own note when a chord is let go with ragged fingers.
   Count still drops immediately (gate closes on the last key). Plain
   `held` is unchanged (propagation snapshots pass).
+
+## 2026-10-10 — Hugh F house show: silent phones (port 80 serves the app)
+
+Lost ~40 minutes at the venue to phones that were WS-connected, had
+audio enabled, and made no sound. Root cause: **port 80 serves the full
+app over plain HTTP instead of redirecting to HTTPS.** Phones arriving
+via the captive-portal auto-pop therefore ran the synth in a
+non-secure context, where `AudioWorklet` does not exist. Fix at the
+venue was to re-open `https://local.assembly.fm/` explicitly — the
+`performance` QR already encodes the https URL, so scanning the poster
+is the reliable path and the auto-pop is the trap.
+
+The chain is nastier than it sounds because **every symptom lies**:
+
+- `new AudioContext()` succeeds over plain HTTP, so the "tap to start"
+  overlay disappears and the phone looks alive.
+- Only `audioWorklet.addModule()` fails. `createEngine` throws.
+- `loadPatch` (`main.js:263`) has no try/catch around
+  `await createEngine(...)`, so the throw escapes and
+  `voice.patchLoading = false` (line 291) never runs.
+- `patchLoading` stays `true` forever, so `voiceOnMessage` (line 316)
+  queues **every** subsequent message and processes none.
+
+Net result: a client that is connected, visually started, and
+permanently inert, with nothing on screen and nothing in the server
+log. The overlay's `"audio failed"` path can't fire either — it only
+catches a throw from `AudioContext` construction, not from engine
+creation.
+
+### Diagnostic dead ends (all cleared before the real cause)
+
+Worth recording because each looked plausible and cost time: cert
+expiry (real — renewed at 2026-10-10, expires 2027-01-08, but not the
+cause); the ethernet dongle (real — enumerated as a *new* interface
+name while macOS had services bound to the stale `en5`/`en6`, see the
+2026-05 entry on the same class of bug); worklet 404s or MIME problems
+(all eight files serve `200 application/javascript`); SSE-vs-WS
+transport asymmetry between phone and ensemble clients (both converge
+on WS at `connection.js:83`); and `assign` allocation staleness. The
+one clue that actually mattered — "the phones are on an unsecure
+connection" — came from looking at the phone's address bar.
+
+**The local ensemble client working fine was actively misleading.** It
+runs on the laptop over a trusted origin, so it proves the server,
+patch, synth graph, and CC values are all good while saying nothing
+about secure context on the phones. Next time, read the phone's URL
+scheme *first*.
+
+### Fixes (nothing was touched during the show; applied 2026-10-13)
+
+1. **Secure-context guard** — `main.js` now checks
+   `window.isSecureContext` before wiring the start listeners and puts
+   "insecure origin — open via https" on the overlay instead of letting
+   anyone tap into a dead page. This single check turns the 40-minute
+   hunt into five seconds.
+2. **`loadPatchForVoice` can no longer brick a voice** — the body is
+   wrapped so `patchLoading` is cleared in a `finally`, and each
+   `createEngine` has its own try/catch so one engine failing to load
+   costs only that engine (and logs which one) instead of the whole
+   patch.
+3. **Port 80 never serves the app** — `appHandler` takes an `insecure`
+   flag, passed only by the plaintext portal listener, and 302s
+   everything to https except the CNA probes (which must answer on http
+   to trigger the portal) and `/auth`.
+4. **`detect_network` stops blaming the cable** — on finding no
+   interface on the subnet it now checks the USB bus, and if an ethernet
+   device is present it prints the configured services plus the
+   `networksetup -createnetworkservice` fix. That's the third time the
+   dongle's BSD name churned out from under the saved service.
+
+### Also noted
+
+- `deployPatch()` calls `latestValues.clear()` (`server.ts:573`), so
+  applying a patch wipes every client's CC values until each knob is
+  swept. Fine to know; dangerous mid-set.
+- `assign` only reallocates on a new note array from `held`
+  (`eval-engine.ts:631-633`) and returns early on an empty one, so
+  phones joining between chords hold no voice until the next chord.
+  Not a bug, but it reads as one under pressure.
