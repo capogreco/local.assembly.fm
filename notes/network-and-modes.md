@@ -182,19 +182,151 @@ GIF cover posters/flyers/slides).
 
 ---
 
-## Hardware tiers
+## Hardware — radios, not tiers
 
-Two orthogonal axes: the *mode* (above) is about trust/audience; the *tier*
-below is about the AP. They combine freely.
+> Rewritten 2026-10-17. The previous version organised this by *what you buy*,
+> which is the least interesting variable and the one that dates fastest. What
+> actually varies is **radio count**.
 
-### Reproducibility tier (the lines on-ramp)
+### Plenum n, and which constraint is binding
 
-**GL.iNet Flint 2 (GL-MT6000), ~$130.** Ships *with* OpenWrt, so `hostapd` +
-`dnsmasq` are in `/etc/config` — the entire network contract becomes one UCI
-snippet a reader pastes in. WiFi 6, 8-stream MU-MIMO/OFDMA. Perfect for the 5–40
-phones a community member will actually have. Controller-free, cheap, portable.
+**Plenum n = min(what the radios hold, what the room holds).**
 
-### Performance tier (your ~100-phone shows)
+That gives the only distinction worth making:
+
+- **Radio-bound** — the gear is the limit. The apparatus is in the way of the
+  practice.
+- **Room-bound** — the architecture is the limit. The technology has got out of
+  the way.
+
+**The design goal for any configuration is to be room-bound.** The practice is
+about n, so the ceiling on n should be the assembly, not the equipment. This
+also makes "what should I buy" answerable for a given room, which "tier two"
+never was.
+
+### The topology, which never changes
+
+```
+[laptop] ──ethernet──> [router · LAN port]
+                            ⋮
+                         WiFi ))) phones
+                       [WAN port — empty, deliberately]
+```
+
+**The laptop is always wired.** Not primarily for reliability (though at any
+real n it stops the server contending for airtime with the audience it is
+serving) but because the cable makes the architecture legible: there is a
+server, it is separate from the audience, and the line between them is visible
+in the room. Joining over WiFi collapses the server into the cloud of clients
+and hides the structure — exactly the frictionlessness this practice argues
+against. The unplugged WAN port is the same argument in the same register: an
+empty socket where the internet would go.
+
+Adding radios does not change this shape. That is what makes it teachable.
+
+### The rungs
+
+| Radios | What's added | Plenum n |
+|---|---|---|
+| 0 | nothing — **ensemble client**, simulated n | unbounded; no bodies |
+| 0 | **borrowed WiFi** (venue, home) | whatever that AP holds — *and see the warning* |
+| 1 | router only; laptop wired to LAN | **unmeasured** |
+| 2 | + 1 AP in dumb-AP mode (spare LAN port, *or* a switch) | **unmeasured** |
+| 3+ | + switch + APs | room-bound, eventually |
+
+**Every figure in the right-hand column is unknown.** No spec sheet states
+client capacity, and it is the only number that decides any of this. The tier
+language we used before hid that behind confident labels. Measuring these is
+the first hardware task, and the measurement is a workshop — the ensemble
+client exercises the server, not the radio, so real handsets are the only
+instrument for it.
+
+#### Rung 0a — the ensemble client is the real ground floor
+
+Simulated n, no network, no purchase. It decouples *development* from
+*assembly*: nobody should have to gather twenty people to test a patch. For the
+community launch this is the difference between "learn this by putting on a
+show" and "learn this alone on a Tuesday night." Treat it as a headline
+feature, not a debug utility.
+
+#### Rung 0b — borrowed WiFi, and why it bites
+
+Workshop mode tolerates any LAN IP, needs no DNS hijack and no captive portal,
+so five people at a friend's house works on their home router with nothing
+bought. The server is on the laptop, in the room: this is squarely the **local**
+register, no asterisk.
+
+The problem is not conceptual, it is that **you do not control that AP**:
+
+- **Client isolation** — the big one. Guest and venue networks very often
+  prevent WiFi clients from reaching each other. This does not degrade the
+  instrument, it breaks it outright: phones cannot see the laptop at all.
+  **First thing to test on arriving anywhere.**
+- No control of DHCP, so the laptop's address can move between sessions
+- Possible port filtering
+- A live uplink, so phones have internet and the captive portal is meaningless
+
+Borrowed WiFi is a genuine rung and it works right up until it doesn't.
+
+#### Rungs 1–2 — the reference rig
+
+| Item | Note |
+|---|---|
+| Laptop | browser + Deno; serves from the router's LAN |
+| USB-C ethernet adapter | see the warning below |
+| Ethernet cable | laptop → router **LAN** port |
+| OpenWrt travel router | the first radio |
+| *(second AP, later)* | another GL.iNet box in **dumb-AP mode** |
+
+The growth path from one radio to two is deliberately "buy another one of the
+same box": self-powered over USB-C, same OpenWrt, same UCI idiom, no PoE, no
+controller, no second vendor. Dumb AP = DHCP off, LAN bridged, same SSID,
+different channel. (Standard OpenWrt configuration, and GL.iNet exposes an
+Access Point mode in their UI — **not yet verified on hardware**.)
+
+A **Slate AX** base makes that upgrade switchless, since the laptop takes LAN 1
+and the second AP takes LAN 2. A **Beryl AX** base has better range and costs
+less but needs a switch to add the second radio. The two paths land within a
+couple of dollars of each other; the Slate path has one fewer box on the table,
+the Beryl path has better range on both radios.
+
+**Which is right depends on a measurement that doesn't exist yet.** If one
+radio holds 30 phones, most practitioners never need a second and the cheaper,
+longer-range box wins. If it holds 12, everyone needs the growth path and it
+should be frictionless. Buy both to test; document whichever the data supports.
+
+> **The cost of dropping PoE.** PoE exists because APs go where power doesn't.
+> USB-C-powered APs need a mains socket within reach of wherever you want the
+> radio — so socket placement constrains AP placement, which constrains
+> coverage, which constrains plenum n. This is invisible on a spec sheet and
+> obvious in a room. It probably doesn't matter with one or two radios near the
+> performer; it will matter at 100 people in an awkward room. This is the real
+> argument for keeping the PoE path documented below rather than deprecating it.
+
+#### Warning: the USB ethernet adapter
+
+Making wired the ground floor means every practitioner is on a dongle, so the
+dongle failure mode becomes everyone's. A USB ethernet adapter that
+re-enumerates under a new BSD name leaves macOS's configured network services
+bound to the old one (`en5` → `en6` → …), so the interface never comes up and
+never gets a lease. **This presents identically to an unplugged cable** and has
+cost real time at least three times (see `dev_log.md`).
+
+- `detect_network` in `start-macos.sh` now checks the USB bus for this case and
+  prints the `networksetup -createnetworkservice` remedy instead of blaming the
+  cable. That diagnostic is load-bearing for the community tier.
+- Recommend an **ASIX AX88179 / AX88179A**-class adapter — about as widely
+  supported as USB ethernet gets.
+- Document that the interface name *will* change between sessions and that this
+  is normal, not a fault.
+
+### Many radios — the PoE path (your ~100-phone shows)
+
+Above two or three radios the siting problem above becomes binding, and PoE
+stops being legacy baggage and starts being the reason the rig works: one cable
+carries data *and* power to wherever the radio needs to be. This is the tier
+where the current rig's architecture is correct and the travel-router path runs
+out.
 
 **Split across 2+ APs — don't trust one box.** The honest density picture:
 Meraki's own high-density guidance caps WiFi 6 APs at ~75–100 clients per radio
@@ -211,8 +343,20 @@ Either kills the UniFi-controller dependency (U6+ won't broadcast an SSID until
 adopted — see `dev_log.md`). UniFi's only real advantage was density, which you
 were already solving with *two* APs.
 
+That dependency is worth naming as more than an inconvenience. A stock U6+ is
+**inert until the vendor's software blesses it** — no standalone web UI, no
+SSID, nothing, until a controller adopts it. You can self-host that controller,
+so it isn't cloud-dependency exactly; but a device you have bought and cannot
+use without running the manufacturer's program is rented in everything but
+invoice. For a register whose entire claim is infrastructural autonomy, that is
+a contradiction sitting in the rack. The OpenWrt path is not merely cheaper and
+easier to document — it is the only one coherent with what the local register
+is *for*.
+
 ### Sources
 
+- [GL.iNet Beryl AX (GL-MT3000)](https://store.gl-inet.com/products/beryl-ax-gl-mt3000-pocket-sized-wi-fi-6-wireless-travel-gigabit-router) — the ground-floor pick
+- [Slate AX vs Beryl AX comparison (RTINGS)](https://www.rtings.com/router/tools/compare/gl-inet-slate-ax-gl-axt1800-vs-gl-inet-beryl-ax-gl-mt3000/42772/42784) — port counts, range
 - [GL.iNet Flint 2 (GL-MT6000)](https://store.gl-inet.com/products/flint-2-gl-mt6000-wi-fi-6-high-performance-home-router)
 - [Meraki high-density design](https://documentation.meraki.com/Wireless/Design_and_Configure/Architecture_and_Best_Practices/Approximating_Maximum_Clients_per_Access_Point)
 - [MikroTik hAP ax3 client-count thread](https://forum.mikrotik.com/t/how-many-clients-can-be-connected-to-hap-ax3/170323)

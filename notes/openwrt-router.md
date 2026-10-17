@@ -3,8 +3,9 @@
 > Collapse the show network onto **one hackable router**. Replaces the FritzBox
 > (DHCP) + UniFi APs (WiFi, and their controller-adoption pain) with a single
 > GL.iNet/OpenWrt box that satisfies the network contract in
-> `network-and-modes.md`. Written for GL.iNet (the reproducibility tier) with the
-> underlying OpenWrt UCI, so it works on any OpenWrt router.
+> `network-and-modes.md`. Written for GL.iNet with the underlying OpenWrt UCI,
+> so it works on any OpenWrt router. Hardware selection and the radio-count
+> rungs live in `network-and-modes.md` §Hardware — radios, not tiers.
 >
 > **Status: untested on hardware** (no OpenWrt box on hand) — verify on your
 > router. Commands use confirmed UCI syntax but treat them as a starting point.
@@ -59,6 +60,41 @@ ssh root@192.168.8.1        # default; use 192.168.178.1 after the subnet change
 
 (Some of this is also reachable in the GL.iNet web UI, but UCI is the portable,
 copy-pasteable path that works on any OpenWrt box.)
+
+## The ground-floor topology (assumed by every recipe below)
+
+```
+[laptop] ──ethernet──> [router · LAN port]
+                            ⋮
+                         WiFi ))) phones
+                       [WAN port — empty, deliberately]
+```
+
+The laptop is **always wired into the LAN port**, never joined over WiFi. Two
+reasons, in this order:
+
+1. **It makes the architecture legible.** The cable shows there is a server and
+   that it is separate from the audience. A laptop hidden among the WiFi
+   clients teaches nothing about the structure it is running.
+2. It stops the server contending for airtime with the audience it serves.
+
+The **WAN port is never plugged in** — that is what "no uplink" means
+physically, and the empty socket is the clearest statement of what the local
+register is.
+
+A travel router's single LAN port is therefore exactly sufficient at ground
+floor: the laptop takes it, and nothing else is wired. A switch appears only at
+the performance tier, when a second AP needs feeding.
+
+Adding a second radio does not change this shape: the second AP runs as a
+**dumb AP** (DHCP off, LAN bridged, same SSID, different channel) wired to a
+spare LAN port, or to a switch if the router has only one.
+
+Hardware is **not yet settled** — the choice between a Slate AX (two LAN ports,
+switchless upgrade) and a Beryl AX (better range, cheaper) depends on a
+client-capacity measurement nobody has made. See `network-and-modes.md`
+§Hardware — radios, not tiers, for the rungs, the plenum-n table, and the
+USB-ethernet-adapter warning that now applies to every practitioner.
 
 ## Recipe — workshop tier (no DNS-hijack)
 
