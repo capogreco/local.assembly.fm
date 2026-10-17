@@ -275,8 +275,8 @@ Borrowed WiFi is a genuine rung and it works right up until it doesn't.
 | Laptop | browser + Deno; serves from the router's LAN |
 | USB-C ethernet adapter | see the warning below |
 | Ethernet cable | laptop → router **LAN** port |
-| OpenWrt travel router | the first radio |
-| *(second AP, later)* | another GL.iNet box in **dumb-AP mode** |
+| OpenWrt travel router | **GL.iNet Beryl AX** — the first radio |
+| *(second AP, later)* | another Beryl in **dumb-AP mode**, into the converted WAN port |
 
 The growth path from one radio to two is deliberately "buy another one of the
 same box": self-powered over USB-C, same OpenWrt, same UCI idiom, no PoE, no
@@ -284,16 +284,34 @@ controller, no second vendor. Dumb AP = DHCP off, LAN bridged, same SSID,
 different channel. (Standard OpenWrt configuration, and GL.iNet exposes an
 Access Point mode in their UI — **not yet verified on hardware**.)
 
-A **Slate AX** base makes that upgrade switchless, since the laptop takes LAN 1
-and the second AP takes LAN 2. A **Beryl AX** base has better range and costs
-less but needs a switch to add the second radio. The two paths land within a
-couple of dollars of each other; the Slate path has one fewer box on the table,
-the Beryl path has better range on both radios.
+**The box: GL.iNet Beryl AX (GL-MT3000), ~US$99.**
 
-**Which is right depends on a measurement that doesn't exist yet.** If one
-radio holds 30 phones, most practitioners never need a second and the cheaper,
-longer-range box wins. If it holds 12, everyone needs the growth path and it
-should be frictionless. Buy both to test; document whichever the data supports.
+It ships with one 2.5G WAN and one 1G LAN port, and **the WAN port can be
+reassigned as a second LAN port** — GL.iNet exposes this as a "Change to LAN"
+control under Internet → Ethernet, so it needs no UCI. That gives two usable
+LAN ports: laptop on one, second AP on the other, no switch.
+
+This settles what was an open question. The Slate AX (~US$120) was the
+candidate purely because it ships two LAN ports; once the Beryl's WAN converts,
+that advantage is gone and its remaining differences — a microSD slot and
+WireGuard throughput for a VPN this practice does not use — are irrelevant
+here. The Beryl is cheaper and has **better range**, which is the one spec that
+bears on covering a room. WAN port speed never mattered because the WAN port is
+never plugged in.
+
+> There is a small figure in the conversion worth noticing: at one radio the
+> WAN socket sits empty and the refusal is visible. To grow, you don't add
+> hardware — you repurpose that socket, and the port that would have carried
+> the internet instead carries another radio in the room.
+
+**What is still unmeasured is how many radios you need**, not which box to buy.
+If one radio holds 30 phones most practitioners never add a second; if it holds
+12, everyone does. That measurement is the first hardware task.
+
+To test the whole sequence, buy **two Beryl AX** (~US$198): one radio, then two
+radios via the converted WAN port, plus a range check — and it is exactly the
+kit a practitioner would end up owning, since the growth path is literally
+"buy another one of the same box."
 
 > **The cost of dropping PoE.** PoE exists because APs go where power doesn't.
 > USB-C-powered APs need a mains socket within reach of wherever you want the
@@ -355,7 +373,8 @@ is *for*.
 
 ### Sources
 
-- [GL.iNet Beryl AX (GL-MT3000)](https://store.gl-inet.com/products/beryl-ax-gl-mt3000-pocket-sized-wi-fi-6-wireless-travel-gigabit-router) — the ground-floor pick
+- [GL.iNet Beryl AX (GL-MT3000)](https://store.gl-inet.com/products/beryl-ax-gl-mt3000-pocket-sized-wi-fi-6-wireless-travel-gigabit-router) — the pick
+- [GL-MT3000 user guide](https://docs.gl-inet.com/router/en/4/user_guide/gl-mt3000/) — "Change to LAN" lives under Internet → Ethernet
 - [Slate AX vs Beryl AX comparison (RTINGS)](https://www.rtings.com/router/tools/compare/gl-inet-slate-ax-gl-axt1800-vs-gl-inet-beryl-ax-gl-mt3000/42772/42784) — port counts, range
 - [GL.iNet Flint 2 (GL-MT6000)](https://store.gl-inet.com/products/flint-2-gl-mt6000-wi-fi-6-high-performance-home-router)
 - [Meraki high-density design](https://documentation.meraki.com/Wireless/Design_and_Configure/Architecture_and_Best_Practices/Approximating_Maximum_Clients_per_Access_Point)

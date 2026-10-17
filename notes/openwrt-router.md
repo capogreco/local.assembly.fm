@@ -90,11 +90,12 @@ Adding a second radio does not change this shape: the second AP runs as a
 **dumb AP** (DHCP off, LAN bridged, same SSID, different channel) wired to a
 spare LAN port, or to a switch if the router has only one.
 
-Hardware is **not yet settled** — the choice between a Slate AX (two LAN ports,
-switchless upgrade) and a Beryl AX (better range, cheaper) depends on a
-client-capacity measurement nobody has made. See `network-and-modes.md`
-§Hardware — radios, not tiers, for the rungs, the plenum-n table, and the
-USB-ethernet-adapter warning that now applies to every practitioner.
+Reference hardware: **GL.iNet Beryl AX (GL-MT3000)**. Its WAN port can be
+reassigned as a second LAN port ("Change to LAN", under Internet → Ethernet),
+so the second radio needs no switch — laptop on one LAN port, dumb AP on the
+other. See `network-and-modes.md` §Hardware — radios, not tiers for the rungs,
+the plenum-n table, and the USB-ethernet-adapter warning that now applies to
+every practitioner.
 
 ## Recipe — workshop tier (no DNS-hijack)
 
