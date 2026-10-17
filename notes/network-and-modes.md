@@ -224,22 +224,48 @@ empty socket where the internet would go.
 
 Adding radios does not change this shape. That is what makes it teachable.
 
-### The rungs
+### The rungs are a syllabus
 
-| Radios | What's added | Plenum n |
-|---|---|---|
-| 0 | nothing — **ensemble client**, simulated n | unbounded; no bodies |
-| 0 | **borrowed WiFi** (venue, home) | whatever that AP holds — *and see the warning* |
-| 1 | router only; laptop wired to LAN | **unmeasured** |
-| 2 | + 1 AP in dumb-AP mode (spare LAN port, *or* a switch) | **unmeasured** |
-| 3+ | + switch + APs | room-bound, eventually |
+The rungs are not a price list. **Each one adds exactly one concept, and a real
+need forces it** — nobody is taught subnets, they hit a situation where not
+knowing becomes the obstacle. That is the *literacy as residue* claim in
+curriculum form: the progression doesn't teach networking, it arranges for
+networking to become necessary, in an order that makes each piece legible when
+it arrives.
 
-**Every figure in the right-hand column is unknown.** No spec sheet states
-client capacity, and it is the only number that decides any of this. The tier
-language we used before hid that behind confident labels. Measuring these is
-the first hardware task, and the measurement is a workshop — the ensemble
-client exercises the server, not the radio, so real handsets are the only
-instrument for it.
+| Rung | Add | Teaches | Outgrown when |
+|---|---|---|---|
+| **0a** | nothing — ensemble client, simulated n | the patch language; the zone border; that n is a parameter | you want other people to hear it |
+| **0b** | borrowed WiFi | there is a server and clients, and they must be able to reach each other | client isolation bites, or you want the sealed room |
+| **1** | your own router, one radio | DHCP, subnets, SSID, what an address *is*; provisioning | one radio saturates — you are radio-bound |
+| **2** | second radio, dumb AP, chained | router vs access point; bridging; airtime as a shared medium | still radio-bound, or the chain's fragility bites |
+| **3+** | switch, star topology, channel plan | failure domains; RF planning; client steering as an unsolved problem | — |
+
+**Plenum n at every rung from 1 upward is unmeasured.** No spec sheet states
+client capacity, and it is the only number that decides any of this; the tier
+language we used before hid that behind confident labels. Measuring it is the
+first hardware task, and the measurement is a workshop — the ensemble client
+exercises the server, not the radio, so real handsets are the only instrument
+for it.
+
+Two things about the arc are worth stating, because they are the reason to
+teach it this way rather than handing someone a finished rig:
+
+**The politics arrive as a technical obstruction, not a lecture.** The first
+time a beginner's phones cannot see their laptop on a café network, they have
+learned — in the only way that sticks — that infrastructure they do not control
+has policies, and that those policies are not theirs. Rung 1 is then not an
+ideological purchase but an obvious solution to a problem they have personally
+had. The empty WAN port means something because they know what it would have
+been plugged into.
+
+**The syllabus ends exactly where the vendor's pitch begins.** By rung 3 you
+have discovered client steering by failing to have it — three radios and most
+of the room piled onto one. That is precisely the problem UniFi's controller
+solves, and it is the right moment to meet it: having felt the need, you can
+weigh the dependency knowingly instead of accepting it as the price of entry.
+The syllabus does not tell anyone to refuse managed infrastructure. It arranges
+for them to understand what they would be buying.
 
 #### Rung 0a — the ensemble client is the real ground floor
 
@@ -312,6 +338,48 @@ To test the whole sequence, buy **two Beryl AX** (~US$198): one radio, then two
 radios via the converted WAN port, plus a range check — and it is exactly the
 kit a practitioner would end up owning, since the growth path is literally
 "buy another one of the same box."
+
+#### Can you daisy-chain Beryls indefinitely?
+
+Each box has two ethernet ports, so topologically yes — one in, one out:
+
+```
+[laptop]──[Beryl 1]──[Beryl 2]──[Beryl 3]──…
+```
+
+Each downstream unit in dumb-AP mode, DHCP off, LAN bridged, its own
+management IP, its own channel. No protocol limit on hops; it is one switched
+L2 segment.
+
+**But ports were never the constraint, and neither is the backhaul.** All the
+real traffic is WiFi — the wired side carries control messages, a few KB/s even
+at n=100. Switching adds microseconds per hop against a ~1 ms local budget. So
+chain length costs nothing in capacity or latency at any plausible n, and
+anyone reasoning about backhaul bandwidth here is solving the wrong problem.
+
+What actually limits the chain:
+
+- **RF.** Radios only add capacity on non-overlapping channels, and you share
+  the air with whatever the venue already runs. Two APs on the same channel
+  share airtime rather than doubling it — they are closer to one AP than two.
+  Past about four radios you are doing real channel planning.
+- **Client distribution, with no controller.** The sharp one, and the thing
+  UniFi was actually selling. Dumb APs on one SSID with nothing steering means
+  each phone associates by its own logic, usually strongest signal. Three
+  radios with 70% of the room on one is an ordinary outcome. **More radios
+  multiply capacity but provide no mechanism to make the room use it.**
+- **Fragility.** Unplug or crash Beryl 2 and everything downstream goes with
+  it. A star through a switch has no such property — which matters live.
+
+So: **chain at two, star at three or more.** Chaining four boxes saves about
+$20 against an unmanaged switch and costs the robustness; that is a bad trade.
+The chain's real value is at two radios, where it means never owning a switch
+at all.
+
+This also sharpens what the capacity measurement should measure. Not only
+*phones per radio*, but **how evenly they distribute across two radios with no
+steering.** If they pile onto one box, the second radio buys far less than
+arithmetic suggests — and no spec sheet will ever tell you that number.
 
 > **The cost of dropping PoE.** PoE exists because APs go where power doesn't.
 > USB-C-powered APs need a mains socket within reach of wherever you want the
