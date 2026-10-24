@@ -1,9 +1,10 @@
 # Tambourine
-
-> SKELETON. Headings and reminders only, to be written by hand. Delete this line when done.
-> Facts to draw on live in `README.OLD-DELETE.md`, `notes/network-and-modes.md` and `notes/libraries.md`.
+node-based visual programming environment for co-located browser-based distributed synthesis
 
 ## What it is
+Tambourine coalesces audiences' devices into a conglomerated, multi-channel digital synthesiser.
+
+
 - One or two sentences. Struck centre, vibration out to the rim, the jangles sound (laptop at the centre, phones at the rim).
 - The dance (medieval *tambourin*), if it earns a line.
 - Lineage: Pure Data first, SuperCollider, TouchDesigner.

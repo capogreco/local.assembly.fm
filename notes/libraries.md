@@ -110,6 +110,6 @@ Deferred, not done. The name-based convention is wider than the two obvious site
 - Synth side: `main.js:204-206` and `ctrl.js:238-241` post `{type:"trigger"}` / `{type:"gate", value}` by inlet *name*.
 - Ctrl side: `graph-core.js:725`, `:834` and `:925` also test `paramName === "trigger" || "gate"` to decide propagation semantics. This is the same wall as the ctrl-side behaviour switches in section 3.
 - `main.js` has no access to box definitions (it does not import `gpi-types.js`), so a data-driven check there needs the deploy message to carry a per-inlet "message" flag.
-- `swarm~` has event inlets named `fire`, `match` and `event`. They do not go through the trigger path today, so "any event-type inlet posts a message" would change its behaviour. Needs checking by ear before generalising.
+- (Stale note removed: `swarm~` has no `fire`/`match`/`event` inlets; all ten are `number`.)
 
-Plan: do this with the behaviour-interface refactor (ports declare `message: true`; both engines read the flag), not as a one-off.
+Done: the deploy message carries `messagePorts` per engine box (inlets typed `event`, plus any flagged `message: true`; today only `adsr~`'s `gate`). `graph-core.js`, `main.js` and `ctrl.js` read that instead of testing for `trigger`/`gate`. Check by ear: `adsr~` gate, karplus-strong, `frog~`, `ar~` and `step~` triggers.

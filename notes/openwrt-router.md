@@ -18,11 +18,11 @@ From the network contract:
 2. **DHCP** on `192.168.178.0/24` (matching the laptop's hardcoded subnet).
 3. An **SSID + password** the audience joins — these must equal the
    `WIFI_SSID` / `WIFI_PASSWORD` the WiFi-join QR encodes (defaults
-   `assembly` / `assembly`).
+   `tambourine` / `tambourine`).
 4. The **laptop at a known IP** — `192.168.178.24` (the laptop's `HOST_IP` /
    `STATIC_IP`), via a DHCP reservation.
 5. **(performance only)** all DNS resolves to the laptop — so phones reach
-   `local.assembly.fm` (matching the Let's Encrypt cert) and the captive portal
+   `local.tamb.fm` (matching the Let's Encrypt cert) and the captive portal
    auto-pops.
 
 Why DNS-hijack is performance-only: **workshop** serves over the LAN IP with a
@@ -103,9 +103,9 @@ Just an AP + DHCP, no internet:
 
 ```sh
 # WiFi AP (match the WiFi-join QR creds)
-uci set wireless.@wifi-iface[0].ssid='assembly'
+uci set wireless.@wifi-iface[0].ssid='tambourine'
 uci set wireless.@wifi-iface[0].encryption='psk2'
-uci set wireless.@wifi-iface[0].key='assembly'
+uci set wireless.@wifi-iface[0].key='tambourine'
 uci set wireless.radio0.disabled='0'
 uci commit wireless && wifi reload
 ```

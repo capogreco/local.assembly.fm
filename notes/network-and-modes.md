@@ -133,7 +133,7 @@ synth** — and QR codes kill both *without* DNS-hijack or a captive portal:
 
 - **WiFi-join QR** (`WIFI:T:WPA;S:<ssid>;P:<password>;;`) — scan → "join network"
   (iOS 11+/Android). Creds come from `WIFI_SSID`/`WIFI_PASSWORD`/`WIFI_AUTH`
-  (default `assembly`/`assembly`/`WPA`).
+  (default `tambourine`/`tambourine`/`WPA`).
 - **Synth-URL QR** — the per-mode audience base URL.
 
 `deno task qr` fabricates **asset files** into `./onboarding/` —
