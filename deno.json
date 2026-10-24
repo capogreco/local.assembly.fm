@@ -14,6 +14,8 @@
     "workshop:watch": "MODE=workshop deno run -A --unstable-net --watch server.ts",
     "performance": "deno run performance-hint.ts",
     "performance:watch": "deno run performance-hint.ts --watch",
-    "start": "deno run -A --unstable-net server.ts"
+    "start": "deno run -A --unstable-net server.ts",
+    "test": "deno run --allow-read tests/propagation_snapshot.ts verify && deno run --allow-read --allow-env tests/server_propagation_snapshot.ts verify",
+    "test:capture": "deno run --allow-read --allow-write tests/propagation_snapshot.ts capture && deno run --allow-read --allow-write --allow-env tests/server_propagation_snapshot.ts capture"
   }
 }

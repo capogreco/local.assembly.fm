@@ -88,7 +88,7 @@ const cases: Case[] = [
       [
         { id: 1, type: "const", args: "440", text: "const 440" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
     ),
@@ -100,7 +100,7 @@ const cases: Case[] = [
       [
         { id: 1, type: "const", args: "1", text: "const 1" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 4 }],
     ),
@@ -114,7 +114,7 @@ const cases: Case[] = [
         { id: 2, type: "send", args: "freq", text: "send freq" },
         { id: 3, type: "receive", args: "freq", text: "receive freq" },
         { id: 4, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [
         { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
@@ -282,7 +282,7 @@ const cases: Case[] = [
         { id: 1, type: "const", args: "5", text: "const 5" },
         { id: 2, type: "+", args: "10", text: "+ 10" },
         { id: 3, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [
         { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
@@ -313,7 +313,7 @@ const cases: Case[] = [
       [
         { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 4 }],
     ),
@@ -325,7 +325,7 @@ const cases: Case[] = [
       [
         { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
     ),
@@ -339,7 +339,7 @@ const cases: Case[] = [
         { id: 2, type: "send", args: "trig", text: "send trig" },
         { id: 3, type: "receive", args: "trig", text: "receive trig" },
         { id: 4, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       [
         { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
@@ -381,7 +381,7 @@ const cases: Case[] = [
       boxes: [
         { id: 1, type: "all", args: "1", text: "all 1" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       cables: [],
       entries: [{ routerId: 1, routerOutlet: 0, targetBox: 2, targetInlet: 0 }],
@@ -408,7 +408,7 @@ const cases: Case[] = [
       boxes: [
         { id: 1, type: "all", args: "1", text: "all 1" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       cables: [],
       entries: [{ routerId: 1, routerOutlet: 0, targetBox: 2, targetInlet: 4 }],
@@ -421,7 +421,7 @@ const cases: Case[] = [
       boxes: [
         { id: 1, type: "all", args: "1", text: "all 1" },
         { id: 2, type: "karplus-strong~", engine: true,
-          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"] },
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
       ],
       cables: [],
       entries: [{ routerId: 1, routerOutlet: 0, targetBox: 2, targetInlet: 0 }],

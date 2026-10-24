@@ -267,10 +267,8 @@ function handleCtrlAudioParam(msg) {
     return;
   }
 
-  if (paramName === "trigger") {
-    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
-  } else if (paramName === "gate") {
-    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "gate", value: msg.value });
+  if (inletDef.type === "event" || inletDef.message) {
+    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: paramName, value: msg.value });
   } else if (paramName === "portamento" && engine.portaTime !== undefined) {
     engine.portaTime = msg.value;
   } else if (typeof msg.value === "number") {

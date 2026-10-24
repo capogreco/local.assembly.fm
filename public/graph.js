@@ -24,7 +24,6 @@ function buildGraph(patch) {
     boxes: new Map(),
     entries: new Map(),
     engines: new Map(),
-    envelopes: new Map(),
     wireless: new Map(),    // name -> { sends: [boxId], receives: [boxId], throws: [boxId], catches: [boxId] }
     uplinkQueue: [],        // collected { ch, v } messages for sendup → server
   };
@@ -66,6 +65,7 @@ function buildGraph(patch) {
         type: box.type,
         args: box.args || "",
         paramNames: box.paramNames || [],
+        messagePorts: new Set(box.messagePorts || []),
       });
     }
   }
@@ -294,87 +294,5 @@ function processRouterEvent(graph, routerId, channel) {
     if (!graph.boxes.has(entry.targetBox)) continue;
     mergeUpdates(allUpdates, deliverEventToInlet(graph, entry.targetBox, entry.targetInlet, _clientEventHelpers));
   }
-  return allUpdates;
-}
-
-// process an envelope command
-function processRouterEnvelope(graph, msg) {
-  const key = msg.r + ":" + (msg.ch || 0);
-
-  if (msg.gate === 0) {
-    const env = graph.envelopes.get(key);
-    if (env && env.type === "adsr") {
-      env.gateOpen = false;
-      if (env.phase !== "idle") { env.phase = "release"; env.elapsed = 0; }
-    }
-    return {};
-  }
-
-  if (msg.env === "adsr") {
-    graph.envelopes.set(key, {
-      type: "adsr", a: msg.params.a, d: msg.params.d, s: msg.params.s, r: msg.params.r,
-      value: 0, phase: "attack", elapsed: 0, gateOpen: true,
-    });
-  } else if (msg.env === "ar") {
-    graph.envelopes.set(key, {
-      type: "ar", attack: msg.params.attack, release: msg.params.release,
-      value: 0, phase: "attack", elapsed: 0,
-    });
-  } else if (msg.env === "ramp") {
-    graph.envelopes.set(key, {
-      type: "ramp", from: msg.params.from, to: msg.params.to, duration: msg.params.duration,
-      value: msg.params.from, phase: "running", elapsed: 0,
-    });
-  } else if (msg.env === "phasor") {
-    if (msg.paused) {
-      const env = graph.envelopes.get(key);
-      if (env && env.type === "phasor") env.paused = true;
-    } else {
-      const existing = graph.envelopes.get(key);
-      if (existing && existing.type === "phasor" && !msg.reset) {
-        existing.period = msg.params.period;
-        existing.loop = msg.params.loop;
-        existing.paused = false;
-      } else {
-        graph.envelopes.set(key, {
-          type: "phasor", period: msg.params.period, loop: msg.params.loop,
-          phase: 0, paused: false,
-        });
-      }
-    }
-  }
-
-  return {};
-}
-
-// process a slew/lag command
-function processRouterSlew(graph, msg) {
-  const key = msg.r + ":" + (msg.ch || 0);
-  const existing = graph.envelopes.get(key);
-  const currentValue = existing ? existing.value : msg.v;
-
-  graph.envelopes.set(key, {
-    type: msg.type === "rv-slew" ? "slew" : "lag",
-    target: msg.v, time: msg.time, value: currentValue,
-  });
-
-  return {};
-}
-
-// tick envelope commands — uses tickBox for shared math
-function tickEnvelopes(graph, dt) {
-  const allUpdates = {};
-
-  for (const [key, env] of graph.envelopes) {
-    const [routerId, channel] = key.split(":").map(Number);
-
-    // envelope state uses the same shapes as box state — use tickBox
-    const result = tickBox(env.type, env, [], dt);
-    if (result) {
-      const updates = processRouterValue(graph, routerId, channel, result.value);
-      mergeUpdates(allUpdates, updates);
-    }
-  }
-
   return allUpdates;
 }

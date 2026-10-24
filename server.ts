@@ -1,18 +1,18 @@
 import {
   type Box, type Cable, type BoxValue,
-  boxes, cables, boxValues, inletValues, boxState,
-  getPatchNextId, setPatchNextId, bumpPatchNextId,
+  boxes, cables, boxValues, boxState,
+  getPatchNextId, setPatchNextId,
   getSynthBorderY, setSynthBorderY,
   getDeployedPatch, setDeployedPatch,
   routerState, groupState, latestValues, uplinkIndex,
-  clearPatchState, removeCablesForBox, cablesFromOutlet, isSynthZone,
+  clearPatchState, cablesFromOutlet, isSynthZone,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
   initEvalEngine, buildGroups,
   setBoxValueAndNotify, propagateAndNotify,
   evaluateAllConsts, evaluateAllDevices, evaluateAllClients,
-  initBoxState, shouldServerEval, initAllBoxState,
+  initAllBoxState,
   findBoxByText, CC_SOURCE, queueValueUpdate,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
@@ -26,13 +26,13 @@ const SELF_KEY_FILE = "key.selfsigned.pem";
 const CERT_FALLBACK = "cert.pem";
 const KEY_FALLBACK = "key.pem";
 const HOST_IP = Deno.env.get("HOST_IP") || "192.168.178.24";
-const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
+const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.tamb.fm";
 // certbot's live paths — preferred so renewal is zero-copy.
 const LE_CERT = `/etc/letsencrypt/live/${HOST_DOMAIN}/fullchain.pem`;
 const LE_KEY = `/etc/letsencrypt/live/${HOST_DOMAIN}/privkey.pem`;
 // WiFi creds for the join QR / banner (defaults match the performance rig).
-const WIFI_SSID = Deno.env.get("WIFI_SSID") || "assembly";
-const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "assembly";
+const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourine";
+const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourine";
 
 // --- Run mode ---
 // One explicit switch drives bind host, ports, cert policy, captive portal and
@@ -477,78 +477,6 @@ function handleApply(msg: any): void {
   event("patch applied");
 }
 
-// deno-lint-ignore no-explicit-any
-function handleEdit(msg: any): void {
-  switch (msg.action) {
-    case "box-create": {
-      const ports = getBoxPorts(msg.text || "");
-      const newBox = { x: msg.x, y: msg.y, text: msg.text || "", inlets: ports.inlets, outlets: ports.outlets };
-      boxes.set(msg.id, newBox);
-      bumpPatchNextId(msg.id);
-      if (shouldServerEval(newBox)) initBoxState(msg.id, newBox);
-      rebuildGridRegions();
-      break;
-    }
-    case "box-move": {
-      for (const m of msg.moves) {
-        const box = boxes.get(m.id);
-        if (box) { box.x = m.x; box.y = m.y; }
-      }
-      break;
-    }
-    case "box-text": {
-      const box = boxes.get(msg.id);
-      if (!box) break;
-      box.text = msg.text;
-      const ports = getBoxPorts(msg.text);
-      box.inlets = ports.inlets; box.outlets = ports.outlets;
-      // prune cables with invalid ports
-      for (const [cid, c] of cables) {
-        if (c.srcBox === msg.id && c.srcOutlet >= box.outlets) cables.delete(cid);
-        if (c.dstBox === msg.id && c.dstInlet >= box.inlets) cables.delete(cid);
-      }
-      // snap router to border
-      if (getBoxZone(msg.text) === "router") box.y = getSynthBorderY() - 11;
-      // zone enforcement
-      const zone = getBoxZone(msg.text);
-      if (zone === "synth" && !isSynthZone(box.x, box.y)) box.y = getSynthBorderY() + 20;
-      else if (zone === "ctrl" && isSynthZone(box.x, box.y)) box.y = getSynthBorderY() - 42;
-      // re-init state and re-evaluate
-      boxState.delete(msg.id);
-      if (shouldServerEval(box)) initBoxState(msg.id, box);
-      inletValues.delete(msg.id);
-      evaluateAllConsts();
-      rebuildGridRegions();
-      break;
-    }
-    case "box-delete": {
-      for (const id of msg.ids) { removeCablesForBox(id); boxes.delete(id); boxValues.delete(id); inletValues.delete(id); boxState.delete(id); }
-      rebuildGridRegions();
-      break;
-    }
-    case "cable-create": {
-      cables.set(msg.id, { srcBox: msg.srcBox, srcOutlet: msg.srcOutlet, dstBox: msg.dstBox, dstInlet: msg.dstInlet });
-      bumpPatchNextId(msg.id);
-      evaluateAllConsts();
-      break;
-    }
-    case "cable-delete": {
-      for (const id of msg.ids) cables.delete(id);
-      break;
-    }
-    case "border-move": {
-      setSynthBorderY(msg.y);
-      // snap all routers
-      for (const [, box] of boxes) if (getBoxZone(box.text) === "router") box.y = getSynthBorderY() - 11;
-      break;
-    }
-    case "deploy": {
-      deployPatch();
-      break;
-    }
-  }
-}
-
 // --- Deploy ---
 
 function serializeSynthPatch(): Record<string, unknown> {
@@ -573,6 +501,10 @@ function serializeSynthPatch(): Record<string, unknown> {
       if (isAudioBox(box.text)) {
         pb.engine = true;
         pb.paramNames = def.inlets.map((i: { name: string; type: string }) => i.type === "audio" ? null : i.name);
+        // Message ports go to the worklet's MessagePort instead of an AudioParam
+        pb.messagePorts = def.inlets
+          .filter((i: { type: string; message?: boolean }) => i.type === "event" || i.message)
+          .map((i: { name: string }) => i.name);
       }
       patchBoxes.push(pb);
     }
@@ -658,10 +590,6 @@ function getFullState(): Record<string, unknown> {
     synthBorderY: getSynthBorderY(),
     boxValues: bv,
   };
-}
-
-function sendFullState(): void {
-  sendCtrl(getFullState());
 }
 
 // --- Ctrl WebSocket handler ---
@@ -1166,7 +1094,7 @@ async function genSelfSignedCert(): Promise<void> {
     ];
     const cert = await x509.X509CertificateGenerator.createSelfSigned({
       serialNumber: "01",
-      name: "CN=local.assembly.fm",
+      name: "CN=local.tamb.fm",
       notBefore: new Date(),
       notAfter: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       signingAlgorithm: alg,
@@ -1305,10 +1233,10 @@ const certNote = certSource ? `\n  \x1b[90mcert:     ${certSource}\x1b[0m` : "";
 // two MBP-local issues: (1) dnsmasq binds to en6:53, macOS resolver doesn't
 // query it; (2) after a DHCP→static IP swap, en6's own IP has no lo0 alias,
 // so outbound connections to it fail with EADDRNOTAVAIL. Expect a one-time
-// cert warning (SAN is local.assembly.fm, not 127.0.0.1).
+// cert warning (SAN is local.tamb.fm, not 127.0.0.1).
 const opNote = MODE === "performance" ? `\n  \x1b[90mop:       https://127.0.0.1/ctrl.html\x1b[0m` : "";
 const banner = `
-  \x1b[1mlocal.assembly.fm\x1b[0m  \x1b[90m[${MODE}]\x1b[0m
+  \x1b[1mlocal.tamb.fm\x1b[0m  \x1b[90m[${MODE}]\x1b[0m
   synth:    ${base}/
   ctrl:     ${base}/ctrl.html
   ensemble: ${base}/ensemble.html${lanNote}${certNote}${opNote}

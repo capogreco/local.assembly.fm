@@ -7,9 +7,9 @@
 import { audienceBase, getLanIP, qrGif, qrText, wifiPayload } from "./onboarding.ts";
 
 const MODE = Deno.env.get("MODE") ?? "practice";
-const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.assembly.fm";
-const WIFI_SSID = Deno.env.get("WIFI_SSID") || "assembly";
-const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "assembly";
+const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.tamb.fm";
+const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourine";
+const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourine";
 const WIFI_AUTH = Deno.env.get("WIFI_AUTH") || "WPA";
 
 // Per-mode audience network (mirrors the MODES table in server.ts — kept local
@@ -78,7 +78,7 @@ function buildPoster(
   const cap = qy + QR + 40, sub = qy + QR + 70;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="system-ui, sans-serif">
   <rect width="${W}" height="${H}" fill="#ffffff"/>
-  <text x="${W / 2}" y="56" font-size="36" font-weight="700" text-anchor="middle">local.assembly.fm</text>
+  <text x="${W / 2}" y="56" font-size="36" font-weight="700" text-anchor="middle">local.tamb.fm</text>
   ${place(wifiSvg, lx, qy, QR)}
   ${place(synthSvg, rx, qy, QR)}
   <text x="${lx + QR / 2}" y="${cap}" font-size="24" font-weight="700" text-anchor="middle">1 · join wifi</text>

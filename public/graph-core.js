@@ -827,11 +827,11 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
     return updates;
   }
 
-  // Engine trigger/gate: write 1 to the AudioParam.
+  // Engine message port: an event writes 1 (sendParams posts it to the worklet).
   if (graph.engines && graph.engines.has(boxId)) {
     const engine = graph.engines.get(boxId);
     const paramName = engine.paramNames[inlet];
-    if (paramName && (paramName === "trigger" || paramName === "gate")) {
+    if (paramName && engine.messagePorts.has(paramName)) {
       if (helpers.debug) console.log(`  → engine event box:${boxId} ${paramName}=1`);
       updates[boxId] = { [paramName]: 1 };
     }
@@ -917,12 +917,12 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   }
 
   // Engine destination: write to AudioParam by paramName. Values never fire
-  // trigger/gate — only events do (skip those branches).
+  // message ports — only events do (skip those branches).
   if (graph.engines && graph.engines.has(boxId)) {
     const engine = graph.engines.get(boxId);
     const paramName = engine.paramNames[inlet];
     if (paramName) {
-      if (paramName === "trigger" || paramName === "gate") return { updates, deferEvent: false };
+      if (engine.messagePorts.has(paramName)) return { updates, deferEvent: false };
       if (helpers.debug) console.log(`  → engine box:${boxId} ${paramName}=${value}`);
       updates[boxId] = { [paramName]: value };
     }

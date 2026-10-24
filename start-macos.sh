@@ -1,5 +1,5 @@
 #!/bin/bash
-# Startup script for local.assembly.fm on macOS — convenience wrapper that sets
+# Startup script for local.tamb.fm on macOS — convenience wrapper that sets
 # MODE and does the macOS-only bits (sudo, static IP, dnsmasq) for performance.
 # server.ts is mode-driven and runs standalone on any OS: `MODE=… deno run …`.
 # Usage:
@@ -18,11 +18,12 @@ SUBNET="192.168.178"
 STATIC_IP="192.168.178.24"  # must match FritzBox DNS server setting
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DNSMASQ_BIN="/opt/homebrew/opt/dnsmasq/sbin/dnsmasq"
-DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
+DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/tambourine.conf"
+LEGACY_DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
 
 # Cert resolution — mirrors server.ts. Prefer certbot's live paths so renewal is
 # zero-copy; fall back to a hand-copied pair in the repo root.
-HOST_DOMAIN="${HOST_DOMAIN:-local.assembly.fm}"
+HOST_DOMAIN="${HOST_DOMAIN:-local.tamb.fm}"
 LE_CERT="/etc/letsencrypt/live/$HOST_DOMAIN/fullchain.pem"
 LE_KEY="/etc/letsencrypt/live/$HOST_DOMAIN/privkey.pem"
 REPO_CERT="$PROJECT_DIR/cert.pem"
@@ -59,12 +60,12 @@ echo_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# --- Auto-detect network interface and IP on the assembly subnet ---
+# --- Auto-detect network interface and IP on the venue subnet ---
 
 detect_network() {
     local found_if=""
 
-    # scan all interfaces for one with an IP on the assembly subnet
+    # scan all interfaces for one with an IP on the venue subnet
     while IFS= read -r line; do
         if [[ "$line" =~ ^([a-z0-9]+): ]]; then
             current_if="${BASH_REMATCH[1]}"
@@ -94,8 +95,8 @@ detect_network() {
             echo_warn "macOS will not run DHCP on it. Configured services:"
             networksetup -listnetworkserviceorder 2>/dev/null | grep -iE 'lan|ethernet|ax88' | sed 's/^/  /'
             echo_warn "Fix: find the live interface in the list above, then"
-            echo_warn "  sudo networksetup -createnetworkservice \"assembly-eth\" <enN>"
-            echo_warn "  sudo networksetup -setdhcp \"assembly-eth\""
+            echo_warn "  sudo networksetup -createnetworkservice \"tambourine-eth\" <enN>"
+            echo_warn "  sudo networksetup -setdhcp \"tambourine-eth\""
         else
             echo ""
             echo_error "No USB ethernet device on the bus — check the dongle and cable."
@@ -176,6 +177,11 @@ ensure_clean_dnsmasq() {
 
 ensure_dnsmasq_conf() {
     local needs_update=false
+
+    if [ -f "$LEGACY_DNSMASQ_CONF" ]; then
+        echo_warn "Old dnsmasq config found and no longer used: $LEGACY_DNSMASQ_CONF"
+        echo_warn "  Remove it: sudo rm $LEGACY_DNSMASQ_CONF"
+    fi
 
     if [ ! -f "$DNSMASQ_CONF" ]; then
         needs_update=true
@@ -306,11 +312,11 @@ run_deno() {
 show_status() {
     detect_network
 
-    echo_info "=== local.assembly.fm Status ==="
+    echo_info "=== local.tamb.fm Status ==="
     echo ""
 
     # Check dnsmasq
-    if pgrep -f "dnsmasq.*assembly.conf" > /dev/null; then
+    if pgrep -f "dnsmasq.*tambourine.conf" > /dev/null; then
         echo_info "✓ dnsmasq is running"
     else
         echo_warn "✗ dnsmasq is NOT running"
@@ -349,7 +355,7 @@ show_status() {
     echo ""
     echo_info "=== Quick Test ==="
     echo "On your phone:"
-    echo "  1. Connect to WiFi 'assembly' (password: assembly)"
+    echo "  1. Connect to WiFi 'tambourine' (password: tambourine)"
     echo "  2. Captive portal should auto-appear"
     echo "  3. Or visit any URL (e.g., example.com) to trigger redirect"
 }
@@ -402,12 +408,12 @@ case "$MODE_ARG" in
             echo_info "dnsmasq running (interface=$ETHERNET_IF → $MAC_IP)"
         fi
 
-        echo_info "performance mode — https://local.assembly.fm/ (captive portal, ports 80+443)"
+        echo_info "performance mode — https://local.tamb.fm/ (captive portal, ports 80+443)"
         echo_info "Ctrl+C to stop (will also kill dnsmasq)"
         echo ""
 
         # kill dnsmasq when the server exits
-        trap 'sudo pkill -f "dnsmasq.*assembly.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
+        trap 'sudo pkill -f "dnsmasq.*tambourine.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
 
         run_deno performance sudo
         ;;

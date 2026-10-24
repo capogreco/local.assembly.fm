@@ -9,17 +9,17 @@ const BOX_TYPES = {
   // --- sources (ctrl-side) ---
   arc:            { zone: "ctrl", description: "Monome Arc encoder. Mode 0: continuous rotation (0-1). Optional init value.", args: "i m [init]", example: "arc 0 0 0.5",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Encoder position (0-1)" }] },
-  breath:         { zone: "ctrl", description: "BBC2 breath pressure. CC#2. Optional init value.", args: "[init]",
+  breath:         { zone: "ctrl", lib: "maker", description: "BBC2 breath pressure. CC#2. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
                       { name: "gate", type: "number", description: "1 above threshold, 0 below (changes on crossing)" }] },
-  bite:           { zone: "ctrl", description: "BBC2 bite pressure. CC#1. Optional init value.", args: "[init]",
+  bite:           { zone: "ctrl", lib: "maker", description: "BBC2 bite pressure. CC#1. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
                       { name: "gate", type: "number", description: "1 above threshold, 0 below (changes on crossing)" }] },
-  nod:            { zone: "ctrl", description: "BBC2 head nod. CC#12. Optional init value.", args: "[init]",
+  nod:            { zone: "ctrl", lib: "maker", description: "BBC2 head nod. CC#12. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
-  tilt:           { zone: "ctrl", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
+  tilt:           { zone: "ctrl", lib: "maker", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
   cc:             { zone: "ctrl", description: "MIDI CC input. Pass one or more CC numbers as args; each gets its own outlet. No args = monitor mode (displays last cc:value, does not propagate).", args: "[n ...]", example: "cc 1 7 11",
                     dynamic: true,
@@ -502,7 +502,7 @@ const BOX_TYPES = {
                     outlets: [{ name: "out", type: "audio", description: "Envelope signal" }] },
   "adsr~":        { zone: "any", description: "Audio-rate ADSR envelope. Gate-driven.", args: "a d s r", example: "adsr~ 0.05 0.1 0.7 0.3",
                     inlets: [
-                      { name: "gate", type: "number", description: "Gate signal (>0 = open)" },
+                      { name: "gate", type: "number", message: true, description: "Gate signal (>0 = open)" },
                       { name: "a", type: "number", description: "Attack time" },
                       { name: "d", type: "number", description: "Decay time" },
                       { name: "s", type: "number", description: "Sustain level (0-1)" },
@@ -616,18 +616,18 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "audio", description: "Audio input" }],
                     outlets: [{ name: "out", type: "audio", description: "Convolved audio" }] },
 
-  "sine-osc~":    { zone: "any", description: "Pure sine tone oscillator.",
+  "sine-osc~":    { zone: "any", lib: "maker", description: "Pure sine tone oscillator.",
                     inlets: [
                       { name: "freq", type: "number", description: "Frequency in Hz" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "cute-sine~":   { zone: "any", description: "Additive sine oscillator with brightness. 6 harmonics crossfaded by bright param.",
+  "cute-sine~":   { zone: "any", lib: "maker", description: "Additive sine oscillator with brightness. 6 harmonics crossfaded by bright param.",
                     inlets: [
                       { name: "freq", type: "number", description: "Frequency in Hz" },
                       { name: "bright", type: "number", description: "Brightness (0=fundamental only, 1=all 6 harmonics)" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "noise-engine~": { zone: "any", description: "Filtered noise generator.",
+  "noise-engine~": { zone: "any", lib: "maker", description: "Filtered noise generator.",
                     inlets: [
                       { name: "cutoff", type: "number", description: "Lowpass cutoff in Hz (20-20000)" },
                       { name: "resonance", type: "number", description: "Filter resonance (0-1)" },
@@ -655,14 +655,14 @@ const BOX_TYPES = {
                       { name: "trigger", type: "event", description: "Fire a pluck" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "ewing~":       { zone: "synth", description: "Ewing's Tree Frog (Litoria ewingii). Autonomous frog — picks its own personality at init (formant pitch, pulse rate, call template) and chatters on its own schedule. Hold engages: the grain stream that was exciting the species formant smoothly shifts to excite a formant at the user-controlled pitch — no separate held tone, just the ongoing ring continued at a different pitch. Arg: portamento seconds — governs both chatter→singing morph AND note-to-note pitch glides in singing (default 1.0).",
+  "ewing~":       { zone: "synth", lib: "maker", description: "Ewing's Tree Frog (Litoria ewingii). Autonomous frog — picks its own personality at init (formant pitch, pulse rate, call template) and chatters on its own schedule. Hold engages: the grain stream that was exciting the species formant smoothly shifts to excite a formant at the user-controlled pitch — no separate held tone, just the ongoing ring continued at a different pitch. Arg: portamento seconds — governs both chatter→singing morph AND note-to-note pitch glides in singing (default 1.0).",
                     args: "[glide_sec]", example: "ewing~ 1.0",
                     inlets: [
                       { name: "pitch", type: "number", description: "Held-tone fundamental in Hz (used when hold > 0)" },
                       { name: "hold", type: "number", description: "0-1 → 0=autonomous chatter, 1=sustained tone at pitch" },
                       { name: "active", type: "number", description: "On/off gate. Calls wind up when high and wind down when low over glideSec × 6 (default 6s)." }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "frog~":        { zone: "synth", description: "Single-frog voice. Pulse train through formants with biological micro-modulation. Trigger fires a burst; hold morphs to a sustained pitched tone for chord work. Arg: pitch portamento seconds (default 0.15).",
+  "frog~":        { zone: "synth", lib: "maker", description: "Single-frog voice. Pulse train through formants with biological micro-modulation. Trigger fires a burst; hold morphs to a sustained pitched tone for chord work. Arg: pitch portamento seconds (default 0.15).",
                     args: "[glide_sec]", example: "frog~ 0.15",
                     inlets: [
                       { name: "trigger", type: "event", description: "Fire one burst (callsPerBurst calls)" },
@@ -676,7 +676,7 @@ const BOX_TYPES = {
                       { name: "hold", type: "number", description: "0-1 → morph: 0=chatter, 1=sustained tone" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "swarm~":       { zone: "any", description: "Resonant event swarm. Texture explorer — creek to champagne. All inputs 0-1.",
+  "swarm~":       { zone: "any", lib: "maker", description: "Resonant event swarm. Texture explorer — creek to champagne. All inputs 0-1.",
                     inlets: [
                       { name: "freqCenter", type: "number", description: "0-1 → 50 Hz to 20 kHz (log)" },
                       { name: "freqRange", type: "number", description: "0-1 → 0 to 5 octaves spread around center" },

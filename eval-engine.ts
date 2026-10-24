@@ -49,6 +49,15 @@ let _applyInletToState: (name: string, state: any, inlet: number, value: number)
 // deno-lint-ignore no-explicit-any
 let _deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 
+// Every router message (rv/re) leaves the server through emit(): `to` is a client
+// id, or omitted to broadcast. This is the one place a message could be stamped
+// (an optional `t`, see notes/architecture.md) or logged.
+function emit(msg: Record<string, unknown>, to?: number): void {
+  if (PROFILE_ONSET) logOnset(to === undefined ? "b" : String(to), msg);
+  if (to === undefined) _broadcastSynth(msg);
+  else _sendToClient(to, msg);
+}
+
 export function initEvalEngine(deps: {
   broadcastSynth: (msg: Record<string, unknown>) => void;
   sendToClient: (clientId: number, msg: Record<string, unknown>) => void;
@@ -75,12 +84,8 @@ export function initEvalEngine(deps: {
   // deno-lint-ignore no-explicit-any
   deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 }): void {
-  _broadcastSynth = PROFILE_ONSET
-    ? (msg) => { logOnset("b", msg); deps.broadcastSynth(msg); }
-    : deps.broadcastSynth;
-  _sendToClient = PROFILE_ONSET
-    ? (clientId, msg) => { logOnset(String(clientId), msg); deps.sendToClient(clientId, msg); }
-    : deps.sendToClient;
+  _broadcastSynth = deps.broadcastSynth;
+  _sendToClient = deps.sendToClient;
   _getSynthClientIds = deps.getSynthClientIds;
   _sendCtrl = deps.sendCtrl;
   _event = deps.event;
@@ -148,9 +153,9 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
 
         for (const [storedInletStr, storedValue] of Object.entries(state.storedValues)) {
           const storedInlet = parseInt(storedInletStr);
-          _sendToClient(targetClient, { type: "rv", r: routerBoxId, ch: storedInlet, v: storedValue });
+          emit({ type: "rv", r: routerBoxId, ch: storedInlet, v: storedValue }, targetClient);
         }
-        _sendToClient(targetClient, { type: "re", r: routerBoxId, ch: n });
+        emit({ type: "re", r: routerBoxId, ch: n }, targetClient);
 
         const len = state.order ? state.order.length : clients.length;
         state.index = (state.index + 1) % len;
@@ -186,7 +191,7 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     const groups = groupState.get(routerBoxId)!;
     if (inlet < groups.length) {
       const msg = { type: "rv", r: routerBoxId, ch: 0, v: value } as Record<string, unknown>;
-      for (const clientId of groups[inlet]) _sendToClient(clientId, msg);
+      for (const clientId of groups[inlet]) emit(msg, clientId);
     }
     return;
   }
@@ -226,11 +231,11 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
       }
     }
     if (isEvent) {
-      _broadcastSynth({ type: "re", r: routerBoxId, ch: inlet });
+      emit({ type: "re", r: routerBoxId, ch: inlet });
     } else {
       const msg = { type: "rv", r: routerBoxId, ch: inlet, v: value } as Record<string, unknown>;
       latestValues.set(routerBoxId + ":" + inlet, JSON.stringify(msg));
-      _broadcastSynth(msg);
+      emit(msg);
     }
     return;
   }
@@ -257,7 +262,7 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
 
   switch (routerType) {
     case "all":
-      _broadcastSynth(msg);
+      emit(msg);
       break;
     case "one": {
       if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
@@ -265,7 +270,7 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
       const clientIndex = state.order
         ? state.order[state.index % state.order.length]
         : state.index;
-      _sendToClient(clients[clientIndex % clients.length], msg);
+      emit(msg, clients[clientIndex % clients.length]);
       const len = state.order ? state.order.length : clients.length;
       state.index = (state.index + 1) % len;
       break;
@@ -273,55 +278,18 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
     case "sweep": {
       if (!routerState.has(routerBoxId)) routerState.set(routerBoxId, { index: 0 });
       const state = routerState.get(routerBoxId)!;
-      _sendToClient(clients[state.index % clients.length], msg);
+      emit(msg, clients[state.index % clients.length]);
       if (opts.advanceSweep) state.index = (state.index + 1) % clients.length;
       break;
     }
     default:
-      _broadcastSynth(msg);
+      emit(msg);
   }
 }
 
 function sendViaRouter(routerBoxId: number, channel: number, value: BoxValue): void {
   const msg = { type: "rv", r: routerBoxId, ch: channel, v: value } as Record<string, unknown>;
   routerDispatch(routerBoxId, msg, { advanceSweep: true, storeLatest: true });
-}
-
-function sendCommandViaRouter(routerBoxId: number, channel: number, msg: Record<string, unknown>): void {
-  routerDispatch(routerBoxId, { ...msg, r: routerBoxId, ch: channel }, { advanceSweep: false, storeLatest: false });
-}
-
-function traceToRouters(boxId: number, outletIndex: number): Array<{routerId: number, channel: number}> {
-  const results: Array<{routerId: number, channel: number}> = [];
-  const visited = new Set<string>();
-
-  function trace(bid: number, oi: number): void {
-    const key = bid + ":" + oi;
-    if (visited.has(key)) return;
-    visited.add(key);
-
-    for (const cable of cablesFromOutlet(bid, oi)) {
-      const dst = boxes.get(cable.dstBox);
-      if (!dst) continue;
-      const def = _getBoxDef(dst.text);
-      if (!def) continue;
-      if (def.zone === "router") {
-        results.push({ routerId: cable.dstBox, channel: cable.dstInlet });
-      } else if (def.zone !== "synth") {
-        const outlets = def.outlets?.length || 1;
-        for (let i = 0; i < outlets; i++) trace(cable.dstBox, i);
-      }
-    }
-  }
-
-  trace(boxId, outletIndex);
-  return results;
-}
-
-function sendEnvCommand(boxId: number, outletIndex: number, msg: Record<string, unknown>): void {
-  for (const { routerId, channel } of traceToRouters(boxId, outletIndex)) {
-    sendCommandViaRouter(routerId, channel, msg);
-  }
 }
 
 // --- Evaluation core ---
@@ -692,7 +660,7 @@ function reassign(routerBoxId: number, notes: number[]): void {
     const oldNote = state.assignment.get(i);
     if (newNote !== oldNote || spectral) {
       const v = spectral ? [newNote, ampByNote.get(newNote) ?? 1] : newNote;
-      _sendToClient(clients[i], { type: "rv", r: routerBoxId, ch: 0, v });
+      emit({ type: "rv", r: routerBoxId, ch: 0, v }, clients[i]);
     }
   }
 

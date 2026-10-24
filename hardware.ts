@@ -30,8 +30,8 @@ export function initHardware(deps: {
 
 const SERIALOSC_PORT = 12002;
 const GRID_LISTEN_PORT = 13000;
-const GRID_PREFIX = "/assembly";
-const ARC_PREFIX = "/assembly";
+const GRID_PREFIX = "/tambourine";
+const ARC_PREFIX = "/tambourine";
 const ARC_SENSITIVITY = 0.0003;
 
 // --- Grid state ---

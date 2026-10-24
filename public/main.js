@@ -200,10 +200,8 @@ function sendParams(engine, params) {
   const now = audioCtx.currentTime;
   for (const [k, v] of Object.entries(params)) {
     if (k === "portamento") continue;
-    // Event trigger — forward via MessagePort
-    if (k === "trigger" && port) { port.postMessage({ type: "trigger" }); continue; }
-    // Gate — forward via MessagePort (adsr)
-    if (k === "gate" && port) { port.postMessage({ type: "gate", value: v }); continue; }
+    // Message port (event or gate-style inlet) — forward via MessagePort
+    if (port && engine.messagePorts?.has(k)) { port.postMessage({ type: k, value: v }); continue; }
     if (typeof v !== "number") continue;
     // sig~ uses portamento; everything else is instant
     const param = engine.paramMap?.[k] || (engine.worklet?.parameters?.has(k) ? engine.worklet.parameters.get(k) : null);
@@ -267,7 +265,10 @@ async function loadPatchForVoice(voice, patch) {
     for (const [id, def] of voice.graph.engines) {
       try {
         const engine = await createEngine(def.type, def.args);
-        if (engine) voice.engines.set(id, engine);
+        if (engine) {
+          engine.messagePorts = def.messagePorts;
+          voice.engines.set(id, engine);
+        }
       } catch (err) {
         console.error(`engine ${def.type} (box ${id}) failed to load:`, err);
       }
@@ -334,14 +335,6 @@ function voiceOnMessage(voice, msg) {
     checkTouchGate(voice);
     updateDisplayLayers(voice);
     updateParamDisplay();
-  }
-  if (msg.type === "rv-env" && voice.graph) {
-    processRouterEnvelope(voice.graph, msg);
-    // envelope values are ticked in clientTick via tickEnvelopes
-  }
-  if ((msg.type === "rv-slew" || msg.type === "rv-lag") && voice.graph) {
-    processRouterSlew(voice.graph, msg);
-    // slew/lag values are ticked in clientTick via tickEnvelopes
   }
   if (msg.type === "re" && voice.graph) {
     const updates = processRouterEvent(voice.graph, msg.r, msg.ch);
@@ -627,8 +620,6 @@ function clientTick(time) {
   for (const voice of voices) {
     if (!voice.graph || voice.patchLoading) continue;
     const updates = tickGraph(voice.graph, dt);
-    const envUpdates = tickEnvelopes(voice.graph, dt);
-    mergeUpdates(updates, envUpdates);
     for (const [id, params] of Object.entries(updates)) {
       voiceSendParams(voice, Number(id), params);
     }
