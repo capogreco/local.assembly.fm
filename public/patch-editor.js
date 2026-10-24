@@ -85,6 +85,7 @@ class PatchEditor {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.input = options.input ?? null;
+    this.onError = options.onError ?? (() => {});
 
     // Patch data
     this.boxes = new Map();
@@ -650,6 +651,25 @@ class PatchEditor {
     return getOutletDef(srcBox.text, cable.srcOutlet)?.type === "audio";
   }
 
+  // Audio never crosses the border, and routers carry events and values only.
+  // Returns a reason string, or null when the cable is fine.
+  audioCableProblem(srcBoxId, srcOutlet, dstBoxId) {
+    const src = this.boxes.get(srcBoxId), dst = this.boxes.get(dstBoxId);
+    if (!src || !dst) return null;
+    if (getOutletDef(src.text, srcOutlet)?.type !== "audio") return null;
+    if (this.isRouterType(src.text) || this.isRouterType(dst.text)) return "routers carry events and values, not audio";
+    if (this.isSynthSide(srcBoxId) !== this.isSynthSide(dstBoxId)) return "audio can't cross the border; events and values cross through routers";
+    return null;
+  }
+
+  audioBorderViolation() {
+    for (const c of this.cables.values()) {
+      const problem = this.audioCableProblem(c.srcBox, c.srcOutlet, c.dstBox);
+      if (problem) return problem;
+    }
+    return null;
+  }
+
   isAudioInlet(boxId, inlet) {
     const box = this.boxes.get(boxId);
     if (!box) return false;
@@ -793,6 +813,7 @@ class PatchEditor {
       const srcBox = this.boxes.get(c.srcBox), dstBox = this.boxes.get(c.dstBox);
       if (!srcBox || !dstBox) continue;
       if (this.isRouterType(srcBox.text) || this.isRouterType(dstBox.text)) continue;
+      if (this.isAudioCable(c)) continue; // audio is never routed; the drop is rejected on release
       if (this.isSynthSide(c.srcBox) !== this.isSynthSide(c.dstBox)) {
         toReroute.push({ cableId, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
       }
@@ -1374,6 +1395,15 @@ class PatchEditor {
           this.render();
           return;
         }
+        const audioProblem = this.audioCableProblem(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId);
+        if (audioProblem) {
+          this.onError(["✗ cable rejected: " + audioProblem]);
+          this.cableFrom = null;
+          this.mode = "idle";
+          this.canvas.style.cursor = "default";
+          this.render();
+          return;
+        }
         this.pushUndo();
         const srcSynth = this.isSynthSide(this.cableFrom.boxId);
         const dstSynth = this.isSynthSide(inlet.boxId);
@@ -1401,7 +1431,16 @@ class PatchEditor {
           if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
         }
       }
-      if (moved) {
+      const dropProblem = moved && this.dragSnapshot ? this.audioBorderViolation() : null;
+      if (dropProblem) {
+        this.cables.clear();
+        for (const [id, c] of this.dragSnapshot.cables) this.cables.set(id, { ...c });
+        this.boxes.clear();
+        for (const [id, b] of this.dragSnapshot.boxes) this.boxes.set(id, { ...b });
+        this.nextId = this.dragSnapshot.nextId;
+        this.onError(["✗ move cancelled: " + dropProblem]);
+        this.render();
+      } else if (moved) {
         this.pushUndo();
       } else if (this.selection.size === 1) {
         // click without drag — check for interactive boxes

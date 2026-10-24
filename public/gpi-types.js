@@ -633,20 +633,6 @@ const BOX_TYPES = {
                       { name: "resonance", type: "number", description: "Filter resonance (0-1)" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "shepard~":     { zone: "any", description: "Shepard tone generator.",
-                    inlets: [
-                      { name: "baseFreq", type: "number", description: "Base frequency in Hz" },
-                      { name: "partialCount", type: "number", description: "Number of partials" },
-                      { name: "bandwidth", type: "number", description: "Spectral bandwidth" },
-                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
-                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "impulse-cloud~": { zone: "any", description: "Stochastic impulse cloud.",
-                    inlets: [
-                      { name: "density", type: "number", description: "Events per second" },
-                      { name: "width", type: "number", description: "Impulse width in samples" },
-                      { name: "freq", type: "number", description: "Center frequency in Hz" },
-                      { name: "amplitude", type: "number", description: "Output level (0-1)" }],
-                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
   "formant~":     { zone: "any", description: "Formant synthesis. Vowel-space interpolation with FM and ring modulation.",
                     inlets: [
                       { name: "frequency", type: "number", description: "Fundamental frequency in Hz" },

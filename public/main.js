@@ -660,7 +660,23 @@ async function handleStart() {
     audioCtx = new AudioContext();
     await audioCtx.resume();
     masterGain = audioCtx.createGain();
-    masterGain.connect(audioCtx.destination);
+    // Output clamp: a two-point curve maps [-1, 1] to itself and holds anything
+    // beyond that at the ends, so no engine can drive the output past full scale.
+    const outputClamp = audioCtx.createWaveShaper();
+    outputClamp.curve = new Float32Array([-1, 1]);
+    // In front of it, a guard replaces NaN with silence and reports it to the server.
+    await audioCtx.audioWorklet.addModule("output-guard-processor.js");
+    const outputGuard = new AudioWorkletNode(audioCtx, "output-guard", {
+      channelCount: 2, channelCountMode: "explicit", outputChannelCount: [2],
+    });
+    outputGuard.port.onmessage = (e) => {
+      if (e.data.type !== "nan") return;
+      console.error(`NaN at output: ${e.data.count} samples silenced`);
+      voices[0]?.conn?.send({ type: "nan", count: e.data.count });
+    };
+    masterGain.connect(outputGuard);
+    outputGuard.connect(outputClamp);
+    outputClamp.connect(audioCtx.destination);
     try { const wl = await navigator.wakeLock?.request("screen"); wl?.addEventListener("release", () => {}); } catch {}
   } catch (err) {
     overlay.querySelector("span").textContent = "audio failed";

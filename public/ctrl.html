@@ -21,6 +21,18 @@
     }
     #tooltip .tt-name { color: #e0e0e0; }
     #tooltip .tt-type { color: #888; }
+    #hint {
+      position: fixed; left: 50%; top: 40%; transform: translateX(-50%);
+      color: #666; font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      font-size: 14px; display: none; pointer-events: none; z-index: 5;
+    }
+    #notice {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: #2a1a1a; color: #e0a0a0; border: 1px solid #6a3a3a;
+      font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
+      font-size: 12px; padding: 8px 12px; max-width: 80vw; line-height: 1.5;
+      white-space: pre-wrap; display: none; z-index: 30; cursor: pointer;
+    }
     #box-input {
       position: fixed; background: transparent; border: none; outline: none;
       color: #e0e0e0; font-family: "IBM Plex Mono", "Fira Mono", "Courier New", monospace;
@@ -71,6 +83,8 @@
   <canvas id="c"></canvas>
   <input id="box-input" type="text" autocomplete="off" spellcheck="false">
   <div id="tooltip"></div>
+  <div id="hint">press h for help</div>
+  <div id="notice" title="click to dismiss"></div>
   <script src="engine-factory.js"></script>
   <script type="module" src="ctrl.js"></script>
 </body>

@@ -26,6 +26,9 @@ let currentPatchName = null;
 
 let ctrlAudioCtx = null;
 let ctrlChannelMerger = null;
+let ctrlGuardLoaded = false;
+let ctrlOutputStage = []; // guard + clamp nodes between the merger and the destination
+let ctrlNanNotified = false;
 let ctrlInputSource = null;   // MediaStreamSourceNode (shared)
 let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
@@ -97,6 +100,8 @@ async function buildCtrlAudioTopology() {
   }
   ctrlEngines.clear();
   if (ctrlChannelMerger) { ctrlChannelMerger.disconnect(); ctrlChannelMerger = null; }
+  for (const n of ctrlOutputStage) n.disconnect();
+  ctrlOutputStage = [];
   if (ctrlInputSplitter) { ctrlInputSplitter.disconnect(); ctrlInputSplitter = null; }
   if (ctrlInputSource) { ctrlInputSource.disconnect(); ctrlInputSource = null; }
 
@@ -124,7 +129,34 @@ async function buildCtrlAudioTopology() {
   ctrlChannelMerger = ctrlAudioCtx.createChannelMerger(maxChannel);
   ctrlChannelMerger.channelCountMode = "explicit";
   ctrlChannelMerger.channelInterpretation = "discrete";
-  ctrlChannelMerger.connect(ctrlAudioCtx.destination);
+  // Output clamp (see main.js). Deliberately no DC blocker: ctrl outputs can
+  // carry DC-coupled control voltage.
+  // The guard in front of it replaces NaN with silence and reports it.
+  if (!ctrlGuardLoaded) {
+    await ctrlAudioCtx.audioWorklet.addModule("output-guard-processor.js");
+    ctrlGuardLoaded = true;
+  }
+  const ctrlOutputGuard = new AudioWorkletNode(ctrlAudioCtx, "output-guard", {
+    channelCount: maxChannel, channelCountMode: "explicit", channelInterpretation: "discrete",
+    outputChannelCount: [maxChannel],
+  });
+  ctrlNanNotified = false;
+  ctrlOutputGuard.port.onmessage = (e) => {
+    if (e.data.type !== "nan") return;
+    console.error(`NaN at ctrl output: ${e.data.count} samples silenced`);
+    if (!ctrlNanNotified) {
+      ctrlNanNotified = true;
+      notify([`⚠ NaN at ctrl output (silenced). Some engine above the border is producing NaN.`]);
+    }
+  };
+  const ctrlOutputClamp = ctrlAudioCtx.createWaveShaper();
+  ctrlOutputClamp.curve = new Float32Array([-1, 1]);
+  ctrlOutputClamp.channelCountMode = "max";
+  ctrlOutputClamp.channelInterpretation = "discrete";
+  ctrlChannelMerger.connect(ctrlOutputGuard);
+  ctrlOutputGuard.connect(ctrlOutputClamp);
+  ctrlOutputClamp.connect(ctrlAudioCtx.destination);
+  ctrlOutputStage = [ctrlOutputGuard, ctrlOutputClamp];
 
   // Create engines
   for (const [id, box] of ctrlAudioBoxes) {
@@ -299,6 +331,7 @@ const mainEditor = new PatchEditor(canvas, {
   input: input,
   tooltipEl: tooltipEl,
   onSend: (msg) => send(msg),
+  onError: (lines) => notify(lines),
   onOpenAbstraction: (text) => openAbstractionForEdit(text),
   onDirty: () => {},
   renderOverlay: (ctx, w, h) => {
@@ -363,6 +396,27 @@ resize();
 
 // --- Help System ---
 
+// Visible error channel. Stays up until clicked (errors must not scroll past in a console).
+function notify(lines) {
+  const el = document.getElementById("notice");
+  el.textContent = [].concat(lines).join("\n");
+  el.style.display = "block";
+  el.onclick = () => { el.style.display = "none"; };
+}
+
+// "press h for help" on load; goes away on the first key or click.
+{
+  const hint = document.getElementById("hint");
+  const dismiss = () => {
+    hint.style.display = "none";
+    window.removeEventListener("keydown", dismiss, true);
+    window.removeEventListener("pointerdown", dismiss, true);
+  };
+  hint.style.display = "block";
+  window.addEventListener("keydown", dismiss, true);
+  window.addEventListener("pointerdown", dismiss, true);
+}
+
 let helpEditor = null;
 let helpPopup = null;
 let helpDirty = false;
@@ -371,7 +425,7 @@ let helpName = null;
 async function openHelp(typeName) {
   const helpPatchName = typeName + "-help";
   try {
-    const res = await fetch(`/abstractions/${encodeURIComponent(helpPatchName)}`);
+    const res = await fetch(`/help/${encodeURIComponent(helpPatchName)}`);
     if (!res.ok) {
       console.log(`No help for "${typeName}"`);
       return;
@@ -426,7 +480,7 @@ function showHelpPopup(name, data) {
 
 function closeHelpPopup() {
   if (helpDirty && confirm(`Save changes to ${helpName}?`)) {
-    fetch(`/abstractions/${encodeURIComponent(helpName)}`, { method: "PUT", body: helpEditor.serialize() });
+    fetch(`/help/${encodeURIComponent(helpName)}`, { method: "PUT", body: helpEditor.serialize() });
   }
   document.getElementById("help-popup")?.classList.add("hidden");
   helpEditor?.unbindEvents();
@@ -540,6 +594,11 @@ window.addEventListener("keydown", (e) => {
     openHelp(boxTypeName(mainEditor.boxes.get(boxId).text));
     return;
   }
+  if (e.key === "h" && mainEditor.selection.size === 0 && !e.metaKey && !e.ctrlKey) {
+    e.preventDefault();
+    openHelp("tambourine");
+    return;
+  }
   if (e.key === " " && mainEditor.mode !== "editing") {
     e.preventDefault();
     mainEditor.spaceHeld = true;
@@ -584,6 +643,9 @@ function connectWS() {
         mainEditor.render();
       } else if (msg.type === "errors") {
         for (const err of msg.errors) console.warn("⚠ " + err);
+        notify(msg.errors.map((e) => "⚠ " + e));
+      } else if (msg.type === "apply-rejected") {
+        notify(["✗ apply rejected, previous patch still running", ...msg.errors]);
       } else if (msg.type === "count") {
         connectedClients = msg.clients;
         mainEditor.render();

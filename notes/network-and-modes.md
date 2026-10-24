@@ -2,8 +2,8 @@
 
 > Design note for the lines release. Defines what "hardware-agnostic" actually
 > means for this project, names the three run modes, and records the hardware
-> tiers. Pairs with the `MODE` refactor in `server.ts` / `start-macos.sh`
-> (not yet implemented — this doc is the spec it should satisfy).
+> tiers. Pairs with the `MODE` table in `server.ts` and `start-macos.sh`
+> (implemented — this doc is the spec it satisfies).
 
 ## Why this exists
 

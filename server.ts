@@ -108,7 +108,7 @@ function importCjs(src: string): any {
 }
 
 const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
-const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, isAudioBox, isDac } = boxTypes;
+const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getOutletDef, isAudioBox, isDac } = boxTypes;
 
 const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
 const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation, applyInletToState, deliverValueToInlet } = graphCore;
@@ -381,8 +381,60 @@ function expandAbstractions(): string[] {
 
 // --- Apply (replaces entire graph state from ctrl) ---
 
+// Audio never crosses the border, and routers carry events and values only.
+// The editor refuses these cables too; this catches patch files edited by hand.
+// deno-lint-ignore no-explicit-any
+function findAudioBorderViolations(msg: any): string[] {
+  const by = msg.synthBorderY ?? getSynthBorderY();
+  // deno-lint-ignore no-explicit-any
+  const byId = new Map<number, any>(msg.boxes);
+  // deno-lint-ignore no-explicit-any
+  const synthSide = (box: any) => {
+    const zone = getBoxZone(box.text);
+    return zone === "synth" || (zone === "any" && box.y >= by);
+  };
+  const problems = new Set<string>();
+  // deno-lint-ignore no-explicit-any
+  for (const [, c] of msg.cables as [number, any][]) {
+    const src = byId.get(c.srcBox), dst = byId.get(c.dstBox);
+    if (!src || !dst) continue;
+    if (getOutletDef(src.text, c.srcOutlet)?.type !== "audio") continue;
+    if (getBoxZone(src.text) === "router" || getBoxZone(dst.text) === "router") {
+      problems.add(`audio cable "${src.text}" to "${dst.text}": routers carry events and values, not audio`);
+    } else if (synthSide(src) !== synthSide(dst)) {
+      problems.add(`audio cable "${src.text}" to "${dst.text}" crosses the border`);
+    }
+  }
+  return [...problems];
+}
+
+// Box types that are neither built in nor a known abstraction. Empty boxes are
+// ignored (a freshly placed box has no text yet).
+// deno-lint-ignore no-explicit-any
+function findUnknownBoxTypes(applyBoxes: [number, any][]): string[] {
+  const unknown = new Set<string>();
+  for (const [, box] of applyBoxes) {
+    const text = (box.text ?? "").trim();
+    if (!text) continue;
+    const type = boxTypeName(text);
+    if (!getBoxDef(text) && !loadedAbstractions.has(type)) unknown.add(type);
+  }
+  return [...unknown];
+}
+
 // deno-lint-ignore no-explicit-any
 function handleApply(msg: any): void {
+  // Refuse the whole apply if any box has no definition. The previous patch
+  // keeps running; nothing is half-applied and nothing is silently dropped.
+  const errors = [
+    ...findUnknownBoxTypes(msg.boxes).map((t) => `unknown box type "${t}"`),
+    ...findAudioBorderViolations(msg),
+  ];
+  if (errors.length > 0) {
+    for (const err of errors) console.log(`\x1b[31m✗ apply rejected: ${err}\x1b[0m`);
+    sendCtrl({ type: "apply-rejected", errors });
+    return;
+  }
   clearPatchState();
   for (const [id, box] of msg.boxes) {
     const p = getBoxPorts(box.text);
@@ -506,7 +558,10 @@ function serializeSynthPatch(): Record<string, unknown> {
 
   for (const [id, box] of boxes) {
     const def = getBoxDef(box.text);
-    if (!def) continue;
+    if (!def) {
+      console.log(`\x1b[31m✗ deploy skipped box ${id} "${box.text}": no definition\x1b[0m`);
+      continue;
+    }
     const synth = def.zone === "synth" || (def.zone === "any" && isSynthZone(box.x, box.y));
     if (synth) {
       synthIds.add(id);
@@ -728,6 +783,8 @@ function handleCtrlWs(req: Request): Response {
 
 // --- Synth WebSocket handler ---
 
+const lastNanReport = new Map<number, number>();
+
 function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   const { socket, response } = Deno.upgradeWebSocket(req);
   const id = nextClientId++;
@@ -751,6 +808,15 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
       const msg = JSON.parse(e.data);
       if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
+      } else if (msg.type === "nan") {
+        // A phone's output guard saw NaN. Throttled per client so one broken engine can't flood ctrl.
+        const now = Date.now();
+        if (now - (lastNanReport.get(id) ?? 0) > 5000) {
+          lastNanReport.set(id, now);
+          const text = `client ${id}: NaN at output (${msg.count} samples silenced so far)`;
+          console.log(`\x1b[33m⚠ ${text}\x1b[0m`);
+          sendCtrl({ type: "errors", errors: [text] });
+        }
       } else if (msg.type === "up" && typeof msg.ch === "string") {
         const targets = uplinkIndex.get(msg.ch);
         if (targets) {
@@ -857,6 +923,7 @@ function appHandler(req: Request, info: Deno.ServeHandlerInfo, insecure = false)
   }
   if (url.pathname.startsWith("/patches")) return handlePatchAPI(req, url);
   if (url.pathname.startsWith("/abstractions")) return handleAbstractionAPI(req, url);
+  if (url.pathname === "/help" || url.pathname.startsWith("/help/")) return handleHelpAPI(req, url);
   const ext = url.pathname.split(".").pop()?.toLowerCase();
   if (ext && ["html", "js", "css", "json", "png", "ico", "flac", "wav", "aiff", "aif", "ogg", "mp3", "m4a"].includes(ext)) return serveFile(url.pathname);
   return serveFile("/index.html");
@@ -866,8 +933,10 @@ function appHandler(req: Request, info: Deno.ServeHandlerInfo, insecure = false)
 
 const PATCHES_DIR = "./patches";
 const ABSTRACTIONS_DIR = "./abstractions";
+const HELP_DIR = "./help";
 await Deno.mkdir(PATCHES_DIR, { recursive: true });
 await Deno.mkdir(ABSTRACTIONS_DIR, { recursive: true });
+await Deno.mkdir(HELP_DIR, { recursive: true });
 
 // --- Abstraction loading ---
 
@@ -972,6 +1041,50 @@ async function handlePatchAPI(req: Request, url: URL): Promise<Response> {
 }
 
 // --- Abstraction storage API ---
+
+// Help patches are named after the box type they document: `<type>-help.json`,
+// with the type's own spelling (a trailing `~` is kept: `ewing~-help.json`).
+function sanitizeHelpName(name: string): string | null {
+  const clean = name.replace(/[^a-zA-Z0-9_\-~ ]/g, "").trim();
+  return clean.length > 0 ? clean : null;
+}
+
+async function handleHelpAPI(req: Request, url: URL): Promise<Response> {
+  const headers = { "content-type": "application/json" };
+
+  // GET /help — list help patches
+  if (req.method === "GET" && url.pathname === "/help") {
+    const names: string[] = [];
+    for await (const entry of Deno.readDir(HELP_DIR)) {
+      if (entry.isFile && entry.name.endsWith(".json")) names.push(entry.name.replace(/\.json$/, ""));
+    }
+    names.sort();
+    return new Response(JSON.stringify(names), { headers });
+  }
+
+  const name = sanitizeHelpName(decodeURIComponent(url.pathname.slice(6)));
+  if (!name) return new Response("Invalid name", { status: 400 });
+
+  // GET /help/name — load a help patch
+  if (req.method === "GET") {
+    try {
+      return new Response(await Deno.readTextFile(`${HELP_DIR}/${name}.json`), { headers });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  }
+
+  // PUT /help/name — save a help patch
+  if (req.method === "PUT") {
+    const raw = JSON.parse(await req.text());
+    delete raw.synthBorderY;
+    await Deno.writeTextFile(`${HELP_DIR}/${name}.json`, JSON.stringify(raw));
+    event(`saved help: ${name}`);
+    return new Response(JSON.stringify({ ok: true, name }), { headers });
+  }
+
+  return new Response("Method not allowed", { status: 405 });
+}
 
 async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
   const headers = { "content-type": "application/json" };
