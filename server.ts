@@ -204,33 +204,12 @@ function broadcastClientCount(): void {
 }
 
 // --- IP auth tracking ---
+// A phone's IP is authenticated the first time it loads the portal (/auth) or
+// connects a synth socket, and stays authenticated until the server restarts.
+// There is deliberately no deauth: a locked screen or a stalled socket must not
+// send the phone back to the portal, and the LAN is sealed.
 
 const authenticatedIPs = new Set<string>();
-const ipConnections = new Map<string, Set<number>>();
-const deauthTimers = new Map<string, number>();
-
-function trackConnect(clientIP: string, id: number): void {
-  if (!ipConnections.has(clientIP)) ipConnections.set(clientIP, new Set());
-  ipConnections.get(clientIP)!.add(id);
-  const timer = deauthTimers.get(clientIP);
-  if (timer !== undefined) { clearTimeout(timer); deauthTimers.delete(clientIP); }
-}
-
-function trackDisconnect(clientIP: string, id: number): void {
-  const conns = ipConnections.get(clientIP);
-  if (!conns?.has(id)) return;
-  conns.delete(id);
-  if (conns.size === 0) {
-    ipConnections.delete(clientIP);
-    if (!deauthTimers.has(clientIP)) {
-      const timer = setTimeout(() => {
-        authenticatedIPs.delete(clientIP);
-        deauthTimers.delete(clientIP);
-      }, 5000);
-      deauthTimers.set(clientIP, timer);
-    }
-  }
-}
 
 // --- Edit handling ---
 
@@ -708,7 +687,6 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("open", () => {
     synthWsClients.set(id, socket);
-    trackConnect(clientIP, id);
     authenticatedIPs.add(clientIP);
     drawStatus();
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
@@ -748,7 +726,6 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("close", () => {
     synthWsClients.delete(id);
-    trackDisconnect(clientIP, id);
     drawStatus();
     broadcastClientCount();
   });

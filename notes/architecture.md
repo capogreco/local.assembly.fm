@@ -132,3 +132,9 @@ Some settings do not travel with a patch (synth list visibility, and whatever el
 ## SSE is removed (decided 2026-10-24)
 
 Synthesis inside the iOS captive network assistant is abandoned as too limiting and inconsistent, and SSE existed to serve it (dev_log: iPhone 10 CNA took SSE but not WebSocket). An SSE phone was also receive-only (`/events` is a one-way stream), so it could never send uplink, status or sync pings. Transport becomes WebSocket only. The captive portal's job is to get the phone to a real browser. Done: the SSE handler, `sseClients` and the SSE-first connection logic are deleted. `/events` is no longer a route (the server's catch-all serves the index page for unknown paths, as for any other).
+
+## Captive portal (decided 2026-10-26)
+
+Kept. Its jobs: the OS probes redirect to `portal.html` (the sheet that pops on join, with tap-to-copy of the address), and `/auth` marks the phone's IP authenticated so the probes answer "Success" and the OS keeps the network. The 5 s deauth lifecycle is removed: an IP stays authenticated until the server restarts, because a locked screen or stalled socket must not send a phone back to the portal. Known edge: a different phone that later gets the same DHCP lease within one server run will not see the sheet.
+
+To test on real phones, later: (1) whether a bare `local.tamb.fm` typed into the URL bar navigates on current iOS and Android (if so the portal page could be dropped and the probes always answer "Success"); (2) join, lock the screen for 30 s, unlock, and confirm the phone stays on the network and does not re-pop the sheet; (3) the probe paths against what current OS versions actually request; (4) a certificate for `local.tamb.fm` is a prerequisite for the portal to work at all.
