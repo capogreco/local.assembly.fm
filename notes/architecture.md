@@ -49,7 +49,7 @@ Sequence to Bun:
 1. Behaviour-interface (done), dead-code deletion (done), `emit()` consolidation (done, eval-engine.ts).
 2. Hostname `local.tamb.fm` and SSID `tambourine` strings (done in code defaults and notes; cert and DNS are Thomas's).
 3. Core/library sorting (done as `lib: "maker"` tags in gpi-types.js; see notes/core-and-library.md).
-4. **Remove SSE** (server handler, `sseClients`, SSE-first logic in `public/connection.js`).
+4. Remove SSE (done 2026-10-26: server handler and `sseClients` deleted, `public/connection.js` is WebSocket-only).
 5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. Not yet verified: that Bun can import the ESM files directly so the CJS shim disappears (inferred).
 
 ## Seams to build now (nothing else)
@@ -131,4 +131,4 @@ Some settings do not travel with a patch (synth list visibility, and whatever el
 
 ## SSE is removed (decided 2026-10-24)
 
-Synthesis inside the iOS captive network assistant is abandoned as too limiting and inconsistent, and SSE existed to serve it (dev_log: iPhone 10 CNA took SSE but not WebSocket). An SSE phone was also receive-only (`/events` is a one-way stream), so it could never send uplink, status or sync pings. Transport becomes WebSocket only. The captive portal's job is to get the phone to a real browser. To do as part of the refactor: delete the SSE handler and `sseClients` in `server.ts`, and the SSE-first connection logic in `public/connection.js`.
+Synthesis inside the iOS captive network assistant is abandoned as too limiting and inconsistent, and SSE existed to serve it (dev_log: iPhone 10 CNA took SSE but not WebSocket). An SSE phone was also receive-only (`/events` is a one-way stream), so it could never send uplink, status or sync pings. Transport becomes WebSocket only. The captive portal's job is to get the phone to a real browser. Done: the SSE handler, `sseClients` and the SSE-first connection logic are deleted. `/events` is no longer a route (the server's catch-all serves the index page for unknown paths, as for any other).

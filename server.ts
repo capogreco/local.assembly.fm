@@ -66,7 +66,6 @@ if (!cfg) {
 const status = {
   ctrl: 0,
   synth: 0,
-  sse: 0,
   applied: false,
   lastEvent: "",
   lastEventTime: 0,
@@ -82,18 +81,12 @@ function event(msg: string): void {
 
 function drawStatus(): void {
   const synth = synthWsClients.size;
-  const sse = sseClients.size;
   const ctrl = ctrlSockets.size;
-  const total = synth + sse;
+  const total = synth;
   const state = status.applied ? "\x1b[32m●\x1b[0m applied" : "\x1b[33m○\x1b[0m idle";
   const clients = total === 0 ? "\x1b[90m0 clients\x1b[0m" : `\x1b[36m${total} client${total !== 1 ? "s" : ""}\x1b[0m`;
   const ctrlLabel = ctrl > 0 ? "\x1b[32mctrl\x1b[0m" : "\x1b[90mctrl\x1b[0m";
-  const ws = synth > 0 ? `${synth}ws` : "";
-  const sseLabel = sse > 0 ? `${sse}sse` : "";
-  const transport = [ws, sseLabel].filter(Boolean).join("+") || "";
-  const transportStr = transport ? ` (${transport})` : "";
-
-  const line = `  ${ctrlLabel}  ${clients}${transportStr}  ${state}`;
+  const line = `  ${ctrlLabel}  ${clients}  ${state}`;
   Deno.stdout.writeSync(new TextEncoder().encode(`\r\x1b[K${line}`));
 }
 
@@ -168,30 +161,25 @@ async function serveFile(path: string): Promise<Response> {
 
 let nextClientId = 1;
 const synthWsClients = new Map<number, WebSocket>();
-type SSESend = (data: Record<string, unknown>) => void;
-const sseClients = new Map<number, SSESend>();
 const ctrlSockets = new Set<WebSocket>();
 
-function totalSynthClients(): number { return synthWsClients.size + sseClients.size; }
+function totalSynthClients(): number { return synthWsClients.size; }
 
 function broadcastSynth(msg: Record<string, unknown>): void {
   const data = JSON.stringify(msg);
   for (const [, socket] of synthWsClients) {
     if (socket.readyState === WebSocket.OPEN) socket.send(data);
   }
-  for (const [, send] of sseClients) send(msg);
 }
 
 function sendToClient(clientId: number, msg: Record<string, unknown>): void {
   const data = JSON.stringify(msg);
   const ws = synthWsClients.get(clientId);
-  if (ws?.readyState === WebSocket.OPEN) { ws.send(data); return; }
-  const sse = sseClients.get(clientId);
-  if (sse) sse(msg);
+  if (ws?.readyState === WebSocket.OPEN) ws.send(data);
 }
 
 function getSynthClientIds(): number[] {
-  return [...synthWsClients.keys(), ...sseClients.keys()];
+  return [...synthWsClients.keys()];
 }
 
 
@@ -206,7 +194,7 @@ function sendCtrl(msg: Record<string, unknown>): void {
 
 function broadcastClientCount(): void {
   const count = totalSynthClients();
-  console.log(`  client count: ${count} (ws:${synthWsClients.size} sse:${sseClients.size})`);
+  console.log(`  client count: ${count}`);
   broadcastSynth({ type: "count", clients: count });
   sendCtrl({ type: "count", clients: count });
   // Rebuild group router memberships when client count changes
@@ -768,48 +756,6 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
   return response;
 }
 
-// --- SSE handler ---
-
-function handleSSE(req: Request, info: Deno.ServeHandlerInfo): Response {
-  const id = nextClientId++;
-  const clientIP = (info.remoteAddr as Deno.NetAddr).hostname;
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream({
-    start(controller) {
-      const send: SSESend = (data) => {
-        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); }
-        catch { /* stream closed */ }
-      };
-      sseClients.set(id, send);
-      trackConnect(clientIP, id);
-      drawStatus();
-      send({ type: "welcome", id, clients: totalSynthClients() });
-      if (getDeployedPatch()) {
-        send(getDeployedPatch()!);
-        for (const data of latestValues.values()) send(JSON.parse(data));
-      }
-      broadcastClientCount();
-    },
-    cancel() {
-      sseClients.delete(id);
-      trackDisconnect(clientIP, id);
-      drawStatus();
-      broadcastClientCount();
-    },
-  });
-
-  req.signal.addEventListener("abort", () => {
-    sseClients.delete(id);
-    trackDisconnect(clientIP, id);
-    broadcastClientCount();
-  });
-
-  return new Response(stream, {
-    headers: { "content-type": "text/event-stream", "cache-control": "no-cache", "connection": "keep-alive" },
-  });
-}
-
 // --- Request handler ---
 // One handler for every mode. The captive-portal CNA branch is active only when
 // cfg.needsCaptivePortal (performance); in practice/workshop the probe paths
@@ -843,7 +789,6 @@ function appHandler(req: Request, info: Deno.ServeHandlerInfo, insecure = false)
     return Response.redirect(`https://${HOST_DOMAIN}${port}${url.pathname}${url.search}`, 302);
   }
 
-  if (url.pathname === "/events") return handleSSE(req, info);
   // route WebSocket by path
   if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
     if (url.pathname === "/ws/ctrl") return handleCtrlWs(req);

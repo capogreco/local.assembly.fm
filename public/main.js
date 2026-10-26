@@ -397,7 +397,6 @@ function buildVoices() {
 
     // each voice gets its own server connection
     // first voice uses the status bar elements, others pass null
-    // ensemble mode uses WS-only (avoids Firefox 6-connection SSE limit)
     const isEnsemble = N > 1;
     const statusEl = i === 0 ? connStatus : null;
     const countEl = i === 0 ? clientCount : null;
@@ -405,7 +404,6 @@ function buildVoices() {
       (msg) => voiceOnMessage(voice, msg),
       statusEl,
       countEl,
-      isEnsemble,
       isEnsemble ? i * 50 : 0,
     );
 
