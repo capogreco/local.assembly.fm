@@ -49,16 +49,6 @@ initEvalEngine({
   getSynthClientIds: () => [101, 102, 103], // stable mock client ids
   sendCtrl: (msg) => capture.ctrlSends.push(msg),
   event: (msg) => capture.events.push(msg),
-  boxTypeName: gpi.boxTypeName,
-  getBoxDef: gpi.getBoxDef,
-  getBoxZone: gpi.getBoxZone,
-  isAudioBox: gpi.isAudioBox,
-  evaluatePure: gc.evaluatePure,
-  createBoxState: gc.createBoxState,
-  tickBox: gc.tickBox,
-  handleBoxEvent: gc.handleBoxEvent,
-  applyInletToState: gc.applyInletToState,
-  deliverValueToInlet: gc.deliverValueToInlet,
 });
 
 // --- Helpers for building patches ---

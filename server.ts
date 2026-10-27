@@ -9,7 +9,7 @@ import {
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
-  initEvalEngine, buildGroups,
+  initEvalEngine, startEvalEngine, buildGroups,
   setBoxValueAndNotify, propagateAndNotify,
   evaluateAllConsts, evaluateAllDevices, evaluateAllClients,
   initAllBoxState,
@@ -17,7 +17,6 @@ import {
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
 import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getOutletDef, isAudioBox, isDac } from "./public/gpi-types.js";
-import { createBoxState, evaluatePure, handleBoxEvent, tickBox, applyInletToState, deliverValueToInlet } from "./public/graph-core.js";
 
 // Workshop self-signed cert — distinct filenames so generation can never
 // clobber a hand-copied Let's Encrypt pair sitting in the repo root.
@@ -95,11 +94,9 @@ function drawStatus(): void {
 // Wire module callbacks (function declarations are hoisted, safe to reference here)
 initEvalEngine({
   broadcastSynth, sendToClient, getSynthClientIds, sendCtrl, event,
-  boxTypeName, getBoxDef, getBoxZone, isAudioBox,
-  evaluatePure, createBoxState, tickBox, handleBoxEvent, applyInletToState,
-  deliverValueToInlet,
 });
-initHardware({ setBoxValueAndNotify, sendCtrl, event, boxTypeName, getBoxDef });
+startEvalEngine();
+initHardware({ setBoxValueAndNotify, sendCtrl, event });
 
 // --- TLS cert resolution ---
 // Prefer certbot's live paths (zero-copy renewal); fall back to the repo-root

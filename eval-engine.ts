@@ -8,6 +8,8 @@ import {
   cablesFromOutlet, isSynthZone,
 } from "./patch-state.ts";
 import { arcValues } from "./hardware.ts";
+import { boxTypeName, getBoxDef, getBoxZone, isAudioBox } from "./public/gpi-types.js";
+import { evaluatePure, createBoxState, tickBox, handleBoxEvent, applyInletToState, deliverValueToInlet } from "./public/graph-core.js";
 
 // --- Timing instrumentation (gated; zero overhead when env vars unset) ---
 // See notes/server-timing-runtime-analysis.md. Timestamps are performance.now()
@@ -15,7 +17,7 @@ import { arcValues } from "./hardware.ts";
 //   PROFILE_TICK=1   → per-second tick aggregate + [tick-late] outliers
 //   PROFILE_ONSET=1  → one [onset] line per outbound synth message
 // Parse the combined log with:  deno run -R notes/gc-correlate.ts <logfile>
-const PROFILE_ONSET = !!Deno.env.get("PROFILE_ONSET");
+let PROFILE_ONSET = false; // set in startEvalEngine()
 function logOnset(dst: string, msg: Record<string, unknown>): void {
   const t = msg.type;
   if (t !== "re" && t !== "rv") return; // router events/values are the audible onsets
@@ -29,25 +31,6 @@ let _sendToClient: (clientId: number, msg: Record<string, unknown>) => void;
 let _getSynthClientIds: () => number[];
 let _sendCtrl: (msg: Record<string, unknown>) => void;
 let _event: (msg: string) => void;
-// deno-lint-ignore no-explicit-any
-let _boxTypeName: (text: string) => string;
-// deno-lint-ignore no-explicit-any
-let _getBoxDef: (text: string) => any;
-// deno-lint-ignore no-explicit-any
-let _getBoxZone: (text: string) => any;
-let _isAudioBox: (text: string) => boolean;
-// deno-lint-ignore no-explicit-any
-let _evaluatePure: (name: string, args: string[], iv: number[]) => any;
-// deno-lint-ignore no-explicit-any
-let _createBoxState: (name: string, args: string) => any;
-// deno-lint-ignore no-explicit-any
-let _tickBox: (name: string, state: any, iv: number[], dt: number) => any;
-// deno-lint-ignore no-explicit-any
-let _handleBoxEvent: (name: string, state: any, iv: number[]) => any;
-// deno-lint-ignore no-explicit-any
-let _applyInletToState: (name: string, state: any, inlet: number, value: number) => boolean;
-// deno-lint-ignore no-explicit-any
-let _deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 
 // Every router message (rv/re) leaves the server through emit(): `to` is a client
 // id, or omitted to broadcast. This is the one place a message could be stamped
@@ -64,41 +47,12 @@ export function initEvalEngine(deps: {
   getSynthClientIds: () => number[];
   sendCtrl: (msg: Record<string, unknown>) => void;
   event: (msg: string) => void;
-  // deno-lint-ignore no-explicit-any
-  boxTypeName: (text: string) => any;
-  // deno-lint-ignore no-explicit-any
-  getBoxDef: (text: string) => any;
-  // deno-lint-ignore no-explicit-any
-  getBoxZone: (text: string) => any;
-  isAudioBox: (text: string) => boolean;
-  // deno-lint-ignore no-explicit-any
-  evaluatePure: (name: string, args: string[], iv: number[]) => any;
-  // deno-lint-ignore no-explicit-any
-  createBoxState: (name: string, args: string) => any;
-  // deno-lint-ignore no-explicit-any
-  tickBox: (name: string, state: any, iv: number[], dt: number) => any;
-  // deno-lint-ignore no-explicit-any
-  handleBoxEvent: (name: string, state: any, iv: number[]) => any;
-  // deno-lint-ignore no-explicit-any
-  applyInletToState: (name: string, state: any, inlet: number, value: number) => boolean;
-  // deno-lint-ignore no-explicit-any
-  deliverValueToInlet: (graph: any, boxId: number, inlet: number, value: any, helpers: any, inletDef?: any) => { updates: any; deferEvent: boolean };
 }): void {
   _broadcastSynth = deps.broadcastSynth;
   _sendToClient = deps.sendToClient;
   _getSynthClientIds = deps.getSynthClientIds;
   _sendCtrl = deps.sendCtrl;
   _event = deps.event;
-  _boxTypeName = deps.boxTypeName;
-  _getBoxDef = deps.getBoxDef;
-  _getBoxZone = deps.getBoxZone;
-  _isAudioBox = deps.isAudioBox;
-  _evaluatePure = deps.evaluatePure;
-  _createBoxState = deps.createBoxState;
-  _tickBox = deps.tickBox;
-  _handleBoxEvent = deps.handleBoxEvent;
-  _applyInletToState = deps.applyInletToState;
-  _deliverValueToInlet = deps.deliverValueToInlet;
 }
 
 // --- Router state (for one/sweep/group targeting) ---
@@ -126,7 +80,7 @@ function shuffleArray(arr: number[]): number[] {
 function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, isEvent = false): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
-  const routerType = _boxTypeName(box.text);
+  const routerType = boxTypeName(box.text);
 
   // `one` with arg N: explicit-fire bundling semantics.
   // Inlets 0..N-1 = data (cold store), inlet N = fire (flush + advance), inlet N+1 = shuffle.
@@ -251,7 +205,7 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
 function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts: { advanceSweep: boolean; storeLatest: boolean }): void {
   const box = boxes.get(routerBoxId);
   if (!box) return;
-  const routerType = _boxTypeName(box.text);
+  const routerType = boxTypeName(box.text);
 
   if (opts.storeLatest) {
     latestValues.set(routerBoxId + ":" + (msg.ch || 0), JSON.stringify(msg));
@@ -295,9 +249,9 @@ function sendViaRouter(routerBoxId: number, channel: number, value: BoxValue): v
 // --- Evaluation core ---
 
 function evaluateBox(box: Box, iv: number[]): number {
-  const name = _boxTypeName(box.text);
+  const name = boxTypeName(box.text);
   const args = box.text.split(/\s+/).slice(1);
-  const result = _evaluatePure(name, args, iv);
+  const result = evaluatePure(name, args, iv);
   return result !== null ? result : (iv[0] || 0);
 }
 
@@ -309,13 +263,13 @@ export function queueValueUpdate(id: number, value: BoxValue): void {
   pendingValueUpdates.set(id, value);
 }
 
-setInterval(() => {
+function flushValueUpdates(): void {
   if (pendingValueUpdates.size === 0) return;
   const updates: Array<{ id: number; value: BoxValue }> = [];
   for (const [id, value] of pendingValueUpdates) updates.push({ id, value });
   pendingValueUpdates = new Map();
   _sendCtrl({ type: "values", updates });
-}, 33);
+}
 
 const ONSET_THRESHOLD = 0.01;
 
@@ -325,8 +279,8 @@ export function setBoxValueAndNotify(boxId: number, value: BoxValue): void {
   queueValueUpdate(boxId, value);
   const box = boxes.get(boxId);
   if (!box) return;
-  const name = _boxTypeName(box.text);
-  const def = _getBoxDef(box.text);
+  const name = boxTypeName(box.text);
+  const def = getBoxDef(box.text);
   if (!def) return;
 
   // breath/bite: outlet 0 = value (0-1 pressure), outlet 1 = gate (0 below threshold, 1 above).
@@ -359,7 +313,7 @@ const _serverGraphView: any = {
     get(id: number) {
       const box = boxes.get(id);
       if (!box) return undefined;
-      const type = _boxTypeName(box.text);
+      const type = boxTypeName(box.text);
       const args = box.text.split(/\s+/).slice(1).join(" ");
       let iv = inletValues.get(id);
       if (!iv) { iv = []; inletValues.set(id, iv); }
@@ -407,13 +361,13 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
   const deferred: Array<() => void> = [];
 
   const srcBox = boxes.get(boxId);
-  const srcDef = srcBox ? _getBoxDef(srcBox.text) : null;
+  const srcDef = srcBox ? getBoxDef(srcBox.text) : null;
   const isEventSource = srcDef?.outlets?.[outletIndex]?.type === "event";
 
   for (const cable of cablesFromOutlet(boxId, outletIndex)) {
     const dst = boxes.get(cable.dstBox);
     if (!dst) continue;
-    const def = _getBoxDef(dst.text);
+    const def = getBoxDef(dst.text);
     if (!def) continue;
     if (def.zone === "router") {
       const inletDef = def.inlets[cable.dstInlet];
@@ -422,7 +376,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       } else {
         handleRouterInlet(cable.dstBox, cable.dstInlet, value, isEventSource);
       }
-    } else if (_isAudioBox(dst.text) && isCtrlSide(dst)) {
+    } else if (isAudioBox(dst.text) && isCtrlSide(dst)) {
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef?.type === "event") {
         deferred.push(() => {
@@ -469,7 +423,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       // store the coerced numValue (0 for arrays), losing the array; the
       // shared helper's seq inlet ≥1 branch correctly preserves it via the
       // top-of-function value-store. Delegate to the helper for this case.
-      const dstName = _boxTypeName(dst.text);
+      const dstName = boxTypeName(dst.text);
       const numValueForStateful = typeof value === "number" ? value : 0;
       if (dstName === "seq" && cable.dstInlet === 2) {
         // fall through to shared dispatch below
@@ -481,7 +435,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
 
       // Pre-helper: length is a server-special with array-aware computation
       // and queueValueUpdate (the helper doesn't know about queueValueUpdate).
-      if (_boxTypeName(dst.text) === "length") {
+      if (boxTypeName(dst.text) === "length") {
         const result = Array.isArray(value) ? value.length : 1;
         boxValues.set(cable.dstBox, result);
         queueValueUpdate(cable.dstBox, result);
@@ -493,7 +447,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       // change, spigot gate, default hot-inlet evaluation, firesEvent
       // signalling, and miscellaneous cold-store cases. inletDef passed
       // through so the helper can respect per-inlet hot:true metadata.
-      const r = _deliverValueToInlet(_serverGraphView, cable.dstBox, cable.dstInlet, value, _serverDeliverHelpers, inletDef);
+      const r = deliverValueToInlet(_serverGraphView, cable.dstBox, cable.dstInlet, value, _serverDeliverHelpers, inletDef);
       if (r.deferEvent) {
         const numValue = typeof value === "number" ? value : 0;
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
@@ -509,20 +463,20 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
   for (const fn of deferred) fn();
 }
 
-function isWirelessSend(text: string): boolean { const t = _boxTypeName(text); return t === "send" || t === "s"; }
-function isWirelessReceive(text: string): boolean { const t = _boxTypeName(text); return t === "receive" || t === "r"; }
-function isWirelessThrow(text: string): boolean { return _boxTypeName(text) === "throw"; }
-function isWirelessCatch(text: string): boolean { return _boxTypeName(text) === "catch"; }
+function isWirelessSend(text: string): boolean { const t = boxTypeName(text); return t === "send" || t === "s"; }
+function isWirelessReceive(text: string): boolean { const t = boxTypeName(text); return t === "receive" || t === "r"; }
+function isWirelessThrow(text: string): boolean { return boxTypeName(text) === "throw"; }
+function isWirelessCatch(text: string): boolean { return boxTypeName(text) === "catch"; }
 
 function isCtrlSide(box: Box): boolean {
-  const zone = _getBoxZone(box.text);
+  const zone = getBoxZone(box.text);
   return zone === "ctrl" || zone === "router" || (zone === "any" && !isSynthZone(box.x, box.y));
 }
 
 export function evaluateAllConsts(): void {
   for (const [id, box] of boxes) {
     if (!isCtrlSide(box)) continue;
-    const name = _boxTypeName(box.text);
+    const name = boxTypeName(box.text);
     if (name === "const") {
       setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
     } else if (name === "knob") {
@@ -557,7 +511,7 @@ function getDeviceInitValue(name: string, text: string): number {
 export function evaluateAllDevices(): void {
   for (const [id, box] of boxes) {
     if (!isCtrlSide(box)) continue;
-    const name = _boxTypeName(box.text);
+    const name = boxTypeName(box.text);
     if (!(name in DEVICE_DEFAULTS)) continue;
     const init = getDeviceInitValue(name, box.text);
     boxValues.set(id, init);
@@ -575,7 +529,7 @@ export function evaluateAllClients(): void {
   const count = _getSynthClientIds().length;
   for (const [id, box] of boxes) {
     if (!isCtrlSide(box)) continue;
-    const name = _boxTypeName(box.text);
+    const name = boxTypeName(box.text);
     if (name === "clients") {
       setBoxValueAndNotify(id, count);
     } else if (name === "assign") {
@@ -674,17 +628,17 @@ function reassign(routerBoxId: number, notes: number[]): void {
 // --- Time-based box tick ---
 
 export function initBoxState(id: number, box: Box): void {
-  const name = _boxTypeName(box.text);
+  const name = boxTypeName(box.text);
   const args = box.text.split(/\s+/).slice(1).join(" ");
-  const state = _createBoxState(name, args);
+  const state = createBoxState(name, args);
   if (state) boxState.set(id, state);
 }
 
 export function shouldServerEval(box: Box): boolean {
-  const zone = _getBoxZone(box.text);
+  const zone = getBoxZone(box.text);
   if (zone === "synth") return false;
   if (zone === "any" && isSynthZone(box.x, box.y)) return false;
-  if (_isAudioBox(box.text)) return false;
+  if (isAudioBox(box.text)) return false;
   return true;
 }
 
@@ -703,7 +657,7 @@ const ctrlAudioAnims = new Map<number, { type: string; elapsed: number; duration
 function ctrlAudioTrigger(boxId: number): void {
   const box = boxes.get(boxId);
   if (!box) return;
-  const name = _boxTypeName(box.text);
+  const name = boxTypeName(box.text);
 
   if (name === "trig~") {
     queueValueUpdate(boxId, 1);
@@ -736,7 +690,7 @@ const TICK_DT = 1 / TICK_RATE;
 function tick(): void {
   for (const [id, box] of boxes) {
     if (!shouldServerEval(box)) continue;
-    const name = _boxTypeName(box.text);
+    const name = boxTypeName(box.text);
     const state = boxState.get(id);
     if (!state) continue;
 
@@ -746,10 +700,10 @@ function tick(): void {
     }
 
     const iv = inletValues.get(id) || [];
-    const result = _tickBox(name, state, iv, TICK_DT);
+    const result = tickBox(name, state, iv, TICK_DT);
     if (!result) continue;
 
-    const def = _getBoxDef(box.text);
+    const def = getBoxDef(box.text);
     const outlet0Def = def?.outlets?.[0];
     if (outlet0Def?.type === "event") {
       queueValueUpdate(id, result.value);
@@ -771,11 +725,11 @@ function tick(): void {
 function handleStatefulInlet(id: number, inlet: number, value: number): boolean {
   const box = boxes.get(id);
   if (!box) return false;
-  const name = _boxTypeName(box.text);
+  const name = boxTypeName(box.text);
   const state = boxState.get(id);
   if (!state) return false;
 
-  if (_applyInletToState(name, state, inlet, value)) return true;
+  if (applyInletToState(name, state, inlet, value)) return true;
 
   if (name === "phasor" && inlet === 2) { state.paused = value > 0; return true; }
   if (name === "metro" && inlet === 0) { state.paused = !(value > 0); return true; }
@@ -812,7 +766,7 @@ function handleStatefulInlet(id: number, inlet: number, value: number): boolean 
 function handleEventBox(id: number, _value: number): void {
   const box = boxes.get(id);
   if (!box) return;
-  const name = _boxTypeName(box.text);
+  const name = boxTypeName(box.text);
   const state = boxState.get(id);
   if (!state) {
     propagateAndNotify(id, 0, 1);
@@ -820,7 +774,7 @@ function handleEventBox(id: number, _value: number): void {
   }
 
   const iv = inletValues.get(id) || [];
-  const result = _handleBoxEvent(name, state, iv);
+  const result = handleBoxEvent(name, state, iv);
   if (!result) return;
 
   if (result.outputs) {
@@ -843,13 +797,13 @@ function handleEventBox(id: number, _value: number): void {
 // (any non-empty value). Logs p50/p95/max inter-tick delta once per second.
 // Cross-correlate with --v8-flags=--trace-gc output to see if outliers
 // coincide with GC events.
-const PROFILE_TICK = !!Deno.env.get("PROFILE_TICK");
+let PROFILE_TICK = false; // set in startEvalEngine()
 const _TICK_LATE_MS = (1000 / TICK_RATE) * 2; // outlier threshold: 2× the target interval
 let _tickProfileLast = 0;
 let _tickProfileBuf: number[] = [];
 const _tickProfileWindow = TICK_RATE; // 1 second worth of intervals
 
-setInterval(() => {
+function tickLoop(): void {
   if (PROFILE_TICK) {
     const now = performance.now();
     if (_tickProfileLast > 0) {
@@ -871,7 +825,16 @@ setInterval(() => {
     }
   }
   tick();
-}, 1000 / TICK_RATE);
+}
+
+// Starts the value-flush and tick timers and reads the PROFILE_* env vars.
+// Called once by server.ts after initEvalEngine(); importing this module has no side effects.
+export function startEvalEngine(): void {
+  PROFILE_ONSET = !!Deno.env.get("PROFILE_ONSET");
+  PROFILE_TICK = !!Deno.env.get("PROFILE_TICK");
+  setInterval(flushValueUpdates, 33);
+  setInterval(tickLoop, 1000 / TICK_RATE);
+}
 
 // --- MIDI CC mapping ---
 

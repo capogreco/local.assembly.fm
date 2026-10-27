@@ -2,28 +2,22 @@
 // Extracted from server.ts as part of the server split.
 
 import { type BoxValue, boxes, boxValues } from "./patch-state.ts";
+import { boxTypeName } from "./public/gpi-types.js";
 
 // --- Callbacks injected by server.ts ---
 
 let _setBoxValueAndNotify: (boxId: number, value: BoxValue) => void;
 let _sendCtrl: (msg: Record<string, unknown>) => void;
 let _event: (msg: string) => void;
-let _boxTypeName: (text: string) => string;
-let _getBoxDef: (text: string) => { outlets: { name: string }[] } | null;
 
 export function initHardware(deps: {
   setBoxValueAndNotify: (boxId: number, value: BoxValue) => void;
   sendCtrl: (msg: Record<string, unknown>) => void;
   event: (msg: string) => void;
-  boxTypeName: (text: string) => string;
-  // deno-lint-ignore no-explicit-any
-  getBoxDef: (text: string) => any;
 }): void {
   _setBoxValueAndNotify = deps.setBoxValueAndNotify;
   _sendCtrl = deps.sendCtrl;
   _event = deps.event;
-  _boxTypeName = deps.boxTypeName;
-  _getBoxDef = deps.getBoxDef;
 }
 
 // --- OSC / Monome Grid Constants ---
@@ -199,7 +193,7 @@ export function rebuildGridRegions(): void {
   gridToggleStates.clear();
 
   for (const [boxId, box] of boxes) {
-    const type = _boxTypeName(box.text);
+    const type = boxTypeName(box.text);
 
     // Grid regions
     // grid-trig / grid-toggle: `x y` — always 1×1
