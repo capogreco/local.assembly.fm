@@ -7,7 +7,9 @@ export function getLanIP(): string | null {
   try {
     const ifaces = Deno.networkInterfaces();
     for (const iface of ifaces) {
-      if (iface.family === "IPv4" && !iface.address.startsWith("127.")) {
+      // Skip loopback and link-local (169.254.x: an interface with no DHCP,
+      // e.g. an unplugged ethernet port, which phones can't reach).
+      if (iface.family === "IPv4" && !iface.address.startsWith("127.") && !iface.address.startsWith("169.254.")) {
         return iface.address;
       }
     }
