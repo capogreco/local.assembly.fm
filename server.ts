@@ -349,9 +349,11 @@ function expandAbstractions(): string[] {
 // --- Apply (replaces entire graph state from ctrl) ---
 
 // Audio never crosses the border, and routers carry events and values only.
-// The editor refuses these cables too; this catches patch files edited by hand.
+// Events and values cross the border through a router, never on a bare cable.
+// The editor refuses audio crossings and auto-routes the rest; this catches
+// patch files edited by hand and anything else that bypasses the editor.
 // deno-lint-ignore no-explicit-any
-function findAudioBorderViolations(msg: any): string[] {
+function findBorderViolations(msg: any): string[] {
   const by = msg.synthBorderY ?? getSynthBorderY();
   // deno-lint-ignore no-explicit-any
   const byId = new Map<number, any>(msg.boxes);
@@ -365,11 +367,15 @@ function findAudioBorderViolations(msg: any): string[] {
   for (const [, c] of msg.cables as [number, any][]) {
     const src = byId.get(c.srcBox), dst = byId.get(c.dstBox);
     if (!src || !dst) continue;
-    if (getOutletDef(src.text, c.srcOutlet)?.type !== "audio") continue;
-    if (getBoxZone(src.text) === "router" || getBoxZone(dst.text) === "router") {
-      problems.add(`audio cable "${src.text}" to "${dst.text}": routers carry events and values, not audio`);
-    } else if (synthSide(src) !== synthSide(dst)) {
-      problems.add(`audio cable "${src.text}" to "${dst.text}" crosses the border`);
+    const viaRouter = getBoxZone(src.text) === "router" || getBoxZone(dst.text) === "router";
+    if (getOutletDef(src.text, c.srcOutlet)?.type === "audio") {
+      if (viaRouter) {
+        problems.add(`audio cable "${src.text}" to "${dst.text}": routers carry events and values, not audio`);
+      } else if (synthSide(src) !== synthSide(dst)) {
+        problems.add(`audio cable "${src.text}" to "${dst.text}" crosses the border`);
+      }
+    } else if (!viaRouter && synthSide(src) !== synthSide(dst)) {
+      problems.add(`cable "${src.text}" to "${dst.text}" crosses the border without a router`);
     }
   }
   return [...problems];
@@ -395,7 +401,7 @@ function handleApply(msg: any): void {
   // keeps running; nothing is half-applied and nothing is silently dropped.
   const errors = [
     ...findUnknownBoxTypes(msg.boxes).map((t) => `unknown box type "${t}"`),
-    ...findAudioBorderViolations(msg),
+    ...findBorderViolations(msg),
   ];
   if (errors.length > 0) {
     for (const err of errors) console.log(`\x1b[31m✗ apply rejected: ${err}\x1b[0m`);

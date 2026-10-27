@@ -498,6 +498,10 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
         const numValue = typeof value === "number" ? value : 0;
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
       }
+    } else {
+      // A synth-zone destination reached by a bare cable. handleApply rejects
+      // these, so getting here means a rule was bypassed: say so, don't drop.
+      console.log(`\x1b[31m✗ cable to "${dst.text}" (box ${cable.dstBox}) dropped: synth-side box reached without a router\x1b[0m`);
     }
   }
 
