@@ -9,7 +9,7 @@
  *   Returns { getClientId(), close(), send(msg) }
  */
 
-function connect(onMessage, statusEl, countEl, delay) {
+export function connect(onMessage, statusEl, countEl, delay) {
   let ws = null;
   let healthInterval = null;
   let clientId = null;

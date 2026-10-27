@@ -16,6 +16,8 @@ import {
   findBoxByText, CC_SOURCE, queueValueUpdate,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
+import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getOutletDef, isAudioBox, isDac } from "./public/gpi-types.js";
+import { createBoxState, evaluatePure, handleBoxEvent, tickBox, applyInletToState, deliverValueToInlet } from "./public/graph-core.js";
 
 // Workshop self-signed cert — distinct filenames so generation can never
 // clobber a hand-copied Let's Encrypt pair sitting in the repo root.
@@ -89,22 +91,6 @@ function drawStatus(): void {
   const line = `  ${ctrlLabel}  ${clients}  ${state}`;
   Deno.stdout.writeSync(new TextEncoder().encode(`\r\x1b[K${line}`));
 }
-
-// --- Import shared modules ---
-
-// deno-lint-ignore no-explicit-any
-function importCjs(src: string): any {
-  const obj: Record<string, unknown> = {};
-  const cjs = src.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
-  new Function("exports", cjs)(obj);
-  return obj;
-}
-
-const boxTypes = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
-const { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getOutletDef, isAudioBox, isDac } = boxTypes;
-
-const graphCore = importCjs(await Deno.readTextFile("./public/graph-core.js"));
-const { createBoxState, evaluatePure, handleBoxEvent, tickBox, isEventTrigger, expandIntegerNotation, applyInletToState, deliverValueToInlet } = graphCore;
 
 // Wire module callbacks (function declarations are hoisted, safe to reference here)
 initEvalEngine({

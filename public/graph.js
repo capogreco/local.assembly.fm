@@ -8,14 +8,20 @@
  * Pure evaluation logic (state creation, math, ticking) lives in graph-core.js.
  */
 
+import {
+  createBoxState, evaluatePure, evaluateStateful, handleBoxEvent, tickBox,
+  isEventTrigger, isEventOutlet, mergeUpdates, deliverEventToInlet, deliverValueToInlet,
+} from "./graph-core.js";
+
 // --- Debug ---
+// Exported as a live binding so main.js can read the flag; the console
+// helpers are attached to window in main.js.
 let graphDebug = false;
 function enableGraphDebug() { graphDebug = true; console.log("graph debug ON"); }
 function disableGraphDebug() { graphDebug = false; }
 
 // --- Helpers ---
-// `mergeUpdates` and `deliverEventToInlet` are shared from graph-core.js
-// (loaded as globals before this script).
+// `mergeUpdates` and `deliverEventToInlet` are shared from graph-core.js.
 
 // --- Graph ---
 
@@ -296,3 +302,9 @@ function processRouterEvent(graph, routerId, channel) {
   }
   return allUpdates;
 }
+
+export {
+  graphDebug, enableGraphDebug, disableGraphDebug,
+  buildGraph, evaluateNode, propagateValue, propagateEvent, handleEvent, tickGraph,
+  processRouterValue, processRouterEvent,
+};

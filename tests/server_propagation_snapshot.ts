@@ -22,18 +22,8 @@ import {
   setSynthBorderY, clearPatchState, setDeployedPatch,
 } from "../patch-state.ts";
 
-// gpi-types.js and graph-core.js are CJS-style; load via the same importCjs
-// pattern the server uses.
-// deno-lint-ignore no-explicit-any
-function importCjs(src: string): any {
-  const obj: Record<string, unknown> = {};
-  const cjs = src.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
-  new Function("exports", cjs)(obj);
-  return obj;
-}
-
-const gpi: any = importCjs(await Deno.readTextFile("./public/gpi-types.js"));
-const gc: any = importCjs(await Deno.readTextFile("./public/graph-core.js"));
+import * as gpi from "../public/gpi-types.js";
+import * as gc from "../public/graph-core.js";
 
 // --- Capture state ---
 

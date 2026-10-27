@@ -1,7 +1,7 @@
 /**
  * Differential snapshot test for the propagation harness.
  *
- * Loads the current public/graph.js + graph-core.js as CJS, exercises a curated
+ * Loads the current public/graph.js + graph-core.js as ES modules, exercises a curated
  * matrix of (kind × destination × route) cases, and records the resulting
  * `updates` objects (and any side effects on graph state).
  *
@@ -13,44 +13,7 @@
  *   deno run --allow-read --allow-write tests/propagation_snapshot.ts verify
  */
 
-function importCjs(src: string): any {
-  const obj: Record<string, unknown> = {};
-  const cjs = src.replace(/^export\s+\{[^}]*\};?\s*$/m, "");
-  new Function("exports", cjs)(obj);
-  return obj;
-}
-
-// Load graph-core as CJS, expose its functions as globals for graph.js
-const coreSrc = await Deno.readTextFile("./public/graph-core.js");
-const core: any = importCjs(coreSrc);
-
-const graphSrc = await Deno.readTextFile("./public/graph.js");
-function loadGraph() {
-  const wrapped = `
-var createBoxState = core.createBoxState;
-var evaluatePure = core.evaluatePure;
-var evaluateStateful = core.evaluateStateful;
-var handleBoxEvent = core.handleBoxEvent;
-var tickBox = core.tickBox;
-var isEventTrigger = core.isEventTrigger;
-var firesEvent = core.firesEvent;
-var isHotInlet = core.isHotInlet;
-var isEventOutlet = core.isEventOutlet;
-var applyInletToState = core.applyInletToState;
-var mergeUpdates = core.mergeUpdates;
-var deliverEventToInlet = core.deliverEventToInlet;
-var deliverValueToInlet = core.deliverValueToInlet;
-${graphSrc}
-return {
-  buildGraph,
-  propagateValue, propagateEvent,
-  processRouterValue, processRouterEvent,
-  handleEvent, evaluateNode, tickGraph,
-};
-  `;
-  return new Function("core", wrapped)(core);
-}
-const g: any = loadGraph();
+import * as g from "../public/graph.js";
 
 // --- Helpers ---
 

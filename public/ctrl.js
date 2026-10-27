@@ -8,7 +8,7 @@
 
 import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
 import { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef } from "./patch-editor.js";
-const { ENGINES, BASE_NATIVE_NODES, createEngine: _createEngine, getEngineOutput } = window._engineFactory;
+import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
 
 // DOM elements
 const canvas = document.getElementById("c");

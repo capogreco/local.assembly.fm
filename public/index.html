@@ -84,11 +84,6 @@
     <span id="client-count"></span>
     <span id="browser-hint" onclick="fetch('/auth');navigator.clipboard.writeText(location.origin).then(()=>{this.textContent='copied!';setTimeout(()=>{this.textContent='local.tamb\u200B.fm'},1500)})">local.tamb​.fm</span>
   </div>
-  <script src="graph-core.js"></script>
-  <script src="graph.js"></script>
-  <script src="engine-factory.js"></script>
-  <script src="connection.js"></script>
-  <script src="scope.js"></script>
-  <script src="main.js"></script>
+  <script type="module" src="main.js"></script>
 </body>
 </html>

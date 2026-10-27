@@ -76,12 +76,12 @@ const _scopeParams = {
   density: 0,
 };
 
-function setScopeParams(params) {
+export function setScopeParams(params) {
   for (const [k, v] of Object.entries(params))
     if (k in _scopeParams && typeof v === "number") _scopeParams[k] = v;
 }
 
-function initScope(canvas, instances) {
+export function initScope(canvas, instances) {
   if (_scopeAnimFrame) { cancelAnimationFrame(_scopeAnimFrame); _scopeAnimFrame = null; }
   if (_scopeCleanup) { _scopeCleanup(); _scopeCleanup = null; }
 

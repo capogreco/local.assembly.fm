@@ -849,7 +849,6 @@ function isAudioBox(text) {
   return hasAudioIn(text) || hasAudioOut(text) || isDac(text);
 }
 
-// ES module / CJS exports (server.ts uses CJS-style, browser uses ESM)
-if (typeof exports === "object") Object.assign(exports, { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox });
+// --- Exports ---
 export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

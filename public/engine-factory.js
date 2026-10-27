@@ -1,10 +1,7 @@
 /**
  * Engine Factory — shared audio engine creation for ctrl and synth clients.
  * Both ctrl.js and main.js import from here to avoid duplication.
- * Wrapped in IIFE to avoid polluting global scope — access via window._engineFactory.
  */
-
-(function() {
 
 const ENGINES = {
   "formant~":          { module: "processor.js",       worklet: "voice-processor",  channels: 4 },
@@ -278,7 +275,5 @@ async function createEngine(ctx, modulesLoaded, nativeNodes, type, args, special
   return { type, worklet };
 }
 
-// --- Export via global ---
-window._engineFactory = { ENGINES, SIGNAL_WORKLETS, MATH_OPS, BASE_NATIVE_NODES, createEngine, createNativeNode, createSignalWorklet, createMathNode, getEngineOutput };
-
-})();
+// --- Exports ---
+export { ENGINES, SIGNAL_WORKLETS, MATH_OPS, BASE_NATIVE_NODES, createEngine, createNativeNode, createSignalWorklet, createMathNode, getEngineOutput };

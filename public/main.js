@@ -9,6 +9,20 @@
  * own graph, own engines. Server sees N clients either way.
  */
 
+import { createEngine as _createEngine, BASE_NATIVE_NODES, getEngineOutput } from "./engine-factory.js";
+import { connect } from "./connection.js";
+import { initScope, setScopeParams } from "./scope.js";
+import { mergeUpdates } from "./graph-core.js";
+import {
+  graphDebug, enableGraphDebug, disableGraphDebug,
+  buildGraph, propagateValue, tickGraph,
+  processRouterValue, processRouterEvent,
+} from "./graph.js";
+
+// Console helpers (module scope is private, so expose them explicitly).
+window.enableGraphDebug = enableGraphDebug;
+window.disableGraphDebug = disableGraphDebug;
+
 const overlay = document.getElementById("overlay");
 const connStatus = document.getElementById("conn-status");
 const clientCount = document.getElementById("client-count");
@@ -29,10 +43,6 @@ let voices = [];
 let N = countDisplay
   ? parseInt(new URLSearchParams(location.search).get("n")) || parseInt(countDisplay.textContent) || 6
   : 1;
-
-// Engine factory loaded via engine-factory-global.js script tag before main.js
-// Provides: window._engineFactory with ENGINES, BASE_NATIVE_NODES, MATH_OPS, createEngine, getEngineOutput
-const { ENGINES, BASE_NATIVE_NODES, MATH_OPS, createEngine: _createEngine, getEngineOutput } = window._engineFactory;
 
 const NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "scope~"]);
 
@@ -185,7 +195,7 @@ function sendParams(engine, params) {
   if (!engine.currentParams) engine.currentParams = {};
   Object.assign(engine.currentParams, params);
   // scope~ params go to the scope renderer, not AudioParams
-  if (engine.type === "scope~" && typeof setScopeParams === "function") {
+  if (engine.type === "scope~") {
     setScopeParams(params);
     // alpha controls scope layer opacity via gel stack
     if (params.a !== undefined) {
@@ -421,7 +431,7 @@ function setupScope() {
   for (const layer of layers.values()) {
     if (layer.type === "scope") { scopeCanvas = layer.el; break; }
   }
-  if (!scopeCanvas || typeof window.initScope !== "function" || voices.length === 0) return;
+  if (!scopeCanvas || voices.length === 0) return;
   // Collect scope~ instances from all voices
   const scopeInstances = [];
   for (const voice of voices) {
@@ -442,7 +452,7 @@ function setupScope() {
       }
     }
   }
-  if (scopeInstances.length > 0) scopeSetOrbit = window.initScope(scopeCanvas, scopeInstances);
+  if (scopeInstances.length > 0) scopeSetOrbit = initScope(scopeCanvas, scopeInstances);
   else scopeSetOrbit = null;
 }
 

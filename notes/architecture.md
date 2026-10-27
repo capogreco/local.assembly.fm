@@ -50,7 +50,7 @@ Sequence to Bun:
 2. Hostname `local.tamb.fm` and SSID `tambourine` strings (done in code defaults and notes; cert and DNS are Thomas's).
 3. Core/library sorting (done as `lib: "maker"` tags in gpi-types.js; see notes/core-and-library.md).
 4. Remove SSE (done 2026-10-26: server handler and `sseClients` deleted, `public/connection.js` is WebSocket-only).
-5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. Not yet verified: that Bun can import the ESM files directly so the CJS shim disappears (inferred).
+5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. The shared files are plain ES modules (done 2026-10-27) and the CJS shim is gone, so module loading is no longer a Bun risk; what remains is the Deno API surface.
 
 ## Seams to build now (nothing else)
 

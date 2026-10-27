@@ -1003,9 +1003,9 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   return { updates, deferEvent: false };
 }
 
-// --- Exports (CJS for server, globals for browser) ---
+// --- Exports ---
 
-if (typeof exports === "object") Object.assign(exports, {
+export {
   expandIntegerNotation, SIG_BEHAVIOURS, createSigState, advanceSig,
   sigmoidShape, cosineShape, seededShuffle,
   createBoxState, evaluatePure, evaluateStateful,
@@ -1013,4 +1013,4 @@ if (typeof exports === "object") Object.assign(exports, {
   isEventTrigger, firesEvent, isHotInlet, isEventOutlet, parseValues,
   INLET_MAPS, applyInletToState,
   mergeUpdates, deliverEventToInlet, deliverValueToInlet,
-});
+};
