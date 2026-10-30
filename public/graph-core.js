@@ -797,13 +797,20 @@ function mergeUpdates(target, source) {
 //              handleEvent(graph, boxId) → updates,
 //              debug?: boolean }
 //
-// `graph`: { boxes: Map, engines: Map, wireless: Map }
+// `graph`: { boxes: Map, engines: Map, wireless: Map, sinks?: Map }
 //   Engines map can be empty on server (no engines on the one side); the engine
 //   branch then never fires, naturally degrading to no-op.
+//   `sinks` (boxId → callback(inlet, kind, value)) hands delivery at a box to
+//   the caller instead of evaluating it: routers on the server. Phones never set it.
 function deliverEventToInlet(graph, boxId, inlet, helpers) {
   const updates = {};
   const node = graph.boxes.get(boxId);
   if (!node) return updates;
+
+  if (graph.sinks && graph.sinks.has(boxId)) {
+    graph.sinks.get(boxId)(inlet, "event");
+    return updates;
+  }
 
   // Wireless send: forward as event to every receiver of the same name.
   if (node.type === "send" || node.type === "s") {
@@ -870,6 +877,12 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   // Always store the incoming value first (preserving arrays). Matches the
   // original cable path where inletValues was set before any branching.
   node.inletValues[inlet] = value;
+
+  // Sink (see deliverEventToInlet): the caller handles the value.
+  if (graph.sinks && graph.sinks.has(boxId)) {
+    graph.sinks.get(boxId)(inlet, "value", value);
+    return { updates, deferEvent: false };
+  }
 
   // Spigot gate: block downstream propagation on inlet 0 when inlet 1 ≤ 0.
   // The value IS stored (above); we just don't evaluate or forward.

@@ -732,5 +732,122 @@
       },
       "uplinkQueue": []
     }
+  },
+  "sink ← select match (event) and reject (value)": {
+    "result": {
+      "log": [
+        {
+          "inlet": 0,
+          "kind": "event"
+        },
+        {
+          "inlet": 0,
+          "kind": "value",
+          "value": 99
+        }
+      ],
+      "u1": {},
+      "u2": {}
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "select",
+          "inletValues": [
+            99
+          ],
+          "state": {
+            "matchValues": [
+              60,
+              62
+            ]
+          }
+        },
+        "3": {
+          "type": "all",
+          "inletValues": [
+            99
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "onOutput ← every outlet a value or event leaves": {
+    "result": [
+      [
+        1,
+        0,
+        5
+      ],
+      [
+        2,
+        0,
+        15
+      ],
+      [
+        3,
+        1,
+        15
+      ],
+      [
+        3,
+        0,
+        "event"
+      ],
+      [
+        4,
+        0,
+        2
+      ]
+    ],
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "+",
+          "inletValues": [
+            5
+          ],
+          "state": null
+        },
+        "3": {
+          "type": "t",
+          "inletValues": [
+            15
+          ],
+          "state": {
+            "types": [
+              "e",
+              "f"
+            ]
+          }
+        },
+        "4": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 2,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
   }
 }

@@ -403,6 +403,52 @@ const cases: Case[] = [
     },
     run: (graph) => g.processRouterEvent(graph, 1, 0),
   },
+
+  // === seams: graph.sinks / graph.onOutput (server-only; phones set neither) ===
+  {
+    name: "sink ← select match (event) and reject (value)",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "select", args: "60 62", text: "select 60 62" },
+        { id: 3, type: "all", args: "1", text: "all 1" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 1, dstBox: 3, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 2, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      const log: any[] = [];
+      graph.sinks = new Map([[3, (inlet: number, kind: string, value: any) => log.push({ inlet, kind, value })]]);
+      const u1 = g.propagateValue(graph, 1, 0, 62);
+      const u2 = g.propagateValue(graph, 1, 0, 99);
+      return { log, u1, u2 };
+    },
+  },
+  {
+    name: "onOutput ← every outlet a value or event leaves",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "+", args: "10", text: "+ 10" },
+        { id: 3, type: "t", args: "e f", text: "t e f" },
+        { id: 4, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+        { srcBox: 3, srcOutlet: 0, dstBox: 4, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      const log: any[] = [];
+      graph.onOutput = (boxId: number, outlet: number, value: any) => log.push([boxId, outlet, value ?? "event"]);
+      g.propagateValue(graph, 1, 0, 5);
+      return log;
+    },
+  },
 ];
 
 // --- Run ---

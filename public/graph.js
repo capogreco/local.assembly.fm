@@ -130,6 +130,8 @@ const _clientValueHelpers = {
 function propagateValue(graph, boxId, outletIndex, value) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
+  // Output hook (server display); phones never set it.
+  if (graph.onOutput) graph.onOutput(boxId, outletIndex, value);
 
   const updates = {};
   const deferred = [];
@@ -164,6 +166,7 @@ const _clientEventHelpers = {
 function propagateEvent(graph, boxId, outletIndex) {
   const node = graph.boxes.get(boxId);
   if (!node) return {};
+  if (graph.onOutput) graph.onOutput(boxId, outletIndex);
 
   const updates = {};
 
