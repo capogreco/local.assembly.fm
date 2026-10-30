@@ -237,6 +237,8 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { defaultRight: parseFloat(args) || 0 };
     case "spigot":
       return {};
+    case "event":
+      return {};
     case "held":
       // Optional arg: release window (s). Released notes linger in the array
       // for the window; if every key is up before it elapses, the array never
@@ -366,7 +368,9 @@ function handleBoxEvent(type, state, iv) {
       state.value = Math.max(0, Math.min(1, state.value));
       return { value: state.value, propagate: true };
     case "phasor":
+      // Reset restarts a finished one-shot; the pause inlet (iv[2]) does not.
       state.phase = 0;
+      state.paused = false;
       return { value: 0, propagate: true };
     case "counter":
       state.count++;
@@ -399,6 +403,9 @@ function handleBoxEvent(type, state, iv) {
       return { value: 0, propagate: false };
     case "const":
       return { value: state.value, propagate: true };
+    case "event":
+      // A value or an event at the trigger inlet fires a null event.
+      return { value: 0, propagate: false, outputs: [{ outlet: 0, value: null, type: "event" }] };
     case "toggle":
       state.value = state.value > 0 ? 0 : 1;
       return { value: state.value, propagate: true };
@@ -714,7 +721,7 @@ function tickBox(type, state, iv, dt) {
 // Self-contained — no dependency on gpi-types.js (synth clients don't load it)
 
 function isEventTrigger(type, inlet) {
-  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle" || type === "const")) return true;
+  if (inlet === 0 && (type === "seq" || type === "counter" || type === "drunk" || type === "ar" || type === "ramp" || type === "delay" || type === "step" || type === "sigmoid" || type === "cosine" || type === "random" || type === "fan" || type === "toggle" || type === "const" || type === "event")) return true;
   if (inlet === 0 && type === "phasor") return true;
   if (inlet === 1 && (type === "sample-hold" || type === "held" || type === "pad")) return true;
   return false;

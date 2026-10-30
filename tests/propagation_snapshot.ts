@@ -452,7 +452,7 @@ const cases: Case[] = [
     ),
     run: (graph) => {
       const log: any[] = [];
-      graph.onOutput = (boxId: number, outlet: number, value: any) => log.push([boxId, outlet, value ?? "event"]);
+      graph.onOutput = (boxId: number, outlet: number, kind: string, value: any) => log.push([boxId, outlet, kind, value]);
       g.propagateValue(graph, 1, 0, 5);
       return log;
     },
@@ -631,6 +631,51 @@ const cases: Case[] = [
     run: (graph) => {
       g.propagateEvent(graph, 1, 0);
       return [0.05, 0.1, 0.1].map((dt) => { g.tickGraph(graph, dt); return graph.boxes.get(3).state.count; });
+    },
+  },
+
+  // === event box, phasor once ===
+  ...(["event", "value"] as const).map((kind) => ({
+    name: `event box: ${kind} in → event out`,
+    patch: buildPatch(
+      [
+        { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 2, type: "event", args: "", text: "event" },
+        { id: 3, type: "counter", args: "0 7", text: "counter 0 7" },
+        { id: 4, type: "karplus-strong~", engine: true,
+          paramNames: ["frequency", "decay", "brightness", "stiffness", "trigger", "amplitude"], messagePorts: new Set(["trigger"]) },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 4, dstInlet: 4 },
+      ],
+    ),
+    run: (graph: any) => kind === "event" ? g.propagateEvent(graph, 1, 0) : g.propagateValue(graph, 1, 0, 7),
+  })),
+  {
+    name: "phasor once: finishes, pause inlet doesn't restart, reset does",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "phasor", args: "1 once", text: "phasor 1 once" },
+        { id: 3, type: "event", args: "", text: "event" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 2 },
+        { srcBox: 3, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      const ph = graph.boxes.get(2).state;
+      g.tickGraph(graph, 1.2);
+      const finished = { ...ph };
+      g.propagateValue(graph, 1, 0, 1); g.propagateValue(graph, 1, 0, 0);
+      g.tickGraph(graph, 0.25);
+      const afterPause = { ...ph };
+      g.propagateEvent(graph, 3, 0);
+      g.tickGraph(graph, 0.25);
+      return { finished, afterPause, afterReset: { ...ph } };
     },
   },
 ];

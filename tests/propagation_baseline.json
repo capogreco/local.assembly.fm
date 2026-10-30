@@ -786,26 +786,31 @@
       [
         1,
         0,
+        "value",
         5
       ],
       [
         2,
         0,
+        "value",
         15
       ],
       [
         3,
         1,
+        "value",
         15
       ],
       [
         3,
         0,
-        "event"
+        "event",
+        null
       ],
       [
         4,
         0,
+        "value",
         2
       ]
     ],
@@ -1252,7 +1257,7 @@
         "1": {
           "type": "event",
           "inletValues": [],
-          "state": null
+          "state": {}
         },
         "2": {
           "type": "delay",
@@ -1270,6 +1275,141 @@
             "min": 0,
             "max": 7
           }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "event box: event in → event out": {
+    "result": {
+      "4": {
+        "trigger": 1
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "event",
+          "inletValues": [],
+          "state": {}
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 1,
+            "min": 0,
+            "max": 7
+          }
+        },
+        "4": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "event box: value in → event out": {
+    "result": {
+      "4": {
+        "trigger": 1
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "event",
+          "inletValues": [
+            7
+          ],
+          "state": {}
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 1,
+            "min": 0,
+            "max": 7
+          }
+        },
+        "4": {
+          "type": "karplus-strong~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "phasor once: finishes, pause inlet doesn't restart, reset does": {
+    "result": {
+      "finished": {
+        "phase": 1,
+        "period": 1,
+        "paused": true,
+        "loop": false
+      },
+      "afterPause": {
+        "phase": 1,
+        "period": 1,
+        "paused": true,
+        "loop": false
+      },
+      "afterReset": {
+        "phase": 0.25,
+        "period": 1,
+        "paused": false,
+        "loop": false
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "phasor",
+          "inletValues": [
+            null,
+            null,
+            0
+          ],
+          "state": {
+            "phase": 0.25,
+            "period": 1,
+            "paused": false,
+            "loop": false
+          }
+        },
+        "3": {
+          "type": "event",
+          "inletValues": [],
+          "state": {}
         }
       },
       "uplinkQueue": []
