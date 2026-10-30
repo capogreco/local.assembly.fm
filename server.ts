@@ -4,11 +4,11 @@ import {
   getPatchNextId, setPatchNextId,
   getBorderY, setBorderY,
   getDeployedPatch, setDeployedPatch, getLaptopPatch, setLaptopPatch,
-  routerState, groupState, uplinkIndex,
+  routerState, uplinkIndex,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
-  initEvalEngine, startEvalEngine, buildGroups,
+  initEvalEngine, startEvalEngine, joinGroups, leaveGroups,
   buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replay,
   evaluateAllClients,
   findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
@@ -180,8 +180,6 @@ function broadcastClientCount(): void {
   console.log(`  client count: ${count}`);
   broadcastSynth({ type: "count", clients: count });
   sendCtrl({ type: "count", clients: count });
-  // Rebuild group router memberships when client count changes
-  for (const boxId of groupState.keys()) buildGroups(boxId);
   // Push the new count to every patch-side `clients` box
   evaluateAllClients();
 }
@@ -397,6 +395,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("open", () => {
     synthWsClients.set(id, socket);
+    joinGroups(id);
     authenticatedIPs.add(clientIP);
     drawStatus();
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
@@ -450,6 +449,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("close", () => {
     synthWsClients.delete(id);
+    leaveGroups(id);
     drawStatus();
     broadcastClientCount();
   });

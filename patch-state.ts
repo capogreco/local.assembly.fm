@@ -57,6 +57,9 @@ export const groupState = new Map<number, number[][]>();
 // Last rv per broadcast router channel ("routerId:ch"), replayed to a joining
 // phone. Events are never stored: a replayed re would fire on join.
 export const latestValues = new Map<string, Record<string, unknown>>();
+// Last rv per `group` channel, indexed by group: [groupIndex] → msg. A phone is
+// replayed only its own group's. Cleared with latestValues.
+export const groupLatest = new Map<number, Array<Record<string, unknown>>>();
 export const uplinkIndex = new Map<string, Array<{ boxId: number; outletIndex: number }>>();
 
 // Per-`assign` box state: clientIdx → assigned note. lastNotes used to detect changes.

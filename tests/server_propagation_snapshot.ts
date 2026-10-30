@@ -16,7 +16,7 @@
 import {
   type Box,
   boxes, cables, boxValues,
-  routerState, groupState, latestValues, uplinkIndex,
+  routerState, groupState, latestValues, groupLatest, uplinkIndex,
   setBorderY, getBorderY, clearPatchState, setDeployedPatch,
 } from "../patch-state.ts";
 
@@ -41,13 +41,16 @@ function resetCapture(): void {
 
 import {
   initEvalEngine, buildServerGraph, serverGraph, injectValue, injectEvent, setSourceValue,
-  replay, tick,
+  replay, tick, joinGroups, leaveGroups,
 } from "../eval-engine.ts";
+
+// The phones connected: a join or a leave changes it, as the server's sockets do.
+let clients: number[] = [];
 
 initEvalEngine({
   broadcastSynth: (msg) => capture.synthBroadcasts.push(msg),
   sendToClient: (clientId, msg) => capture.clientSends.push({ clientId, msg }),
-  getSynthClientIds: () => [101, 102, 103], // stable mock client ids
+  getSynthClientIds: () => clients,
   sendCtrl: (msg) => capture.ctrlSends.push(msg),
   event: (msg) => capture.events.push(msg),
 });
@@ -62,8 +65,41 @@ function reset(): void {
   uplinkIndex.clear();
   setDeployedPatch(null);
   setBorderY(400);
+  clients = [101, 102, 103];
   resetCapture();
 }
+
+// Math.random seeded for the run, so a group build or shuffle is repeatable.
+function seeded(run: () => void): void {
+  const random = Math.random;
+  let s = 1;
+  Math.random = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  try { run(); } finally { Math.random = random; }
+}
+
+// group 3 (box 5) fed a value per channel by knobs 1..3; event 4 is its shuffle.
+function groupPatch(): void {
+  addBox(1, "knob 10");
+  addBox(2, "knob 20");
+  addBox(3, "knob 30");
+  addBox(4, "event");
+  addBox(5, "group 3", 0, 389);
+  for (let i = 0; i < 4; i++) addCable(i + 1, i + 1, 0, 5, i);
+}
+
+// As server.ts: the socket is added, joins the groups, then gets its replay.
+function join(id: number): void {
+  clients.push(id);
+  joinGroups(id);
+  replay(id);
+}
+
+function leave(id: number): void {
+  clients = clients.filter((c) => c !== id);
+  leaveGroups(id);
+}
+
+const members = () => capture.events.push("groups " + JSON.stringify(Object.fromEntries(groupState.entries())));
 
 // y defaults to the one side (border at 400).
 function addBox(id: number, text: string, x = 0, y = 0): void {
@@ -429,6 +465,76 @@ const cases: Case[] = [
       capture.clientSends.sort((a, b) => a.clientId - b.clientId || JSON.stringify(a.msg).localeCompare(JSON.stringify(b.msg)));
       groupState.clear();
     },
+  },
+
+  // === group: stable membership, own-group replay ===
+  {
+    name: "group: a join goes to the smallest group, lowest index on a tie; no one else moves",
+    run: () => seeded(() => {
+      reset();
+      groupPatch();
+      buildServerGraph();
+      resetCapture();
+      leave(101);
+      members();
+      join(104); // smallest: the group 101 left
+      members();
+      join(105); // all equal: group 0
+      members();
+    }),
+  },
+  {
+    name: "group: a leave moves no one",
+    run: () => seeded(() => {
+      reset();
+      groupPatch();
+      buildServerGraph();
+      resetCapture();
+      join(104);
+      members();
+      leave(102);
+      members();
+    }),
+  },
+  {
+    name: "group: a joiner is replayed its own group's latest value and no other",
+    run: () => seeded(() => {
+      reset();
+      groupPatch();
+      buildServerGraph();
+      setSourceValue(2, 21); // group 1's latest
+      resetCapture();
+      members();
+      join(104); // all equal: group 0
+      join(105); // group 1
+    }),
+  },
+  {
+    name: "group: a shuffle re-sends every phone its new group's latest value",
+    run: () => seeded(() => {
+      reset();
+      groupPatch();
+      buildServerGraph();
+      join(104);
+      resetCapture();
+      members();
+      injectEvent(4, 0); // the snapshot's groupState is the new partition
+    }),
+  },
+  {
+    name: "group: a deploy clears the latest group values and the membership",
+    run: () => seeded(() => {
+      reset();
+      groupPatch();
+      buildServerGraph();
+      resetCapture();
+      capture.events.push(`before: groupLatest=${groupLatest.size} groupState=${groupState.size}`);
+      clearPatchState(); // as applyPatch
+      addBox(5, "group 3", 0, 389); // nothing feeds it
+      buildServerGraph();
+      capture.events.push(`after: groupLatest=${groupLatest.size} groupState=${groupState.size}`);
+      join(104); // nothing to replay
+    }),
   },
 
   // === the tick and the phone semantics ===

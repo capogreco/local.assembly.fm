@@ -69,7 +69,11 @@ Patch fixes made during testing (committed):
   `spigot` is retyped to passthrough and `sendup` to number.
 - **D2, reversed.** `sall` reaches phones only, not one-side `r` boxes. Feeding
   them made a feedback loop that froze the server.
-- **D3.** Joining phones get a replay only for `all` and `sall`.
+- **D3.** Joining phones get a replay for `all` and `sall`, and for each
+  `group` box the latest value of their own group (and no other). Group
+  membership is stable: a joiner goes into the smallest group (lowest index on
+  a tie), a leaver is removed, and no one else moves. Only the shuffle inlet
+  repartitions; after it every phone is sent its new group's latest value.
 - **D4 / D7.** The envelope flashes and ramp~ animation are drawn by the ctrl
   page. The server's 240 Hz tick stays as the evaluation clock, and the
   metro-phase display comes from the metro's state. The tick paradigm itself is

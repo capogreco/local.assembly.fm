@@ -1259,6 +1259,343 @@
     "groupState": {},
     "latestValues": {}
   },
+  "group: a join goes to the smallest group, lowest index on a tie; no one else moves": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 30
+          }
+        },
+        {
+          "clientId": 105,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 10
+          }
+        }
+      ],
+      "events": [
+        "groups {\"5\":[[102],[103],[]]}",
+        "groups {\"5\":[[102],[103],[104]]}",
+        "groups {\"5\":[[102,105],[103],[104]]}"
+      ]
+    },
+    "boxValues": {
+      "1": 10,
+      "2": 20,
+      "3": 30
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {}
+      },
+      "5": {
+        "inletValues": [
+          10,
+          20,
+          30
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          102,
+          105
+        ],
+        [
+          103
+        ],
+        [
+          104
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: a leave moves no one": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 10
+          }
+        }
+      ],
+      "events": [
+        "groups {\"5\":[[102,104],[103],[101]]}",
+        "groups {\"5\":[[104],[103],[101]]}"
+      ]
+    },
+    "boxValues": {
+      "1": 10,
+      "2": 20,
+      "3": 30
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {}
+      },
+      "5": {
+        "inletValues": [
+          10,
+          20,
+          30
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          104
+        ],
+        [
+          103
+        ],
+        [
+          101
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: a joiner is replayed its own group's latest value and no other": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 10
+          }
+        },
+        {
+          "clientId": 105,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 21
+          }
+        }
+      ],
+      "events": [
+        "groups {\"5\":[[102],[103],[101]]}"
+      ]
+    },
+    "boxValues": {
+      "1": 10,
+      "2": 21,
+      "3": 30
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {}
+      },
+      "5": {
+        "inletValues": [
+          10,
+          21,
+          30
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          102,
+          104
+        ],
+        [
+          103,
+          105
+        ],
+        [
+          101
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: a shuffle re-sends every phone its new group's latest value": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 10
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 10
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 20
+          }
+        },
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 0,
+            "v": 30
+          }
+        }
+      ],
+      "events": [
+        "groups {\"5\":[[102,104],[103],[101]]}"
+      ]
+    },
+    "boxValues": {
+      "1": 10,
+      "2": 20,
+      "3": 30
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {}
+      },
+      "5": {
+        "inletValues": [
+          10,
+          20,
+          30
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          101,
+          104
+        ],
+        [
+          103
+        ],
+        [
+          102
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: a deploy clears the latest group values and the membership": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": [
+        "before: groupLatest=1 groupState=1",
+        "after: groupLatest=0 groupState=0"
+      ]
+    },
+    "boxValues": {},
+    "graph": {
+      "5": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
   "tick: metro fires once per interval": {
     "capture": {
       "ctrlSends": [],
