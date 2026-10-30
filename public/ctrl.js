@@ -37,6 +37,7 @@ const ctrlWorkletModulesLoaded = new Set();
 // control arrives as rv/re with r = box id, ch = inlet; while a deploy builds,
 // they wait in laptopPending. Builds run one after another (laptopBuild).
 const laptopBoxes = new Map();
+const laptopInlets = new Map(); // id → last rv value per inlet (ramp~'s display reads it)
 let laptopBuild = Promise.resolve();
 let laptopBuilding = 0;
 let laptopPending = [];
@@ -122,6 +123,7 @@ async function buildLaptopAudio(patch) {
 
   // The deploy is post-expansion: one-side audio inside an abstraction is in it.
   laptopBoxes.clear();
+  laptopInlets.clear();
   for (const b of patch.boxes) laptopBoxes.set(b.id, b);
   // No laptop audio: no AudioContext, no microphone.
   if (laptopBoxes.size === 0) return;
@@ -289,6 +291,8 @@ function laptopValue(boxId, inlet, value) {
   if (!engine) return; // not built (already reported)
   const paramName = b.paramNames[inlet];
   if (!paramName) return;
+  if (!laptopInlets.has(boxId)) laptopInlets.set(boxId, []);
+  laptopInlets.get(boxId)[inlet] = value;
 
   // fftPeaks~ has no AudioParams — its `max` and `minHz` inlets update the engine directly.
   if (engine.type === "fftPeaks~" && paramName === "max") {
@@ -322,6 +326,37 @@ function laptopEvent(boxId, inlet) {
   if (engine.type === "fftPeaks~") { scanPeaks(engine, boxId); return; }
   // The phone shape (main.js sendParams): the inlet's port name, value 1.
   (engine.worklet?.port || engine.node?.port)?.postMessage({ type: b.paramNames[inlet] ?? "trigger", value: 1 });
+  showEnvelope(boxId, b);
+}
+
+// Envelope display for one-side audio boxes, drawn as the box's value bar:
+// a short flash for the triggers, ramp~'s shaped curve over its duration.
+// The rAF loop runs only while a ramp~ is animating.
+const FLASH_TYPES = new Set(["trig~", "ar~", "sigmoid~", "cosine~", "step~"]);
+const rampAnims = new Map(); // id → { start, duration (s), curve }
+let rampFrame = 0;
+
+function showEnvelope(boxId, b) {
+  if (FLASH_TYPES.has(b.type)) {
+    mainEditor.boxValues.set(boxId, 1);
+    mainEditor.render();
+    setTimeout(() => { mainEditor.boxValues.set(boxId, 0); mainEditor.render(); }, 80);
+  } else if (b.type === "ramp~") {
+    const args = b.args.split(/\s+/).map(Number);
+    const iv = laptopInlets.get(boxId) || [];
+    rampAnims.set(boxId, { start: performance.now(), duration: iv[3] || args[2] || 0.5, curve: iv[4] || args[3] || 1 });
+    if (!rampFrame) rampFrame = requestAnimationFrame(stepRampAnims);
+  }
+}
+
+function stepRampAnims(now) {
+  for (const [id, a] of rampAnims) {
+    const t = Math.min(1, (now - a.start) / 1000 / a.duration);
+    mainEditor.boxValues.set(id, a.curve === 1 ? t : Math.pow(t, a.curve));
+    if (t >= 1) rampAnims.delete(id);
+  }
+  mainEditor.render();
+  rampFrame = rampAnims.size > 0 ? requestAnimationFrame(stepRampAnims) : 0;
 }
 
 // fftPeaks~ scan: read the analyser's magnitude spectrum, pick the loudest local-maxima

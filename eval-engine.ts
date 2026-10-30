@@ -367,7 +367,6 @@ function laptopSink(id: number) {
     if (deliversEvent(id, inlet, kind)) {
       pending.push({ event: true, run: () => {
         emit({ type: "re", r: id, ch: inlet }, "laptop");
-        ctrlAudioTrigger(id);
       } });
     } else {
       pending.push({ event: false, run: () => {
@@ -385,7 +384,7 @@ export function replayLaptop(): void {
 
 // Display: a box shows what leaves its outlet 0. Sources that show something
 // else (bare `cc`, `key`) set their display themselves. Audio boxes are shown
-// by ctrlAudioAnims.
+// by the ctrl page, which animates their envelopes from the re it gets.
 function onOutput(boxId: number, outlet: number, kind: string, value?: BoxValue): void {
   if (kind !== "value" || outlet !== 0) return;
   const box = boxes.get(boxId);
@@ -421,7 +420,6 @@ export function buildServerGraph(): void {
   }
   const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
   laptopLatest.clear();
-  ctrlAudioAnims.clear();
   graph = null; // a build that throws leaves no graph, not the old one
   metroIds = [];
   batch(() => { graph = buildGraph({ boxes: graphBoxes, cables: graphCables, entries: [] }, { sinks, onOutput }); });
@@ -619,40 +617,6 @@ function reassign(routerBoxId: number, notes: number[]): void {
   state.assignment = newAssignment;
 }
 
-// --- Cosmetic animations for one-side audio boxes ---
-
-const ctrlAudioAnims = new Map<number, { type: string; elapsed: number; duration: number; curve: number }>();
-
-function ctrlAudioTrigger(boxId: number): void {
-  const box = boxes.get(boxId);
-  if (!box) return;
-  const name = boxTypeName(box.text);
-
-  if (name === "trig~") {
-    queueValueUpdate(boxId, 1);
-    setTimeout(() => queueValueUpdate(boxId, 0), 80);
-  } else if (name === "ramp~") {
-    const args = box.text.split(/\s+/).slice(1).map(Number);
-    const iv = graph.boxes.get(boxId)?.inletValues || [];
-    const duration = iv[3] || args[2] || 0.5;
-    const curve = iv[4] || args[3] || 1;
-    ctrlAudioAnims.set(boxId, { type: "ramp", elapsed: 0, duration, curve });
-  } else if (name === "ar~" || name === "sigmoid~" || name === "cosine~" || name === "step~") {
-    queueValueUpdate(boxId, 1);
-    setTimeout(() => queueValueUpdate(boxId, 0), 80);
-  }
-}
-
-function tickCtrlAudioAnims(dt: number): void {
-  for (const [id, anim] of ctrlAudioAnims) {
-    anim.elapsed += dt;
-    const t = Math.min(1, anim.elapsed / anim.duration);
-    const shaped = anim.curve === 1 ? t : Math.pow(t, anim.curve);
-    queueValueUpdate(id, shaped);
-    if (t >= 1) ctrlAudioAnims.delete(id);
-  }
-}
-
 const TICK_RATE = 240;
 const TICK_DT = 1 / TICK_RATE;
 
@@ -667,7 +631,6 @@ export function tick(): void {
       queueValueUpdate(id, node.state.elapsed / interval);
     }
   }
-  tickCtrlAudioAnims(TICK_DT);
 }
 
 // Tick-interval instrumentation. Enabled when PROFILE_TICK env is set
