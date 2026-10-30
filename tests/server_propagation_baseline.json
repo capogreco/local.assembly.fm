@@ -1215,6 +1215,28 @@
       }
     }
   },
+  "a build that throws leaves no graph: the old one stops ticking": {
+    "capture": {
+      "ctrlSends": [
+        {
+          "type": "errors",
+          "errors": [
+            "evaluation error: \"nosuchbox\" inlet 0: no definition"
+          ]
+        }
+      ],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": [
+        "built=false graph=null"
+      ]
+    },
+    "boxValues": {},
+    "graph": {},
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
   "tick: metro fires once per interval": {
     "capture": {
       "ctrlSends": [],

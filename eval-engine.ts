@@ -418,28 +418,34 @@ let metroIds: number[] = [];
 // Build the one-side graph from the applied patch. Initial values (const,
 // toggle and every other box with a state value, as on a phone) reach the
 // sinks; then the sources with no graph state get theirs.
-export function buildServerGraph(): void {
-  // deno-lint-ignore no-explicit-any
-  const graphBoxes: any[] = [];
-  const ids = new Set<number>();
-  const sinks = new Map<number, (inlet: number, kind: string, value?: BoxValue) => void>();
-  for (const [id, box] of boxes) {
-    const side = sideStamped(box);
-    if (side === "many") continue;
-    ids.add(id);
-    graphBoxes.push({ id, type: boxTypeName(box.text), args: box.text.split(/\s+/).slice(1).join(" "), inletDefs: deployInletDefs(box.text) });
-    if (side === "border") sinks.set(id, routerSink(id));
-    else if (isAudioBox(box.text)) sinks.set(id, laptopSink(id));
-  }
-  const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
+// Returns false if the build threw (reported): there is then no graph.
+export function buildServerGraph(): boolean {
+  // First, so a build that throws leaves no graph, not the old one ticking
+  // against the new boxes.
+  graph = null;
+  metroIds = [];
   latestValues.clear();
   laptopLatest.clear();
-  graph = null; // a build that throws leaves no graph, not the old one
-  metroIds = [];
-  batch(() => { graph = buildGraph({ boxes: graphBoxes, cables: graphCables, entries: [] }, { sinks, onOutput }); });
-  if (!graph) return;
+  // deno-lint-ignore no-explicit-any
+  const graphBoxes: any[] = [];
+  batch(() => {
+    const ids = new Set<number>();
+    const sinks = new Map<number, (inlet: number, kind: string, value?: BoxValue) => void>();
+    for (const [id, box] of boxes) {
+      const side = sideStamped(box);
+      if (side === "many") continue;
+      ids.add(id);
+      graphBoxes.push({ id, type: boxTypeName(box.text), args: box.text.split(/\s+/).slice(1).join(" "), inletDefs: deployInletDefs(box.text) });
+      if (side === "border") sinks.set(id, routerSink(id));
+      else if (isAudioBox(box.text)) sinks.set(id, laptopSink(id));
+    }
+    const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
+    graph = buildGraph({ boxes: graphBoxes, cables: graphCables, entries: [] }, { sinks, onOutput });
+  });
+  if (!graph) return false;
   metroIds = graphBoxes.filter((b) => b.type === "metro").map((b) => b.id);
   initSources();
+  return true;
 }
 
 // --- Sources: server-only inputs enter the graph here ---

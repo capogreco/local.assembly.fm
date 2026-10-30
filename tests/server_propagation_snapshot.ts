@@ -82,7 +82,7 @@ function addCable(id: number, srcBox: number, srcOutlet: number, dstBox: number,
 function snapshot(): any {
   // deno-lint-ignore no-explicit-any
   const graphBoxes: any = {};
-  for (const [id, node] of serverGraph().boxes) {
+  for (const [id, node] of serverGraph()?.boxes ?? []) {
     graphBoxes[id] = { inletValues: [...node.inletValues], state: node.state ? JSON.parse(JSON.stringify(node.state)) : null };
   }
   return {
@@ -410,6 +410,21 @@ const cases: Case[] = [
       buildServerGraph();
       // A thousand broadcasts went out before the cap; keep the count, not the messages.
       capture = { ...capture, synthBroadcasts: [{ count: capture.synthBroadcasts.length }] };
+    },
+  },
+
+  {
+    name: "a build that throws leaves no graph: the old one stops ticking",
+    run: () => {
+      reset();
+      addBox(1, "metro 0.01");
+      addBox(2, "counter 0 99");
+      addCable(1, 1, 0, 2, 0);
+      buildServerGraph();
+      addBox(3, "nosuchbox"); // deployInletDefs throws on it
+      const built = buildServerGraph();
+      ticks(24);
+      capture.events.push(`built=${built} graph=${serverGraph() === null ? "null" : "kept"}`);
     },
   },
 
