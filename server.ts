@@ -3,19 +3,19 @@ import {
   boxes, cables, boxValues,
   getPatchNextId, setPatchNextId,
   getBorderY, setBorderY,
-  getDeployedPatch, setDeployedPatch,
+  getDeployedPatch, setDeployedPatch, getLaptopPatch, setLaptopPatch,
   routerState, groupState, latestValues, uplinkIndex,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
   initEvalEngine, startEvalEngine, buildGroups,
-  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replayLaptopParams,
+  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replayLaptop,
   evaluateAllClients,
   findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
 import { boxTypeName } from "./public/gpi-types.js";
-import { serializeSynthPatch } from "./deploy.ts";
+import { serializeLaptopPatch, serializeSynthPatch } from "./deploy.ts";
 import { type AbstractionDef, applyPatch, checkAbstraction } from "./apply-check.ts";
 
 // Workshop self-signed cert — distinct filenames so generation can never
@@ -215,14 +215,12 @@ function handleApply(msg: any): void {
     sendCtrl({ type: "errors", errors: warnings });
   }
 
-  // Phones get the new patch first, so the one side's initial values (sent
-  // as the server graph builds) land on it.
+  // Phones and the laptop get the new deploys first, so the one side's
+  // initial values (sent as the server graph builds) land on them.
   deployPatch();
   buildServerGraph();
   rebuildGridRegions();
 
-  // confirm to ctrl — triggers audio rebuild on ctrl client, which then asks
-  // for the laptop params again (ctrl-audio-ready)
   sendCtrl({ type: "applied" });
   status.applied = true;
   event("patch applied");
@@ -247,6 +245,9 @@ function deployPatch(): void {
   broadcastSynth(getDeployedPatch()!);
   event("patch deployed to " + totalSynthClients() + " clients");
   sendCtrl({ type: "deployed" });
+  // The ctrl page builds one-side audio from this.
+  setLaptopPatch(serializeLaptopPatch());
+  sendCtrl(getLaptopPatch()!);
 }
 
 // --- Full state sync for ctrl ---
@@ -284,6 +285,12 @@ function handleCtrlWs(req: Request): Response {
     const arcInfo = getArcDeviceInfo();
     if (arcInfo) {
       socket.send(JSON.stringify({ type: "arc-connected", deviceType: arcInfo.deviceType, deviceId: arcInfo.deviceId }));
+    }
+    // A (re)loaded ctrl page rebuilds laptop audio and gets its last values.
+    // The replay goes to every ctrl socket; setting a param again is harmless.
+    if (getLaptopPatch()) {
+      socket.send(JSON.stringify(getLaptopPatch()));
+      replayLaptop();
     }
   });
 
@@ -348,8 +355,6 @@ function handleCtrlWs(req: Request): Response {
         setSourceValue(msg.id, msg.value);
       } else if (msg.type === "toggle-click") {
         setToggle(msg.id, msg.value);
-      } else if (msg.type === "ctrl-audio-ready") {
-        replayLaptopParams();
       } else if (msg.type === "event-click") {
         injectEvent(msg.id, 0);
         // Flash the event box briefly

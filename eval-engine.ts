@@ -31,11 +31,13 @@ let _sendCtrl: (msg: Record<string, unknown>) => void;
 let _event: (msg: string) => void;
 
 // Every router message (rv/re) leaves the server through emit(): `to` is a client
-// id, or omitted to broadcast. This is the one place a message could be stamped
-// (an optional `t`, see notes/architecture.md) or logged.
-function emit(msg: Record<string, unknown>, to?: number): void {
+// id, "laptop" (the ctrl sockets, for one-side audio), or omitted to broadcast
+// to phones. This is the one place a message could be stamped (an optional `t`,
+// see notes/architecture.md) or logged.
+function emit(msg: Record<string, unknown>, to?: number | "laptop"): void {
   if (PROFILE_ONSET) logOnset(to === undefined ? "b" : String(to), msg);
   if (to === undefined) _broadcastSynth(msg);
+  else if (to === "laptop") _sendCtrl(msg);
   else _sendToClient(to, msg);
 }
 
@@ -352,30 +354,33 @@ function routerSink(id: number) {
   };
 }
 
-// One-side audio runs on the laptop (ctrl.js). Stage C gives it a deploy;
-// until then it keeps the ctrl-audio-* messages. The latest param per inlet is
-// kept so a laptop that rebuilds its audio after `applied` can have them again.
+// One-side audio runs on the laptop: the ctrl page builds it from the laptop
+// deploy (deploy.ts) and its control arrives as rv/re addressed to the box
+// itself (r = box id, ch = inlet). The latest value per inlet is kept so a
+// ctrl page that (re)connects after the build can have them again. It is
+// cleared in buildServerGraph before the initial values propagate, and the
+// apply sends the laptop deploy before that, so they follow it.
 const laptopLatest = new Map<string, Record<string, unknown>>();
 
 function laptopSink(id: number) {
   return (inlet: number, kind: string, value?: BoxValue) => {
     if (deliversEvent(id, inlet, kind)) {
       pending.push({ event: true, run: () => {
-        _sendCtrl({ type: "ctrl-audio-event", boxId: id, inlet });
+        emit({ type: "re", r: id, ch: inlet }, "laptop");
         ctrlAudioTrigger(id);
       } });
     } else {
       pending.push({ event: false, run: () => {
-        const msg = { type: "ctrl-audio-param", boxId: id, inlet, value };
+        const msg = { type: "rv", r: id, ch: inlet, v: value };
         laptopLatest.set(id + ":" + inlet, msg);
-        _sendCtrl(msg);
+        emit(msg, "laptop");
       } });
     }
   };
 }
 
-export function replayLaptopParams(): void {
-  for (const msg of laptopLatest.values()) _sendCtrl(msg);
+export function replayLaptop(): void {
+  for (const msg of laptopLatest.values()) emit(msg, "laptop");
 }
 
 // Display: a box shows what leaves its outlet 0. Sources that show something

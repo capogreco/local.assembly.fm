@@ -6,7 +6,7 @@
  * Also hosts one-side engines (above the border) with audio output to laptop speakers.
  */
 
-import { boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
+import { boxTypeName, boxBinding, getBoxPorts } from "./gpi-types.js";
 import { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef } from "./patch-editor.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
 
@@ -33,13 +33,22 @@ let ctrlInputSource = null;   // MediaStreamSourceNode (shared)
 let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
+// The laptop deploy (server.ts, deploy.ts): one-side audio boxes by id. Its
+// control arrives as rv/re with r = box id, ch = inlet; while a deploy builds,
+// they wait in laptopPending. Builds run one after another (laptopBuild).
+const laptopBoxes = new Map();
+let laptopBuild = Promise.resolve();
+let laptopBuilding = 0;
+let laptopPending = [];
 
 const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~", "fftPeaks~"]);
 
-async function initCtrlAudio() {
+// The context is never resumed in the build path: a page (re)loaded without a
+// gesture would wait there for ever. It builds suspended and resumes on the
+// first click or key (resumeLaptopAudio).
+function initCtrlAudio() {
   if (ctrlAudioCtx) return;
   ctrlAudioCtx = new AudioContext({ sampleRate: 48000 });
-  await ctrlAudioCtx.resume();
   // Set multi-channel discrete output immediately
   ctrlAudioCtx.destination.channelCount = ctrlAudioCtx.destination.maxChannelCount;
   ctrlAudioCtx.destination.channelInterpretation = "discrete";
@@ -91,7 +100,13 @@ async function createCtrlEngine(type, args) {
   return _createEngine(ctrlAudioCtx, ctrlWorkletModulesLoaded, CTRL_NATIVE_NODES, type, args, adcHandler);
 }
 
-async function buildCtrlAudioTopology() {
+function resumeLaptopAudio() {
+  if (ctrlAudioCtx && ctrlAudioCtx.state === "suspended") ctrlAudioCtx.resume();
+}
+window.addEventListener("pointerdown", resumeLaptopAudio, true);
+window.addEventListener("keydown", resumeLaptopAudio, true);
+
+async function buildLaptopAudio(patch) {
   // Tear down existing
   for (const eng of ctrlEngines.values()) {
     if (eng.node) { try { eng.node.stop?.(); } catch {} eng.node.disconnect(); }
@@ -105,22 +120,19 @@ async function buildCtrlAudioTopology() {
   if (ctrlInputSplitter) { ctrlInputSplitter.disconnect(); ctrlInputSplitter = null; }
   if (ctrlInputSource) { ctrlInputSource.disconnect(); ctrlInputSource = null; }
 
-  // Collect one-side audio boxes
-  const ctrlAudioBoxes = new Map();
-  for (const [id, box] of mainEditor.boxes) {
-    if (isAudioBox(box.text) && mainEditor.sideOfBox(box) === "one") {
-      ctrlAudioBoxes.set(id, box);
-    }
-  }
-  if (ctrlAudioBoxes.size === 0) return;
+  // The deploy is post-expansion: one-side audio inside an abstraction is in it.
+  laptopBoxes.clear();
+  for (const b of patch.boxes) laptopBoxes.set(b.id, b);
+  // No laptop audio: no AudioContext, no microphone.
+  if (laptopBoxes.size === 0) return;
 
-  await initCtrlAudio();
+  initCtrlAudio();
 
   // Determine max channel for multi-channel output
   let maxChannel = 2;
-  for (const [, box] of ctrlAudioBoxes) {
-    if (boxTypeName(box.text) === "dac~") {
-      const chs = box.text.split(/\s+/).slice(1).map(Number).filter(n => !isNaN(n) && n > 0);
+  for (const [, b] of laptopBoxes) {
+    if (b.dac) {
+      const chs = b.args.split(/\s+/).map(Number).filter(n => !isNaN(n) && n > 0);
       for (const ch of chs) maxChannel = Math.max(maxChannel, ch);
     }
   }
@@ -159,49 +171,37 @@ async function buildCtrlAudioTopology() {
   ctrlOutputStage = [ctrlOutputGuard, ctrlOutputClamp];
 
   // Create engines
-  for (const [id, box] of ctrlAudioBoxes) {
-    const type = boxTypeName(box.text);
-    if (type === "dac~") continue;
-    const args = box.text.split(/\s+/).slice(1).join(" ");
-    const engine = await createCtrlEngine(type, args);
+  for (const [id, b] of laptopBoxes) {
+    if (b.dac) continue;
+    const engine = await createCtrlEngine(b.type, b.args);
     if (engine) ctrlEngines.set(id, engine);
     else {
-      console.error(`ctrl cannot build "${box.text}" (box ${id})`);
-      notify([`✗ ctrl cannot build "${box.text}"`]);
+      const text = `${b.type} ${b.args}`.trim();
+      console.error(`ctrl cannot build "${text}" (box ${id})`);
+      notify([`✗ ctrl cannot build "${text}"`]);
     }
   }
 
-  // Collect audio cables between one-side audio boxes
-  const audioCables = [];
-  for (const [, cable] of mainEditor.cables) {
-    if (!ctrlAudioBoxes.has(cable.srcBox) && !ctrlAudioBoxes.has(cable.dstBox)) continue;
-    const srcBox = mainEditor.boxes.get(cable.srcBox);
-    if (!srcBox) continue;
-    const srcOutletDef = getOutletDef(srcBox.text, cable.srcOutlet);
-    if (srcOutletDef?.type === "audio") audioCables.push(cable);
-  }
-
-  // Wire audio cables
-  for (const cable of audioCables) {
+  // Wire audio cables (the deploy's audioCables: source outlet type audio)
+  for (const cable of patch.audioCables) {
     const srcEng = ctrlEngines.get(cable.srcBox);
     if (!srcEng) continue;
     const srcNode = getEngineOutput(srcEng, cable.srcOutlet);
 
     // dac~
-    const dstBox = mainEditor.boxes.get(cable.dstBox);
-    if (dstBox && boxTypeName(dstBox.text) === "dac~") {
-      const chs = dstBox.text.split(/\s+/).slice(1).map(Number).filter(n => !isNaN(n) && n > 0);
+    const dstBox = laptopBoxes.get(cable.dstBox);
+    if (dstBox?.dac) {
+      const chs = dstBox.args.split(/\s+/).map(Number).filter(n => !isNaN(n) && n > 0);
       if (chs.length === 0) chs.push(1, 2); // default stereo
       for (const ch of chs) srcNode.connect(ctrlChannelMerger, 0, ch - 1);
       continue;
     }
 
-    // AudioParam modulation (audio → number inlet)
-    const dstInletDef = dstBox ? getInletDef(dstBox.text, cable.dstInlet) : null;
-    if (dstInletDef && dstInletDef.type !== "audio") {
+    // AudioParam modulation (audio → number inlet): paramNames is null for audio inlets
+    const paramName = dstBox?.paramNames[cable.dstInlet];
+    if (paramName) {
       const dstEng = ctrlEngines.get(cable.dstBox);
       if (dstEng) {
-        const paramName = dstInletDef.name;
         const param = dstEng.paramMap?.[paramName] || dstEng.worklet?.parameters?.get(paramName);
         if (param) { param.setValueAtTime(0, ctrlAudioCtx.currentTime); srcNode.connect(param); }
       }
@@ -210,16 +210,13 @@ async function buildCtrlAudioTopology() {
 
     // Audio bus connection
     const dstEng = ctrlEngines.get(cable.dstBox);
-    if (dstEng) {
+    if (dstEng && dstBox) {
       const dstNode = dstEng.node || dstEng.worklet;
       if (dstNode) {
-        // Map inlet index to Web Audio input index
-        const dstDef = dstBox ? getBoxDef(dstBox.text) : null;
+        // Map inlet index to Web Audio input index (as main.js)
         let audioInputIdx = 0;
-        if (dstDef) {
-          for (let i = 0; i < cable.dstInlet; i++) {
-            if (dstDef.inlets[i]?.type === "audio") audioInputIdx++;
-          }
+        for (let i = 0; i < cable.dstInlet; i++) {
+          if (dstBox.paramNames[i] === null) audioInputIdx++;
         }
         srcNode.connect(dstNode, 0, audioInputIdx);
       }
@@ -230,9 +227,9 @@ async function buildCtrlAudioTopology() {
   const wirelessSends = new Map(), wirelessRecvs = new Map();
   const wirelessThrows = new Map(), wirelessCatches = new Map();
   const sendTypes = new Set(["send~", "s~"]), recvTypes = new Set(["receive~", "r~"]);
-  for (const [id, box] of ctrlAudioBoxes) {
-    const type = boxTypeName(box.text);
-    const name = box.text.split(/\s+/).slice(1).join(" ").trim();
+  for (const [id, b] of laptopBoxes) {
+    const type = b.type;
+    const name = b.args.trim();
     if (!name) continue;
     const eng = ctrlEngines.get(id);
     if (!eng) continue;
@@ -252,44 +249,79 @@ async function buildCtrlAudioTopology() {
   }
 }
 
-function handleCtrlAudioParam(msg) {
-  const engine = ctrlEngines.get(msg.boxId);
-  if (!engine) return;
-  const box = mainEditor.boxes.get(msg.boxId);
-  if (!box) return;
-  const inletDef = getInletDef(box.text, msg.inlet);
-  if (!inletDef) return;
-  const paramName = inletDef.name;
+// Build a laptop deploy; rv/re that arrive meanwhile wait, then run in order.
+function loadLaptopPatch(patch) {
+  laptopBuilding++;
+  laptopBuild = laptopBuild.then(async () => {
+    try {
+      await buildLaptopAudio(patch);
+    } catch (err) {
+      console.error("laptop audio build failed:", err);
+      notify([`✗ laptop audio build failed: ${err instanceof Error ? err.message : err}`]);
+    } finally {
+      laptopBuilding--;
+    }
+    if (laptopBuilding > 0) return; // a newer deploy is queued; it drains
+    const pending = laptopPending;
+    laptopPending = [];
+    for (const msg of pending) laptopMessage(msg);
+    if (ctrlAudioCtx?.state === "suspended" && laptopBoxes.size > 0) notify(["laptop audio waits for a click or key"]);
+  });
+}
+
+function laptopMessage(msg) {
+  if (laptopBuilding > 0) { laptopPending.push(msg); return; }
+  if (msg.type === "rv") laptopValue(msg.r, msg.ch, msg.v);
+  else laptopEvent(msg.r, msg.ch);
+}
+
+// A box the deploy doesn't have: the server and this page disagree.
+function laptopBox(boxId, kind) {
+  const b = laptopBoxes.get(boxId);
+  if (!b) console.error(`laptop ${kind} for box ${boxId}, which is not in the laptop deploy`);
+  return b;
+}
+
+function laptopValue(boxId, inlet, value) {
+  const b = laptopBox(boxId, "rv");
+  if (!b) return;
+  const engine = ctrlEngines.get(boxId);
+  if (!engine) return; // not built (already reported)
+  const paramName = b.paramNames[inlet];
+  if (!paramName) return;
 
   // fftPeaks~ has no AudioParams — its `max` and `minHz` inlets update the engine directly.
   if (engine.type === "fftPeaks~" && paramName === "max") {
-    engine.maxPeaks = Math.max(0, Math.round(msg.value));
+    engine.maxPeaks = Math.max(0, Math.round(value));
     return;
   }
   if (engine.type === "fftPeaks~" && paramName === "minHz") {
-    engine.minHz = Math.max(0, msg.value);
+    engine.minHz = Math.max(0, value);
     return;
   }
 
-  if (inletDef.type === "event" || inletDef.message) {
-    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: paramName, value: msg.value });
+  if (b.messagePorts.includes(paramName)) {
+    (engine.worklet?.port || engine.node?.port)?.postMessage({ type: paramName, value });
   } else if (paramName === "portamento" && engine.portaTime !== undefined) {
-    engine.portaTime = msg.value;
-  } else if (typeof msg.value === "number") {
+    engine.portaTime = value;
+  } else if (typeof value === "number") {
     const param = engine.paramMap?.[paramName] || engine.worklet?.parameters?.get(paramName);
     if (param) {
       const now = ctrlAudioCtx.currentTime;
-      if (engine.portaTime > 0) param.setTargetAtTime(msg.value, now, engine.portaTime);
-      else param.setValueAtTime(msg.value, now);
+      if (engine.portaTime > 0) param.setTargetAtTime(value, now, engine.portaTime);
+      else param.setValueAtTime(value, now);
     }
   }
 }
 
-function handleCtrlAudioEvent(msg) {
-  const engine = ctrlEngines.get(msg.boxId);
+function laptopEvent(boxId, inlet) {
+  const b = laptopBox(boxId, "re");
+  if (!b) return;
+  const engine = ctrlEngines.get(boxId);
   if (!engine) return;
-  if (engine.type === "fftPeaks~") { scanPeaks(engine, msg.boxId); return; }
-  (engine.worklet?.port || engine.node?.port)?.postMessage({ type: "trigger" });
+  if (engine.type === "fftPeaks~") { scanPeaks(engine, boxId); return; }
+  // The phone shape (main.js sendParams): the inlet's port name, value 1.
+  (engine.worklet?.port || engine.node?.port)?.postMessage({ type: b.paramNames[inlet] ?? "trigger", value: 1 });
 }
 
 // fftPeaks~ scan: read the analyser's magnitude spectrum, pick the loudest local-maxima
@@ -643,7 +675,6 @@ function connectWS() {
       } else if (msg.type === "applied") {
         mainEditor.applied = true;
         mainEditor.dirty = false;
-        buildCtrlAudioTopology().then(() => send({ type: "ctrl-audio-ready" }));
         mainEditor.render();
       } else if (msg.type === "errors") {
         for (const err of msg.errors) console.warn("⚠ " + err);
@@ -680,10 +711,10 @@ function connectWS() {
           midiDeviceNames.splice(arcIndex, 1);
           mainEditor.render();
         }
-      } else if (msg.type === "ctrl-audio-param") {
-        handleCtrlAudioParam(msg);
-      } else if (msg.type === "ctrl-audio-event") {
-        handleCtrlAudioEvent(msg);
+      } else if (msg.type === "patch") {
+        loadLaptopPatch(msg);
+      } else if (msg.type === "rv" || msg.type === "re") {
+        laptopMessage(msg);
       }
     } catch {}
   });

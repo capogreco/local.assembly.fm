@@ -21,6 +21,7 @@ import {
 } from "../patch-state.ts";
 
 import * as gpi from "../public/gpi-types.js";
+import { applyPatch } from "../apply-check.ts";
 
 // --- Capture state ---
 
@@ -40,7 +41,7 @@ function resetCapture(): void {
 
 import {
   initEvalEngine, buildServerGraph, serverGraph, injectValue, injectEvent, setSourceValue,
-  replayLaptopParams, tick,
+  replayLaptop, tick,
 } from "../eval-engine.ts";
 
 initEvalEngine({
@@ -348,7 +349,7 @@ const cases: Case[] = [
       addCable(2, 3, 0, 4, 0);
       buildServerGraph();
       injectEvent(3, 0); // as an event-click
-      replayLaptopParams();
+      replayLaptop();
     },
   },
 
@@ -363,6 +364,20 @@ const cases: Case[] = [
       addBox(5, "sall x", 0, 389);
       for (const [c, r] of [[1, 2], [2, 3], [3, 4], [4, 5]]) addCable(c, 1, 0, r, 0);
       buildServerGraph();
+    },
+  },
+
+  {
+    name: "panharmonium: laptop gets minHz and max at build, trigger on the metro, replay",
+    run: () => {
+      reset();
+      const r = applyPatch(JSON.parse(Deno.readTextFileSync("patches/panharmonium.json")), new Map());
+      if (r.errors.length > 0) throw new Error(r.errors.join("; "));
+      buildServerGraph();
+      ticks(13); // metro 0.05: one fire at 12/240 s
+      replayLaptop();
+      // Only the laptop's messages: the rest of panharmonium is covered elsewhere.
+      capture = { ...capture, ctrlSends: capture.ctrlSends.filter((m) => m.type === "rv" || m.type === "re"), synthBroadcasts: [], clientSends: [] };
     },
   },
 

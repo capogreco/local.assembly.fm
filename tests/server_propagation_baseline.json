@@ -711,21 +711,21 @@
     "capture": {
       "ctrlSends": [
         {
-          "type": "ctrl-audio-param",
-          "boxId": 2,
-          "inlet": 0,
-          "value": 220
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 220
         },
         {
-          "type": "ctrl-audio-event",
-          "boxId": 4,
-          "inlet": 0
+          "type": "re",
+          "r": 4,
+          "ch": 0
         },
         {
-          "type": "ctrl-audio-param",
-          "boxId": 2,
-          "inlet": 0,
-          "value": 220
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 220
         }
       ],
       "synthBroadcasts": [],
@@ -845,6 +845,233 @@
     "latestValues": {
       "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":0.5}",
       "5:0": "{\"type\":\"rv\",\"r\":5,\"ch\":0,\"v\":0.5}"
+    }
+  },
+  "panharmonium: laptop gets minHz and max at build, trigger on the metro, replay": {
+    "capture": {
+      "ctrlSends": [
+        {
+          "type": "rv",
+          "r": 4,
+          "ch": 3,
+          "v": 100
+        },
+        {
+          "type": "rv",
+          "r": 4,
+          "ch": 2,
+          "v": 3
+        },
+        {
+          "type": "re",
+          "r": 4,
+          "ch": 1
+        },
+        {
+          "type": "rv",
+          "r": 4,
+          "ch": 3,
+          "v": 100
+        },
+        {
+          "type": "rv",
+          "r": 4,
+          "ch": 2,
+          "v": 3
+        }
+      ],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "25": 1,
+      "35": 3,
+      "92": 2,
+      "93": 2,
+      "131": 1,
+      "134": 3,
+      "138": 3,
+      "143": 100
+    },
+    "graph": {
+      "2": {
+        "inletValues": [
+          1
+        ],
+        "state": {
+          "elapsed": 0.004166666666666659,
+          "interval": 0.05,
+          "paused": false
+        }
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [
+          null,
+          null,
+          3,
+          100
+        ],
+        "state": null
+      },
+      "5": {
+        "inletValues": [],
+        "state": null
+      },
+      "6": {
+        "inletValues": [],
+        "state": {
+          "hasSeed": false
+        }
+      },
+      "7": {
+        "inletValues": [],
+        "state": null
+      },
+      "25": {
+        "inletValues": [
+          null,
+          1
+        ],
+        "state": {
+          "value": 1
+        }
+      },
+      "35": {
+        "inletValues": [],
+        "state": null
+      },
+      "37": {
+        "inletValues": [],
+        "state": null
+      },
+      "43": {
+        "inletValues": [],
+        "state": null
+      },
+      "54": {
+        "inletValues": [],
+        "state": null
+      },
+      "56": {
+        "inletValues": [],
+        "state": null
+      },
+      "63": {
+        "inletValues": [
+          2
+        ],
+        "state": null
+      },
+      "73": {
+        "inletValues": [],
+        "state": null
+      },
+      "77": {
+        "inletValues": [],
+        "state": null
+      },
+      "80": {
+        "inletValues": [],
+        "state": null
+      },
+      "81": {
+        "inletValues": [],
+        "state": null
+      },
+      "83": {
+        "inletValues": [],
+        "state": null
+      },
+      "85": {
+        "inletValues": [],
+        "state": null
+      },
+      "92": {
+        "inletValues": [],
+        "state": {
+          "value": 2
+        }
+      },
+      "93": {
+        "inletValues": [
+          2
+        ],
+        "state": null
+      },
+      "115": {
+        "inletValues": [],
+        "state": null
+      },
+      "117": {
+        "inletValues": [],
+        "state": null
+      },
+      "119": {
+        "inletValues": [],
+        "state": null
+      },
+      "120": {
+        "inletValues": [],
+        "state": null
+      },
+      "121": {
+        "inletValues": [],
+        "state": null
+      },
+      "122": {
+        "inletValues": [],
+        "state": null
+      },
+      "123": {
+        "inletValues": [],
+        "state": null
+      },
+      "125": {
+        "inletValues": [],
+        "state": null
+      },
+      "128": {
+        "inletValues": [],
+        "state": null
+      },
+      "131": {
+        "inletValues": [],
+        "state": {
+          "value": 1
+        }
+      },
+      "133": {
+        "inletValues": [],
+        "state": null
+      },
+      "134": {
+        "inletValues": [
+          3
+        ],
+        "state": null
+      },
+      "138": {
+        "inletValues": [
+          3
+        ],
+        "state": null
+      },
+      "143": {
+        "inletValues": [],
+        "state": {
+          "value": 100
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "63:0": "{\"type\":\"rv\",\"r\":63,\"ch\":0,\"v\":2}"
     }
   },
   "tick: metro fires once per interval": {
