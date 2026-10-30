@@ -669,16 +669,30 @@ class PatchEditor {
   audioCableProblem(srcBoxId, srcOutlet, dstBoxId) {
     const src = this.boxes.get(srcBoxId), dst = this.boxes.get(dstBoxId);
     if (!src || !dst) return null;
+    return this.audioProblemAt(src, srcOutlet, dst, this.borderY);
+  }
+
+  // audioCableProblem for boxes at given positions, against a given line.
+  audioProblemAt(src, srcOutlet, dst, borderY) {
     if (getOutletDef(src.text, srcOutlet)?.type !== "audio") return null;
     if (this.isRouterType(src.text) || this.isRouterType(dst.text)) return "routers carry events and values, not audio";
-    if (this.showBorder && this.isManySide(srcBoxId) !== this.isManySide(dstBoxId)) return "audio can't cross the border; events and values cross through routers";
+    if (this.showBorder && this.sideOfBox(src, borderY) !== this.sideOfBox(dst, borderY)) return "audio can't cross the border; events and values cross through routers";
     return null;
   }
 
-  audioBorderViolation() {
+  // An audio cable the move just made a problem. Judged like
+  // boundSideViolation: `before` holds each box's position (id → {x, y}) when
+  // the move began, against beforeY, and a cable already a problem then
+  // doesn't block the move.
+  audioBorderViolation(before, beforeY = this.borderY) {
     for (const c of this.cables.values()) {
-      const problem = this.audioCableProblem(c.srcBox, c.srcOutlet, c.dstBox);
-      if (problem) return problem;
+      const src = this.boxes.get(c.srcBox), dst = this.boxes.get(c.dstBox);
+      if (!src || !dst) continue;
+      const problem = this.audioProblemAt(src, c.srcOutlet, dst, this.borderY);
+      if (!problem) continue;
+      const ps = before.get(c.srcBox), pd = before.get(c.dstBox);
+      if (ps && pd && this.audioProblemAt({ ...src, x: ps.x, y: ps.y }, c.srcOutlet, { ...dst, x: pd.x, y: pd.y }, beforeY)) continue;
+      return problem;
     }
     return null;
   }
@@ -701,12 +715,12 @@ class PatchEditor {
   // A bad abstraction on disk (mixed binding, router inside) makes sideOf
   // throw. Report it and fall back to position so pointer handlers never die
   // mid-drag; the server rejects the patch at apply.
-  sideOfBox(box) {
+  sideOfBox(box, borderY = this.borderY) {
     try {
-      return sideOf(box, this.borderY, absLookup);
+      return sideOf(box, borderY, absLookup);
     } catch (e) {
       this.onError(["✗ " + (e instanceof Error ? e.message : e)]);
-      return positionSide(box, this.borderY);
+      return positionSide(box, borderY);
     }
   }
 
@@ -1428,7 +1442,7 @@ class PatchEditor {
     const m = this.canvasCoords(e);
 
     if (this.mode === "resizing-border") {
-      const problem = this.resizeSnapshot && (this.audioBorderViolation() ?? this.boundSideViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY));
+      const problem = this.resizeSnapshot && (this.audioBorderViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY) ?? this.boundSideViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY));
       if (problem) {
         this.borderY = this.resizeSnapshot.borderY;
         for (const [id, pos] of this.resizeSnapshot.boxes) {
@@ -1502,7 +1516,7 @@ class PatchEditor {
           if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
         }
       }
-      const dropProblem = moved && this.dragSnapshot ? (this.audioBorderViolation() ?? this.boundSideViolation(this.dragSnapshot.boxes)) : null;
+      const dropProblem = moved && this.dragSnapshot ? (this.audioBorderViolation(this.dragSnapshot.boxes) ?? this.boundSideViolation(this.dragSnapshot.boxes)) : null;
       if (dropProblem) {
         this.cables.clear();
         for (const [id, c] of this.dragSnapshot.cables) this.cables.set(id, { ...c });
@@ -1623,7 +1637,7 @@ class PatchEditor {
       }
       // Same rule as a drop: a nudge that takes a bound box off side, or audio
       // across the border, doesn't happen.
-      const problem = this.audioBorderViolation() ?? this.boundSideViolation(before);
+      const problem = this.audioBorderViolation(before) ?? this.boundSideViolation(before);
       if (problem) {
         for (const id of this.selection) {
           const box = this.boxes.get(id);
