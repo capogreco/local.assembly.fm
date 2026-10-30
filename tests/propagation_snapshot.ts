@@ -90,6 +90,35 @@ const cases: Case[] = [
     run: (graph) => g.propagateValue(graph, 1, 0, 1),
   },
   {
+    // A number-typed message port takes cabled values: the gate opens on >0, closes on 0.
+    name: "propagateValue → engine number-typed message port (adsr~ gate opens, closes)",
+    patch: buildPatch(
+      [
+        { id: 1, type: "*", args: "hot", text: "* hot" },
+        { id: 2, type: "adsr~", text: "adsr~", engine: true,
+          paramNames: ["gate", "a", "d", "s", "r"], messagePorts: new Set(["gate"]) },
+      ],
+      [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
+    ),
+    run: (graph) => ({
+      open: g.propagateValue(graph, 1, 0, 1),
+      close: g.propagateValue(graph, 1, 0, 0),
+    }),
+  },
+  {
+    // D1: an event is dropped at a number inlet, message port or not.
+    name: "propagateEvent → engine number-typed message port (adsr~ gate, drop)",
+    patch: buildPatch(
+      [
+        { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 2, type: "adsr~", text: "adsr~", engine: true,
+          paramNames: ["gate", "a", "d", "s", "r"], messagePorts: new Set(["gate"]) },
+      ],
+      [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
+    ),
+    run: (graph) => g.propagateEvent(graph, 1, 0),
+  },
+  {
     name: "propagateValue → wireless send",
     patch: buildPatch(
       [

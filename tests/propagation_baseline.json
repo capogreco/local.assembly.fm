@@ -51,6 +51,59 @@
       "uplinkQueue": []
     }
   },
+  "propagateValue → engine number-typed message port (adsr~ gate opens, closes)": {
+    "result": {
+      "open": {
+        "2": {
+          "gate": 1
+        }
+      },
+      "close": {
+        "2": {
+          "gate": 0
+        }
+      }
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "*",
+          "inletValues": [],
+          "state": null
+        },
+        "2": {
+          "type": "adsr~",
+          "inletValues": [
+            0
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "propagateEvent → engine number-typed message port (adsr~ gate, drop)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "adsr~",
+          "inletValues": [],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
   "propagateValue → wireless send": {
     "result": {
       "4": {

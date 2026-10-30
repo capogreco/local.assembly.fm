@@ -955,13 +955,14 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
     return { updates, deferEvent: false };
   }
 
-  // Engine destination: write to AudioParam by paramName. Values never fire
-  // message ports — only events do (skip those branches).
+  // Engine destination: write to AudioParam by paramName. A message port takes
+  // a value only when its inlet is number-typed (adsr~ gate: >0 opens, 0
+  // closes); an event-typed message port (trigger) is fired by events only.
   if (graph.engines && graph.engines.has(boxId)) {
     const engine = graph.engines.get(boxId);
     const paramName = engine.paramNames[inlet];
     if (paramName) {
-      if (engine.messagePorts.has(paramName)) return { updates, deferEvent: false };
+      if (engine.messagePorts.has(paramName) && inletDef?.type !== "number") return { updates, deferEvent: false };
       if (helpers.debug) console.log(`  → engine box:${boxId} ${paramName}=${value}`);
       updates[boxId] = { [paramName]: value };
     }
