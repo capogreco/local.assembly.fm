@@ -1,4 +1,4 @@
-import { boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, sideOf } from "./gpi-types.js";
+import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, positionSide, sideOf } from "./gpi-types.js";
 
 // --- constants ---
 
@@ -12,7 +12,8 @@ const COLORS = {
   commentText: "#888",
   cableAudio: "#8af", portAudio: "#8af", portEvent: "#fa4",
 };
-const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
+// BOX_HEIGHT comes from gpi-types.js: the side rule needs it.
+const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -274,7 +275,7 @@ class PatchEditor {
     const oneBoxes = [], manyBoxes = [], routerBoxes = [];
     for (const [id, box] of this.boxes) {
       if (this.isRouterType(box.text)) routerBoxes.push(id);
-      else if (box.y + BOX_HEIGHT / 2 < this.borderY) oneBoxes.push(id);
+      else if (this.sideOfBox(box) === "one") oneBoxes.push(id);
       else manyBoxes.push(id);
     }
 
@@ -570,8 +571,6 @@ class PatchEditor {
     };
   }
 
-  isBelowBorder(y) { return y >= this.borderY; }
-
   hitTestBorderHandle(mx, my) {
     if (!this.showBorder) return false;
     // Handle is drawn pinned to viewport-left at world-x = panX + (BORDER_HANDLE/2)/zoom
@@ -707,8 +706,13 @@ class PatchEditor {
       return sideOf(box, this.borderY, absLookup);
     } catch (e) {
       this.onError(["✗ " + (e instanceof Error ? e.message : e)]);
-      return box.y >= this.borderY ? "many" : "one";
+      return positionSide(box, this.borderY);
     }
+  }
+
+  // Side of a box against a line other than this.borderY (the border resize).
+  sideOf(box, borderY) {
+    try { return sideOf(box, borderY, absLookup); } catch { return positionSide(box, borderY); } // reported by sideOfBox
   }
 
   isManySide(boxId) {
@@ -716,8 +720,9 @@ class PatchEditor {
     return box ? this.sideOfBox(box) === "many" : false;
   }
 
-  // A bound box placed on the other side of the border. The abstraction
-  // editor has no border, so nothing is off side there.
+  // A bound box not wholly on its side (isOffSide: on the other side, or
+  // straddling the border). The abstraction editor has no border, so nothing
+  // is off side there.
   boundSideViolation() {
     if (!this.showBorder) return null;
     for (const box of this.boxes.values()) {
@@ -736,10 +741,11 @@ class PatchEditor {
   // refuse (text commit, paste).
   placeOnSide(box) {
     if (!this.showBorder) return;
-    if (this.isRouterType(box.text)) box.y = this.borderY - BOX_HEIGHT / 2;
-    const binding = getDef(box.text)?.binding;  // abstractions carry an inferred binding
-    if (binding === "many" && !this.isBelowBorder(box.y)) box.y = this.borderY + 20;
-    else if (binding === "one" && this.isBelowBorder(box.y)) box.y = this.borderY - BOX_HEIGHT - 20;
+    if (this.isRouterType(box.text)) { box.y = this.borderY - BOX_HEIGHT / 2; return; }
+    let offSide;
+    try { offSide = isOffSide(box, this.borderY, absLookup); } catch { return; } // reported by sideOfBox
+    if (!offSide) return;
+    box.y = this.sideOfBox(box) === "many" ? this.borderY + 20 : this.borderY - BOX_HEIGHT - 20;
   }
 
   isRouterType(text) { return boxBinding(text).binding === "border"; }
@@ -1279,19 +1285,18 @@ class PatchEditor {
       const oldY = this.borderY;
       this.borderY = newY;
       const PAD = 4;
-      // Piston: displace any box the membrane swept through, then cascade
-      // resolve overlaps in the sweep direction so the push propagates
-      // through stacked boxes instead of squashing them together.
+      // Piston: a box on the side the membrane moves into, which the new line
+      // touches, is pushed wholly clear of it, keeping its side (taken against
+      // the old line). Then cascade-resolve overlaps in the sweep direction so
+      // the push propagates through stacked boxes instead of squashing them.
       for (const [, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
           box.y = newY - BOX_HEIGHT / 2;
-        } else if (newY > oldY) {
-          if (box.y >= oldY && box.y < newY) box.y = newY + PAD;
-        } else if (newY < oldY) {
-          if (box.y + BOX_HEIGHT > newY && box.y + BOX_HEIGHT <= oldY + BOX_HEIGHT) {
-            box.y = newY - BOX_HEIGHT - PAD;
-          }
+          continue;
         }
+        const side = this.sideOf(box, oldY);
+        if (newY > oldY && side === "many" && box.y < newY) box.y = newY + PAD;
+        else if (newY < oldY && side === "one" && box.y + BOX_HEIGHT > newY) box.y = newY - BOX_HEIGHT - PAD;
       }
       if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
