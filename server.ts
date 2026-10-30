@@ -218,7 +218,13 @@ function handleApply(msg: any): void {
   // Phones and the laptop get the new deploys first, so the one side's
   // initial values (sent as the server graph builds) land on them.
   deployPatch();
-  buildServerGraph();
+  // A build that throws has been reported (eval-engine.ts) and left no graph:
+  // nothing evaluates the one side, so the patch is not "applied".
+  if (!buildServerGraph()) {
+    status.applied = false;
+    event("patch deployed, but the server graph failed to build");
+    return;
+  }
   rebuildGridRegions();
 
   sendCtrl({ type: "applied" });
