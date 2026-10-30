@@ -144,7 +144,8 @@ function propagateValue(graph, boxId, outletIndex, value) {
     if (cable.outlet !== outletIndex) continue;
     if (!graph.boxes.has(cable.dstBox)) continue;
 
-    const r = deliverValueToInlet(graph, cable.dstBox, cable.dstInlet, value, _clientValueHelpers);
+    const inletDef = graph.boxes.get(cable.dstBox).inletDefs[cable.dstInlet];
+    const r = deliverValueToInlet(graph, cable.dstBox, cable.dstInlet, value, _clientValueHelpers, inletDef);
     mergeUpdates(updates, r.updates);
     if (r.deferEvent) deferred.push(cable.dstBox);
   }
@@ -288,7 +289,7 @@ function processRouterValue(graph, routerId, channel, value) {
     // Shared dispatch. Router policy: if helper signals deferEvent, fire
     // handleEvent IMMEDIATELY (not deferred — each router entry is its own
     // delivery, no batched cable group to flush).
-    const r = deliverValueToInlet(graph, entry.targetBox, entry.targetInlet, value, _clientValueHelpers);
+    const r = deliverValueToInlet(graph, entry.targetBox, entry.targetInlet, value, _clientValueHelpers, node.inletDefs[entry.targetInlet]);
     mergeUpdates(allUpdates, r.updates);
     if (r.deferEvent) mergeUpdates(allUpdates, handleEvent(graph, entry.targetBox));
   }

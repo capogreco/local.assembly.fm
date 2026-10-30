@@ -1020,5 +1020,50 @@
       },
       "uplinkQueue": []
     }
+  },
+  "propagateValue → octaves inlet 1 (hot:true recomputes)": {
+    "result": [
+      [
+        60,
+        64,
+        72,
+        76
+      ]
+    ],
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "octaves",
+          "inletValues": [
+            [
+              60,
+              64
+            ],
+            1
+          ],
+          "state": null
+        },
+        "3": {
+          "type": "length",
+          "inletValues": [
+            [
+              60,
+              64,
+              72,
+              76
+            ]
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
   }
 }

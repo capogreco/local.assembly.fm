@@ -529,6 +529,27 @@ const cases: Case[] = [
       return g.processRouterEvent(graph, 1, 0);
     },
   },
+
+  // === inletDefs carry the per-type hot flag (as the server passes inletDef) ===
+  {
+    name: "propagateValue → octaves inlet 1 (hot:true recomputes)",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "octaves", args: "", text: "octaves" },
+        { id: 3, type: "length", args: "", text: "length" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 1 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      graph.boxes.get(2).inletValues[0] = [60, 64];
+      g.propagateValue(graph, 1, 0, 1);
+      return graph.boxes.get(3).inletValues;
+    },
+  },
 ];
 
 // --- Run ---
