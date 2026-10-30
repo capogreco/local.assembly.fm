@@ -354,10 +354,13 @@ function deliversEvent(boxId: number, inlet: number, kind: string): boolean {
   return kind === "event" || getInletDef(boxes.get(boxId)!.text, inlet)?.type === "event";
 }
 
+// An event has no value; where a router stores or sends one (a `one N` data
+// inlet, a `group` channel) it is 0, as before the routers were sinks.
 function routerSink(id: number) {
   return (inlet: number, kind: string, value?: BoxValue) => {
     const isEvent = deliversEvent(id, inlet, kind);
-    pending.push({ event: isEvent, run: () => handleRouterInlet(id, inlet, value as BoxValue, isEvent) });
+    const v = kind === "event" ? 0 : value as BoxValue;
+    pending.push({ event: isEvent, run: () => handleRouterInlet(id, inlet, v, isEvent) });
   };
 }
 

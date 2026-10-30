@@ -428,6 +428,26 @@ const cases: Case[] = [
     },
   },
 
+  {
+    name: "an event into a one N data inlet or a group channel is sent as v 0",
+    run: () => {
+      reset();
+      addBox(1, "event");
+      addBox(2, "one 1", 0, 389);
+      addBox(3, "group 1", 0, 389);
+      addBox(4, "event");
+      addCable(1, 1, 0, 2, 0); // data
+      addCable(2, 4, 0, 2, 1); // fire
+      addCable(3, 1, 0, 3, 0); // group channel
+      buildServerGraph();
+      injectEvent(1, 0);
+      injectEvent(4, 0);
+      // group membership is shuffled: keep the sends in client order.
+      capture.clientSends.sort((a, b) => a.clientId - b.clientId || JSON.stringify(a.msg).localeCompare(JSON.stringify(b.msg)));
+      groupState.clear();
+    },
+  },
+
   // === the tick and the phone semantics ===
   {
     name: "tick: metro fires once per interval",

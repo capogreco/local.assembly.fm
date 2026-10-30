@@ -1237,6 +1237,88 @@
     "groupState": {},
     "latestValues": {}
   },
+  "an event into a one N data inlet or a group channel is sent as v 0": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "re",
+            "r": 2,
+            "ch": 1
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 2,
+            "ch": 0,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 0,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 0,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 0,
+            "v": 0
+          }
+        }
+      ],
+      "events": []
+    },
+    "boxValues": {},
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {}
+      },
+      "2": {
+        "inletValues": [],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {}
+      }
+    },
+    "routerState": {
+      "2": {
+        "index": 1,
+        "storedValues": {
+          "0": 0
+        }
+      }
+    },
+    "groupState": {},
+    "latestValues": {}
+  },
   "tick: metro fires once per interval": {
     "capture": {
       "ctrlSends": [],
