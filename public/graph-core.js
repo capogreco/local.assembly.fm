@@ -736,9 +736,11 @@ function isHotInlet(type, inlet, args, inletDef) {
   return false;
 }
 
-// Event-typed outlets: tick values are display-only, not propagated
+// Outlets a tick fires only as events: tick values are display-only, not
+// propagated. delay's outlet is passthrough, but its queue holds no values
+// (handleBoxEvent pushes a fixed 1), so each delayed item fires one event.
 function isEventOutlet(type, outlet) {
-  return type === "metro" && outlet === 0;
+  return (type === "metro" || type === "delay") && outlet === 0;
 }
 
 // --- Data-driven inlet routing ---
@@ -756,8 +758,8 @@ const INLET_MAPS = {
   metro:   { 1: { field: "interval", min: 0.001 } },
   slew:    { 0: "target" },
   lag:     { 0: "target" },
-  inertia: { 1: { field: "freq", min: 0.01 }, 2: { field: "damping", min: 0 } },
-  follow:  { 1: { field: "attack", min: 0.001 }, 2: { field: "release", min: 0.001 } },
+  inertia: { 0: "target", 1: { field: "freq", min: 0.01 }, 2: { field: "damping", min: 0 } },
+  follow:  { 0: "target", 1: { field: "attack", min: 0.001 }, 2: { field: "release", min: 0.001 } },
   counter: { 1: { field: "max", min: 0 } },
   step:    { 1: "amplitude", 2: "length" },
 };
@@ -965,10 +967,12 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   if (node.type === "sample-hold" && inlet === 0) return { updates, deferEvent: false };
   if (node.type === "adsr" && inlet === 0) return { updates, deferEvent: false };
   if (node.type === "seq" && inlet >= 1) return { updates, deferEvent: false };
-  // `pad` inlet 0 (pitch) is cold — pitch only fires the filter via inlet 1 (velocity).
-  if (node.type === "pad" && inlet === 0) return { updates, deferEvent: false };
+  // `pad` and `held` inlet 0 (pitch) is cold — inlet 1 (velocity) fires.
+  if ((node.type === "pad" || node.type === "held") && inlet === 0) return { updates, deferEvent: false };
+  // `metro` inlet 0 (on/off) is read by tickBox; a value must not leak out of the event outlet.
+  if (node.type === "metro" && inlet === 0) return { updates, deferEvent: false };
 
-  // Data-driven inlet map (adsr/ar/ramp/sigmoid/cosine/lfo/phasor/metro/slew/lag/step).
+  // Data-driven inlet map (adsr/ar/ramp/sigmoid/cosine/lfo/metro/slew/lag/inertia/follow/counter/step).
   if (node.state && applyInletToState(node.type, node.state, inlet, value)) {
     return { updates, deferEvent: false };
   }

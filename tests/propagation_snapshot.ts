@@ -550,6 +550,89 @@ const cases: Case[] = [
       return graph.boxes.get(3).inletValues;
     },
   },
+
+  // === cold stores, inertia/follow targets, tick ===
+  {
+    name: "metro inlet 0 (on/off) is cold: no value out of the event outlet",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "1", text: "const 1" },
+        { id: 2, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 3, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => g.propagateValue(graph, 1, 0, 1),
+  },
+  {
+    name: "held inlet 0 (pitch) is cold; inlet 1 (velocity) fires",
+    patch: buildPatch(
+      [
+        { id: 1, type: "key", args: "", text: "key" },
+        { id: 2, type: "held", args: "", text: "held" },
+        { id: 3, type: "length", args: "", text: "length" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 1, srcOutlet: 1, dstBox: 2, dstInlet: 1 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      g.propagateValue(graph, 1, 0, 60);
+      const afterPitch = [...graph.boxes.get(3).inletValues];
+      g.propagateValue(graph, 1, 1, 1);
+      return { afterPitch, afterVelocity: graph.boxes.get(3).inletValues };
+    },
+  },
+  ...["inertia", "follow"].map((type) => ({
+    name: `${type} inlet 0 sets target; tick moves toward it`,
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type, args: "", text: type },
+      ],
+      [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
+    ),
+    run: (graph: any) => {
+      g.propagateValue(graph, 1, 0, 1);
+      const values = [];
+      for (let i = 0; i < 3; i++) { g.tickGraph(graph, 0.05); values.push(graph.boxes.get(2).state.value); }
+      return { target: graph.boxes.get(2).state.target, values: values.map((v) => +v.toFixed(6)) };
+    },
+  })),
+  {
+    name: "tickGraph: metro fires once when elapsed ≥ interval",
+    patch: buildPatch(
+      [
+        { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 2, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [{ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
+    ),
+    run: (graph) => [0.3, 0.3, 0.3].map((dt) => { g.tickGraph(graph, dt); return graph.boxes.get(2).state.count; }),
+  },
+  {
+    name: "tickGraph: delay fires once per delayed event",
+    patch: buildPatch(
+      [
+        { id: 1, type: "event", args: "", text: "event" },
+        { id: 2, type: "delay", args: "0.1", text: "delay 0.1" },
+        { id: 3, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      g.propagateEvent(graph, 1, 0);
+      return [0.05, 0.1, 0.1].map((dt) => { g.tickGraph(graph, dt); return graph.boxes.get(3).state.count; });
+    },
+  },
 ];
 
 // --- Run ---
