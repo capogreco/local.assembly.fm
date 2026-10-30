@@ -267,8 +267,14 @@ function loadLaptopPatch(patch) {
     if (laptopBuilding > 0) return; // a newer deploy is queued; it drains
     const pending = laptopPending;
     laptopPending = [];
-    for (const msg of pending) laptopMessage(msg);
+    // One bad message must not stop the rest.
+    for (const msg of pending) {
+      try { laptopMessage(msg); } catch (err) { console.error(`laptop ${msg.type} r:${msg.r} ch:${msg.ch} failed:`, err); }
+    }
     if (ctrlAudioCtx?.state === "suspended" && laptopBoxes.size > 0) notify(["laptop audio waits for a click or key"]);
+  }).catch((err) => {
+    // The chain must never stay rejected: every later build waits on it.
+    console.error("laptop audio:", err);
   });
 }
 
