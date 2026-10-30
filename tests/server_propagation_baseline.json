@@ -1104,6 +1104,61 @@
       }
     }
   },
+  "a joining phone gets the stored values through emit": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 2,
+            "ch": 0,
+            "v": 60
+          }
+        }
+      ],
+      "events": []
+    },
+    "boxValues": {
+      "1": 60
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "value": 60
+        }
+      },
+      "2": {
+        "inletValues": [
+          60
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [
+          60
+        ],
+        "state": null
+      }
+    },
+    "routerState": {
+      "3": {
+        "index": 1
+      }
+    },
+    "groupState": {},
+    "latestValues": {
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 60
+      }
+    }
+  },
   "tick: metro fires once per interval": {
     "capture": {
       "ctrlSends": [],

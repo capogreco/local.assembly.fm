@@ -33,9 +33,10 @@ let _event: (msg: string) => void;
 // Every router message (rv/re) leaves the server through emit(): `to` is a client
 // id, "laptop" (the ctrl sockets, for one-side audio), or omitted to broadcast
 // to phones. This is the one place a message could be stamped (an optional `t`,
-// see notes/architecture.md) or logged.
-function emit(msg: Record<string, unknown>, to?: number | "laptop"): void {
-  if (PROFILE_ONSET) logOnset(to === undefined ? "b" : String(to), msg);
+// see notes/architecture.md) or logged. A replay (opts.replay) is logged as
+// dst=replay:<to>: it repeats a value, it is not an onset.
+function emit(msg: Record<string, unknown>, to?: number | "laptop", opts: { replay?: boolean } = {}): void {
+  if (PROFILE_ONSET) logOnset((opts.replay ? "replay:" : "") + (to === undefined ? "b" : String(to)), msg);
   if (to === undefined) _broadcastSynth(msg);
   else if (to === "laptop") _sendCtrl(msg);
   else _sendToClient(to, msg);
@@ -379,7 +380,13 @@ function laptopSink(id: number) {
 }
 
 export function replayLaptop(): void {
-  for (const msg of laptopLatest.values()) emit(msg, "laptop");
+  for (const msg of laptopLatest.values()) emit(msg, "laptop", { replay: true });
+}
+
+// A joining phone gets the last value of every broadcast router channel,
+// after its deploy (the caller sends the deploy first).
+export function replayToPhone(clientId: number): void {
+  for (const msg of latestValues.values()) emit(msg, clientId, { replay: true });
 }
 
 // Display: a box shows what leaves its outlet 0. Sources that show something

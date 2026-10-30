@@ -9,7 +9,7 @@ import {
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
   initEvalEngine, startEvalEngine, buildGroups,
-  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replayLaptop,
+  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replayLaptop, replayToPhone,
   evaluateAllClients,
   findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
 } from "./eval-engine.ts";
@@ -397,7 +397,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
     if (getDeployedPatch()) {
       socket.send(JSON.stringify(getDeployedPatch()));
-      for (const msg of latestValues.values()) socket.send(JSON.stringify(msg));
+      replayToPhone(id);
     }
     broadcastClientCount();
   });

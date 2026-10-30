@@ -41,7 +41,7 @@ function resetCapture(): void {
 
 import {
   initEvalEngine, buildServerGraph, serverGraph, injectValue, injectEvent, setSourceValue,
-  replayLaptop, tick,
+  replayLaptop, replayToPhone, tick,
 } from "../eval-engine.ts";
 
 initEvalEngine({
@@ -378,6 +378,21 @@ const cases: Case[] = [
       replayLaptop();
       // Only the laptop's messages: the rest of panharmonium is covered elsewhere.
       capture = { ...capture, ctrlSends: capture.ctrlSends.filter((m) => m.type === "rv" || m.type === "re"), synthBroadcasts: [], clientSends: [] };
+    },
+  },
+
+  {
+    name: "a joining phone gets the stored values through emit",
+    run: () => {
+      reset();
+      addBox(1, "const 60");
+      addBox(2, "all 1", 0, 389);
+      addBox(3, "one", 0, 389);
+      addCable(1, 1, 0, 2, 0);
+      addCable(2, 1, 0, 3, 0);
+      buildServerGraph();
+      resetCapture();
+      replayToPhone(104);
     },
   },
 
