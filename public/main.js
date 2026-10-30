@@ -272,6 +272,7 @@ async function loadPatchForVoice(voice, patch) {
 
     // Create all engines and effects (unconnected). One engine failing to load
     // (e.g. addModule rejecting) shouldn't cost us the rest of the patch.
+    const unbuilt = [];
     for (const [id, def] of voice.graph.engines) {
       try {
         const engine = await createEngine(def.type, def.args);
@@ -280,11 +281,17 @@ async function loadPatchForVoice(voice, patch) {
           voice.engines.set(id, engine);
         } else {
           console.error(`phone cannot build ${def.type} (box ${id}): no engine`);
+          unbuilt.push({ type: def.type, id, reason: "no engine" });
         }
       } catch (err) {
         console.error(`engine ${def.type} (box ${id}) failed to load:`, err);
+        unbuilt.push({ type: def.type, id, reason: `failed to load: ${err?.message ?? err}` });
       }
     }
+    // Nobody reads a phone console during a show: one report per patch load,
+    // which the server forwards to ctrl. Every voice on this device builds the
+    // same engines, so only voice 0 reports (ensemble mode would repeat it N times).
+    if (unbuilt.length > 0 && voice.index === 0) voice.conn?.send({ type: "build-error", boxes: unbuilt });
 
     // Wire audio topology from patch audioCables (engines → effects → dac → destination)
     buildAudioTopology(voice, patch);

@@ -504,6 +504,20 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
           console.log(`\x1b[33m⚠ ${text}\x1b[0m`);
           sendCtrl({ type: "errors", errors: [text] });
         }
+      } else if (msg.type === "build-error" && Array.isArray(msg.boxes)) {
+        // A phone couldn't build some boxes. It sends once per patch load; group by
+        // type and reason so 40 unbuildable adc~ boxes become one readable line.
+        const groups = new Map<string, { type: string; reason: string; ids: number[] }>();
+        for (const b of msg.boxes) {
+          const key = `${b.type}\0${b.reason}`;
+          if (!groups.has(key)) groups.set(key, { type: b.type, reason: b.reason, ids: [] });
+          groups.get(key)!.ids.push(b.id);
+        }
+        const parts = [...groups.values()].map(({ type, reason, ids }) =>
+          ids.length === 1 ? `${type} (box ${ids[0]}: ${reason})` : `${type} ×${ids.length} (${reason})`);
+        const text = `client ${id}: cannot build ${parts.join(", ")}`;
+        console.log(`\x1b[33m⚠ ${text}\x1b[0m`);
+        sendCtrl({ type: "errors", errors: [text] });
       } else if (msg.type === "up" && typeof msg.ch === "string") {
         const targets = uplinkIndex.get(msg.ch);
         if (targets) {
