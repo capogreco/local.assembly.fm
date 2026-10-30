@@ -120,7 +120,13 @@ async function buildLaptopAudio(patch) {
   for (const n of ctrlOutputStage) n.disconnect();
   ctrlOutputStage = [];
   if (ctrlInputSplitter) { ctrlInputSplitter.disconnect(); ctrlInputSplitter = null; }
-  if (ctrlInputSource) { ctrlInputSource.disconnect(); ctrlInputSource = null; }
+  if (ctrlInputSource) {
+    // Stop the mic, so a re-apply doesn't open another stream and a patch
+    // without laptop audio leaves the mic indicator off.
+    for (const track of ctrlInputSource.mediaStream.getTracks()) track.stop();
+    ctrlInputSource.disconnect();
+    ctrlInputSource = null;
+  }
 
   // The deploy is post-expansion: one-side audio inside an abstraction is in it.
   laptopBoxes.clear();
