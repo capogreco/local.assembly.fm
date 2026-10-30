@@ -7,7 +7,7 @@ import {
   boxes as liveBoxes, cables as liveCables,
   clearPatchState, getBorderY, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
-import { boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, isOffSide, sideOf } from "./public/gpi-types.js";
+import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, isOffSide, positionSide, sideOf } from "./public/gpi-types.js";
 
 export interface AbstractionDef {
   // deno-lint-ignore no-explicit-any
@@ -181,13 +181,14 @@ function findUnknownBoxTypes(boxes: Map<number, Box>, loaded: Map<string, Abstra
 // Rejections that need the expanded graph and stamped sides. Audio never
 // crosses the border, and routers carry events and values only: events and
 // values cross the border through a router, never on a bare cable. A bound box
-// must sit on its own side. The editor refuses these and auto-routes the rest;
+// must sit wholly on its own side. The editor refuses these and auto-routes the rest;
 // this catches patch files edited by hand and anything else that bypasses it.
 function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>, borderY: number, loaded: Map<string, AbstractionDef>): string[] {
   const problems = new Set<string>();
   for (const [, box] of boxes) {
     if (isOffSide(box, borderY, innerBoxes(loaded))) {
-      problems.add(`"${box.text}" is bound to the ${box.side} side but placed on the ${box.side === "one" ? "many" : "one"} side`);
+      const where = positionSide(box, borderY) === box.side ? "overhangs the border" : `is placed on the ${box.side === "one" ? "many" : "one"} side`;
+      problems.add(`"${box.text}" is bound to the ${box.side} side but ${where}`);
     }
   }
   for (const [, c] of cables) {
@@ -221,7 +222,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
     const p = getBoxPorts(box.text);
     const copy: Box = { ...box, inlets: p.inlets, outlets: p.outlets };
     // snap routers to border
-    if (boxBinding(copy.text).binding === "border") copy.y = borderY - 11;
+    if (boxBinding(copy.text).binding === "border") copy.y = borderY - BOX_HEIGHT / 2;
     boxes.set(id, copy);
   }
   // deno-lint-ignore no-explicit-any

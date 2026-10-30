@@ -156,6 +156,40 @@ console.log("border crossings are still caught after expansion");
   check("bare event cable across border rejected", r.errors.some((e) => /crosses the border without a router/.test(e)), JSON.stringify(r.errors));
 }
 
+console.log("bound box overhanging the border");
+{
+  // H = BOX_HEIGHT = 22. A key with its bottom 1 below the line, a touch with its top 1 above.
+  reset();
+  const r = applyPatch(msg([box(1, "key", BORDER - 21)]), loaded);
+  check("one-bound overhang rejected", r.errors.length === 1 && /"key".*one.*overhangs/.test(r.errors[0] ?? ""), JSON.stringify(r.errors));
+  reset();
+  const m = applyPatch(msg([box(1, "touch", BORDER - 1)]), loaded);
+  check("many-bound overhang rejected", m.errors.length === 1 && /"touch".*many.*overhangs/.test(m.errors[0] ?? ""), JSON.stringify(m.errors));
+  reset();
+  const edge = applyPatch(msg([box(1, "key", BORDER - 22), box(2, "touch", BORDER)]), loaded);
+  check("bottom on the line is one, top on the line is many", edge.errors.length === 0, JSON.stringify(edge.errors));
+}
+
+console.log("free box sided by its centre");
+{
+  reset();
+  // Top above the line but centre below: many. Top above, centre above: one.
+  const r = applyPatch(msg([box(1, "+ 1", BORDER - 10), box(2, "+ 2", BORDER - 12), box(3, "+ 3", BORDER - 11)]), loaded);
+  check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
+  check("centre below → many", boxes.get(1)!.side === "many");
+  check("centre above → one", boxes.get(2)!.side === "one");
+  check("centre on the line → many", boxes.get(3)!.side === "many");
+}
+
+console.log("router unchanged");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "all 1", MANY_Y)]), loaded);
+  check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
+  check("side is border", boxes.get(1)!.side === "border");
+  check("snapped to borderY - BOX_HEIGHT/2", boxes.get(1)!.y === BORDER - 11, String(boxes.get(1)!.y));
+}
+
 console.log("abstraction save check");
 {
   const mixed = { boxes: [[1, { text: "key" }], [2, { text: "touch" }]], cables: [] };

@@ -785,8 +785,22 @@ function boxBinding(text, lookup, seen = new Set()) {
   return { binding: one ? "one" : many ? "many" : "free", error: null };
 }
 
+// Height of a box in patch units. The side rule needs it, so it lives here
+// (the editor draws with it, apply snaps routers with it).
+const BOX_HEIGHT = 22;
+
+// Side a free box takes from its position: its centre against the border
+// (a centre exactly on the line counts as many).
 function positionSide(box, borderY) {
-  return box.y >= borderY ? "many" : "one";
+  return box.y + BOX_HEIGHT / 2 >= borderY ? "many" : "one";
+}
+
+// The side a box lies wholly on, or null if it straddles the border. A
+// bottom edge on the line is wholly one; a top edge on the line, wholly many.
+function wholeSide(box, borderY) {
+  if (box.y + BOX_HEIGHT <= borderY) return "one";
+  if (box.y >= borderY) return "many";
+  return null;
 }
 
 // The one place a box's side is decided: "one" | "many" | "border".
@@ -797,11 +811,12 @@ function sideOf(box, borderY, lookup) {
   return binding === "free" ? positionSide(box, borderY) : binding;
 }
 
-// A bound box positioned on the other side of the border.
+// A bound box not wholly on its side: on the other side, or straddling the
+// border. Only routers straddle the line, so a straddling bound box is off side.
 function isOffSide(box, borderY, lookup) {
   const { binding, error } = boxBinding(box.text, lookup);
   if (error) throw new Error(error);
-  return (binding === "one" || binding === "many") && binding !== positionSide(box, borderY);
+  return (binding === "one" || binding === "many") && binding !== wholeSide(box, borderY);
 }
 
 // Resolve port definition for a specific inlet/outlet index (handles dynamic types)
@@ -909,5 +924,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxDef, boxBinding, sideOf, isOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 
