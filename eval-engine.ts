@@ -470,7 +470,7 @@ function isWirelessCatch(text: string): boolean { return boxTypeName(text) === "
 
 // Side is stamped at apply (sideOf in gpi-types.js). An unstamped box means
 // a path skipped the stamp pass: fail loudly rather than guess.
-function sideStamped(box: Box): "one" | "many" | "border" {
+export function sideStamped(box: Box): "one" | "many" | "border" {
   if (box.side === undefined) throw new Error(`box "${box.text}" has no side: apply must stamp sides before evaluation`);
   return box.side;
 }

@@ -5,7 +5,7 @@ import {
   getBorderY, setBorderY,
   getDeployedPatch, setDeployedPatch,
   routerState, groupState, latestValues, uplinkIndex,
-  clearPatchState, cablesFromOutlet,
+  cablesFromOutlet,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
@@ -13,7 +13,7 @@ import {
   setBoxValueAndNotify, propagateAndNotify,
   evaluateAllConsts, evaluateAllDevices, evaluateAllClients,
   initAllBoxState,
-  findBoxByText, CC_SOURCE, queueValueUpdate,
+  findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
 import { boxTypeName, getBoxDef, isAudioBox, isDac } from "./public/gpi-types.js";
@@ -250,7 +250,7 @@ function serializeSynthPatch(): Record<string, unknown> {
       console.log(`\x1b[31m✗ deploy skipped box ${id} "${box.text}": no definition\x1b[0m`);
       continue;
     }
-    if (box.side === "many") {
+    if (sideStamped(box) === "many") {
       synthIds.add(id);
       const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
       // deno-lint-ignore no-explicit-any
@@ -285,7 +285,7 @@ function serializeSynthPatch(): Record<string, unknown> {
   }
 
   for (const [id, box] of boxes) {
-    if (box.side !== "border") continue;
+    if (sideStamped(box) !== "border") continue;
     if (boxTypeName(box.text) === "sall") {
       // sall: match many-side r/receive boxes by name (multi-name: each name maps to a channel)
       const names = box.text.split(/\s+/).slice(1);
@@ -342,7 +342,9 @@ function getFullState(): Record<string, unknown> {
   for (const [id, v] of boxValues) bv[id] = v;
   return {
     type: "state",
-    boxes: [...boxes.entries()],
+    // `side` is stamped at apply from position and binding; the editor derives
+    // its own, so a stamped one would go stale on the first drag (and be saved).
+    boxes: [...boxes.entries()].map(([id, { side: _side, ...box }]) => [id, box]),
     cables: [...cables.entries()],
     nextId: getPatchNextId(),
     borderY: getBorderY(),

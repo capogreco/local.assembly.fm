@@ -22,11 +22,14 @@ function innerBoxes(loaded: Map<string, AbstractionDef>) {
 }
 
 // Expands every abstraction instance in `boxes`/`cables` (local maps, not the
-// running patch) into its contents. Returns non-fatal wiring errors.
+// running patch) into its contents. `warnings` are wiring problems (apply goes
+// ahead); `errors` reject the apply. boxBinding rejects self-containing
+// abstractions before this runs, so the depth cap only catches nesting that is
+// deeper than MAX_DEPTH.
 export function expandAbstractions(
   boxes: Map<number, Box>, cables: Map<number, Cable>, nextId: number,
   loadedAbstractions: Map<string, AbstractionDef>,
-): string[] {
+): { warnings: string[]; errors: string[] } {
   const errors: string[] = [];
   const MAX_DEPTH = 16;
   let globalIdCounter = 100000;
@@ -147,14 +150,11 @@ export function expandAbstractions(
     }
 
     if (expanded === 0) break;
-
-    // Cycle detection: check if any remaining abstraction was just expanded
-    if (depth === MAX_DEPTH - 1) {
-      errors.push("Abstraction nesting limit reached (16 levels) — possible circular reference");
-    }
   }
 
-  return errors;
+  const left = [...boxes.values()].filter((b) => loadedAbstractions.has(boxTypeName(b.text)));
+  const fatal = left.length > 0 ? [`abstractions nested deeper than ${MAX_DEPTH} levels ("${left[0].text}")`] : [];
+  return { warnings: errors, errors: fatal };
 }
 
 export interface ApplyResult {
@@ -208,7 +208,9 @@ function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>,
 }
 
 // Build the patch an apply message describes, without touching any global.
-// Order: unknown types, abstraction bindings, expand, stamp sides, validate.
+// Order: abstraction bindings, expand, unknown types, stamp sides, validate.
+// Unknown types are checked on the expanded graph, so a typo inside an
+// abstraction is caught too.
 // deno-lint-ignore no-explicit-any
 export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, currentBorderY: number): ApplyResult {
   const borderY: number = msg.borderY ?? currentBorderY;
@@ -225,7 +227,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   // deno-lint-ignore no-explicit-any
   for (const [id, cable] of msg.cables as [number, any][]) cables.set(id, cable);
 
-  const errors = findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`);
+  const errors: string[] = [];
   const lookup = innerBoxes(loaded);
   const absErrors = new Set<string>();
   for (const [, box] of boxes) {
@@ -236,7 +238,9 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   // An inconsistent abstraction cannot be given a side; stop before expanding.
   if (absErrors.size > 0) return { errors, warnings: [], boxes, cables, borderY };
 
-  const warnings = expandAbstractions(boxes, cables, msg.nextId || 1, loaded);
+  const { warnings, errors: expandErrors } = expandAbstractions(boxes, cables, msg.nextId || 1, loaded);
+  errors.push(...expandErrors, ...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`));
+  if (errors.length > 0) return { errors, warnings, boxes, cables, borderY };
   for (const [, box] of boxes) box.side = sideOf(box, borderY, lookup);
   errors.push(...findSideViolations(boxes, cables, borderY, loaded));
   return { errors, warnings, boxes, cables, borderY };

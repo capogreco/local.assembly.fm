@@ -41,6 +41,10 @@ const loaded = new Map<string, AbstractionDef>([
   ["router-abs", absDef(["inlet 0", "all 1"])],
   ["nested-mixed", absDef(["one-abs", "many-abs"])],
   ["nested-one", absDef(["free-abs", "one-abs"])],
+  ["typo-abs", absDef(["inlet 0", "no-such-box", "outlet 0"])],
+  ["self-abs", absDef(["inlet 0", "self-abs", "self-abs", "outlet 0"])],
+  ["ping", absDef(["inlet 0", "pong", "outlet 0"])],
+  ["pong", absDef(["inlet 0", "ping", "outlet 0"])],
 ]);
 
 function reset(): void {
@@ -127,6 +131,24 @@ console.log("rejected apply leaves the previous patch in place");
   }
 }
 
+console.log("abstraction that contains itself");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "self-abs", ONE_Y)]), loaded);
+  check("direct cycle rejected", r.errors.some((e) => /"self-abs" contains itself/.test(e)), JSON.stringify(r.errors));
+  check("nothing committed", boxes.size === 0);
+  const m = applyPatch(msg([box(1, "ping", ONE_Y)]), loaded);
+  check("mutual cycle rejected", m.errors.some((e) => /contains itself/.test(e)), JSON.stringify(m.errors));
+}
+
+console.log("unknown box type inside an abstraction");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "typo-abs", ONE_Y)]), loaded);
+  check("rejected", r.errors.some((e) => /unknown box type "no-such-box"/.test(e)), JSON.stringify(r.errors));
+  check("nothing committed", boxes.size === 0);
+}
+
 console.log("border crossings are still caught after expansion");
 {
   reset();
@@ -141,7 +163,7 @@ console.log("abstraction save check");
   const ok = { boxes: [[1, { text: "+ 1" }]], cables: [] };
   check("free accepted", checkAbstraction("f", ok, loaded) === null);
   const self = { boxes: [[1, { text: "self" }], [2, { text: "key" }]], cables: [] };
-  check("self-reference does not hang", checkAbstraction("self", self, loaded) === null);
+  check("self-reference rejected", /contains itself/.test(checkAbstraction("self", self, loaded) ?? ""));
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

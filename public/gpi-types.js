@@ -763,13 +763,15 @@ function getBoxDef(text) {
 // Binding of a box: { binding: "one" | "many" | "border" | "free", error }.
 // An abstraction's binding is inferred from its contents (nested ones too):
 // one-bound if any inner box is one-bound, many-bound if any is many-bound.
-// Both kinds, or a router, inside is an error (`error` is set).
+// Both kinds, or a router, inside is an error (`error` is set), and so is an
+// abstraction that contains itself, at any depth.
 function boxBinding(text, lookup, seen = new Set()) {
   const name = boxTypeName(text);
   const def = BOX_TYPES[name];
   if (def) return { binding: def.binding ?? "free", error: null };
   const inner = lookup ? lookup(name) : null;
-  if (!inner || seen.has(name)) return { binding: "free", error: null };
+  if (!inner) return { binding: "free", error: null };
+  if (seen.has(name)) return { binding: "free", error: `abstraction "${name}" contains itself` };
   const path = new Set(seen).add(name);
   let one = null, many = null;
   for (const innerBox of inner) {

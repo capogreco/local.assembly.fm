@@ -16,7 +16,7 @@ abstractions/              user abstractions (unchanged)
 
 ## 2. lib.json
 
-Each entry in `types` is a BOX_TYPES row (`zone`, `description`, `args`, `example`, `inlets`, `outlets`) plus an `engine` block. The existing `args` string stays descriptive. The parsed list goes in `engine.args`.
+Each entry in `types` is a BOX_TYPES row (`binding` if bound, `description`, `args`, `example`, `inlets`, `outlets`) plus an `engine` block. The existing `args` string stays descriptive. The parsed list goes in `engine.args`.
 
 Worked example. It is derived from the `ewing~` row in gpi-types.js, the `ENGINES` row, the frog~/ewing~ branch at engine-factory.js:254-259, and `ewing-processor.js` (params `pitch`/`hold`/`active`, reads `processorOptions.glideSec ?? 1.0`):
 
@@ -25,7 +25,6 @@ Worked example. It is derived from the `ewing~` row in gpi-types.js, the `ENGINE
   "name": "maker",
   "types": {
     "ewing~": {
-      "zone": "synth",
       "description": "Ewing's Tree Frog (Litoria ewingii). Autonomous frog ...",
       "args": "[glide_sec]",
       "example": "ewing~ 1.0",
@@ -86,7 +85,7 @@ Steps 1-4 work without any `libs/` directory.
 
 - **Duplicate name** (library vs core, library vs abstraction): the server refuses to start and names both sources.
 - **Missing worklet file or malformed lib.json**: the server refuses to start and names the file.
-- **Library engine with zone other than `synth`**: refused (see open question 1).
+- **Library engine with a binding**: refused. Engines are free (see open question 1).
 - **Patch uses a type that isn't installed**: today `serializeSynthPatch` silently skips it (`if (!def) continue;`), and the editor only marks it unknown (patch-editor.js:907). Change: apply reports "unknown box type: X" through the existing `{type: "errors"}` message (server.ts ~403) and does not deploy.
 - **Worklet fails on a phone** (`addModule` rejects, or an inlet has no matching AudioParam): today it is a console log only (main.js ~271). Add a phone-to-server `engine-error` message that is forwarded to ctrl `errors`.
 
@@ -96,7 +95,7 @@ Library worklets run arbitrary JS on audience phones. The worklet scope has no D
 
 ## 8. Open questions (ranked)
 
-1. **Synth-only contradicts current zones.** karplus-strong~, reverb~, swarm~, formant~ and chaos~ are `zone: "any"`, and ctrl.js builds them on the laptop through the shared engine-factory.js. Making them synth-only drops laptop use. Letting ctrl.js also fetch `/types` costs almost nothing. Allow `zone: "any"`?
+1. **Synth-only contradicts current zones.** Answered by "Side and binding" in notes/architecture.md (2026-10-27): worklets are free, `ewing~` and `frog~` included, so library engines are free too and ctrl.js has to fetch `/types` as well. Kept here for the record. Original question: karplus-strong~, reverb~, swarm~, formant~ and chaos~ were `zone: "any"`, and ctrl.js builds them on the laptop through the shared engine-factory.js. Making them synth-only drops laptop use. Allow `zone: "any"`?
 2. **conv~ is not a worklet.** It is a native `ConvolverNode` plus an IR fetch, so it can't be library material under "worklets + abstractions". Keep it in core?
 3. **Help lookup is broken.** `openHelp` (ctrl.js:371) fetches `/abstractions/<type>-help`, but `sanitizeName` strips `~` (so `ewing~` resolves to `ewing-help`), and `/~` can't be a filename at all. Help patches in `abstractions/` also show up as instantiable abstractions. Proposal: each help patch carries `"helpFor": "ewing~"`, and the server indexes the help directories by that field (a duplicate is a load error). Also, `phasor-help.json` is stale: it documents 2 inlets and a frequency, but `phasor` has `reset`, `period`, `pause`.
 4. Do core worklets move to engine blocks in release 1 (one code path), or only library engines?
