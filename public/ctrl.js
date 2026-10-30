@@ -565,7 +565,9 @@ window.addEventListener("keydown", (e) => {
     for (const [oldId, box] of clipData.boxes) {
       const newId = mainEditor.nextId++;
       idMap.set(oldId, newId);
-      mainEditor.boxes.set(newId, { x: box.x + offset, y: box.y + offset, text: box.text, inlets: box.inlets, outlets: box.outlets });
+      const pasted = { x: box.x + offset, y: box.y + offset, text: box.text, inlets: box.inlets, outlets: box.outlets };
+      mainEditor.placeOnSide(pasted);  // a paste has no drag to refuse, so bound boxes snap to their side
+      mainEditor.boxes.set(newId, pasted);
       newSel.add(newId);
     }
     for (const [, c] of clipData.cables) {

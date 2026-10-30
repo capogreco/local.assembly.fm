@@ -118,6 +118,7 @@ class PatchEditor {
     this.dragBoxPositions = null;
     this.cableFrom = null;
     this.dragSnapshot = null;
+    this.resizeSnapshot = null;
     this.mousePos = { x: 0, y: 0 };
     this.editingBoxId = null;
 
@@ -730,6 +731,17 @@ class PatchEditor {
     return null;
   }
 
+  // Put a newly placed box where its type belongs: routers on the border,
+  // bound boxes on their side. Used where a box lands without a drag to
+  // refuse (text commit, paste).
+  placeOnSide(box) {
+    if (!this.showBorder) return;
+    if (this.isRouterType(box.text)) box.y = this.borderY - BOX_HEIGHT / 2;
+    const binding = getDef(box.text)?.binding;  // abstractions carry an inferred binding
+    if (binding === "many" && !this.isBelowBorder(box.y)) box.y = this.borderY + 20;
+    else if (binding === "one" && this.isBelowBorder(box.y)) box.y = this.borderY - BOX_HEIGHT - 20;
+  }
+
   isRouterType(text) { return boxBinding(text).binding === "border"; }
 
   findNearestAllRouter(nearX) {
@@ -1130,12 +1142,7 @@ class PatchEditor {
         if (c.srcBox === this.editingBoxId && c.srcOutlet >= box.outlets) this.cables.delete(id);
         if (c.dstBox === this.editingBoxId && c.dstInlet >= box.inlets) this.cables.delete(id);
       }
-      if (this.showBorder) {
-        if (this.isRouterType(newText)) box.y = this.borderY - BOX_HEIGHT / 2;
-        const binding = getDef(newText)?.binding;  // abstractions carry an inferred binding
-        if (binding === "many" && !this.isBelowBorder(box.y)) box.y = this.borderY + 20;
-        else if (binding === "one" && this.isBelowBorder(box.y)) box.y = this.borderY - BOX_HEIGHT - 20;
-      }
+      this.placeOnSide(box);
     } else if (!box.text) {
       this.pushUndo();
       for (const [id, c] of this.cables) {
@@ -1169,6 +1176,11 @@ class PatchEditor {
 
     if (this.hitTestBorderHandle(m.x, m.y)) {
       this.mode = "resizing-border";
+      // The piston moves boxes as well as the border; keep both to restore.
+      this.resizeSnapshot = {
+        borderY: this.borderY,
+        boxes: new Map([...this.boxes.entries()].map(([id, b]) => [id, { x: b.x, y: b.y }])),
+      };
       this.canvas.style.cursor = "ns-resize";
       return;
     }
@@ -1407,7 +1419,19 @@ class PatchEditor {
     const m = this.canvasCoords(e);
 
     if (this.mode === "resizing-border") {
-      this.pushUndo();
+      const problem = this.audioBorderViolation() ?? this.boundSideViolation();
+      if (problem && this.resizeSnapshot) {
+        this.borderY = this.resizeSnapshot.borderY;
+        for (const [id, pos] of this.resizeSnapshot.boxes) {
+          const box = this.boxes.get(id);
+          if (box) { box.x = pos.x; box.y = pos.y; }
+        }
+        this.onError(["✗ border move cancelled: " + problem]);
+        this.render();
+      } else {
+        this.pushUndo();
+      }
+      this.resizeSnapshot = null;
       this.mode = "idle";
       this.canvas.style.cursor = "default";
       return;
@@ -1587,7 +1611,18 @@ class PatchEditor {
         const box = this.boxes.get(id);
         if (box) { box.x += dx; box.y += dy; }
       }
-      this.dirty = true;
+      // Same rule as a drop: a nudge that leaves a bound box off side, or audio
+      // across the border, doesn't happen.
+      const problem = this.audioBorderViolation() ?? this.boundSideViolation();
+      if (problem) {
+        for (const id of this.selection) {
+          const box = this.boxes.get(id);
+          if (box) { box.x -= dx; box.y -= dy; }
+        }
+        this.onError(["✗ move cancelled: " + problem]);
+      } else {
+        this.dirty = true;
+      }
       this.render();
       return true;
     }
