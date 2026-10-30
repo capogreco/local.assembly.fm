@@ -824,8 +824,8 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
   }
 
   // Events pass passthrough and event inlets and are dropped everywhere else
-  // (number, symbol, array): an event is not a number. Port type from the
-  // type table, carried per box as node.inletDefs.
+  // (number, symbol, array; so throw and sendup drop them): an event is not a
+  // number. Port type from the type table, carried per box as node.inletDefs.
   const inletDef = node.inletDefs[inlet];
   if (!inletDef) throw new Error(`event at box ${boxId} "${node.type}" inlet ${inlet}: no such inlet`);
   if (inletDef.type !== "passthrough" && inletDef.type !== "event") return updates;
@@ -846,9 +846,6 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
     }
     return updates;
   }
-  // sendup channels numbers to the server; events aren't forwarded.
-  // (throw's inlet is a number inlet, so events never reach it.)
-  if (node.type === "sendup") return updates;
 
   // Engine message port: an event writes 1 (sendParams posts it to the worklet).
   if (graph.engines && graph.engines.has(boxId)) {

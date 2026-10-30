@@ -398,7 +398,7 @@ const BOX_TYPES = {
   // --- many-bound uplink ---
   sendup:         { binding: "many", description: "Send value from phone back to server on named channels.", args: "name1 [name2 ...]", example: "sendup tx ty tg",
                     dynamic: true,
-                    inlets: [{ name: "in", type: "passthrough", description: "Value to send up" }], outlets: [] },
+                    inlets: [{ name: "in", type: "number", description: "Value to send up" }], outlets: [] },
 
   // --- many-bound display (gel stack) ---
   screen:         { binding: "many", description: "Full-screen color layer. Args: z-index (default 1).", args: "[z]", example: "screen 2",
