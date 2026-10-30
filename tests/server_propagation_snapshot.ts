@@ -407,6 +407,19 @@ const cases: Case[] = [
       setSourceValue(1, 0);
     },
   },
+  {
+    name: "a throw in the tick is reported once and the server keeps running",
+    run: () => {
+      reset();
+      addBox(1, "metro 0.01");
+      addBox(2, "+ 1");
+      addBox(3, "counter 0 99");
+      addCable(1, 1, 0, 2, 5); // no such inlet: graph-core throws on every fire
+      addCable(2, 1, 0, 3, 0);
+      buildServerGraph();
+      ticks(24); // ~0.1 s: about ten fires, one report
+    },
+  },
 ];
 
 // --- Run ---

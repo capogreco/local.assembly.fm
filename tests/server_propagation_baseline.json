@@ -947,5 +947,46 @@
     "routerState": {},
     "groupState": {},
     "latestValues": {}
+  },
+  "a throw in the tick is reported once and the server keeps running": {
+    "capture": {
+      "ctrlSends": [
+        {
+          "type": "errors",
+          "errors": [
+            "evaluation error: event at box 2 \"+\" inlet 5: no such inlet"
+          ]
+        }
+      ],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {},
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "elapsed": 0.009999999999999995,
+          "interval": 0.01,
+          "paused": false
+        }
+      },
+      "2": {
+        "inletValues": [],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": {
+          "count": 0,
+          "min": 0,
+          "max": 99
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
   }
 }

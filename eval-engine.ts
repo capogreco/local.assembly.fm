@@ -284,16 +284,60 @@ export function serverGraph(): any { return graph; }
 let pending: Array<{ event: boolean; run: () => void }> = [];
 let depth = 0;
 
+// Every evaluation (tick, input, build) runs in a batch, so the outermost one
+// is where a throw is caught: reported, and the server keeps running.
 function batch(fn: () => void): void {
-  depth++;
-  try { fn(); } catch (e) { pending = []; throw e; } finally { depth--; }
-  if (depth > 0) return;
-  while (pending.length > 0) {
-    const due = pending;
-    pending = [];
-    for (const d of due) if (!d.event) d.run();
-    for (const d of due) if (d.event) d.run();
+  if (depth > 0) {
+    depth++;
+    try { fn(); } finally { depth--; }
+    return;
   }
+  depth++;
+  try {
+    fn();
+    while (pending.length > 0) {
+      const due = pending;
+      pending = [];
+      for (const d of due) if (!d.event) d.run();
+      for (const d of due) if (d.event) d.run();
+    }
+  } catch (e) {
+    pending = [];
+    reportEvalError(e);
+  } finally {
+    depth--;
+  }
+}
+
+// A throw is logged and sent to ctrl the first time; repeats of the same
+// message are counted and reported once a second while they keep coming, so
+// a throw every tick can't flood the page.
+const evalErrorRepeats = new Map<string, number>();
+let evalErrorTimer = 0;
+
+function sendEvalError(text: string): void {
+  console.log(`\x1b[31m✗ ${text}\x1b[0m`);
+  _sendCtrl({ type: "errors", errors: [text] });
+}
+
+function reportEvalError(e: unknown): void {
+  const text = "evaluation error: " + (e instanceof Error ? e.message : String(e));
+  const repeats = evalErrorRepeats.get(text);
+  if (repeats !== undefined) { evalErrorRepeats.set(text, repeats + 1); return; }
+  evalErrorRepeats.set(text, 0);
+  sendEvalError(text);
+  if (e instanceof Error && e.stack) console.log(e.stack);
+  if (!evalErrorTimer) evalErrorTimer = setTimeout(reportEvalErrorRepeats, 1000);
+}
+
+function reportEvalErrorRepeats(): void {
+  evalErrorTimer = 0;
+  for (const [text, n] of evalErrorRepeats) {
+    if (n === 0) { evalErrorRepeats.delete(text); continue; }
+    sendEvalError(`${text} (×${n} in the last second)`);
+    evalErrorRepeats.set(text, 0);
+  }
+  if (evalErrorRepeats.size > 0) evalErrorTimer = setTimeout(reportEvalErrorRepeats, 1000);
 }
 
 // A value at an event-typed inlet fires it, as before (`key` → `one 2` fire).
@@ -373,7 +417,10 @@ export function buildServerGraph(): void {
   const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
   laptopLatest.clear();
   ctrlAudioAnims.clear();
+  graph = null; // a build that throws leaves no graph, not the old one
+  metroIds = [];
   batch(() => { graph = buildGraph({ boxes: graphBoxes, cables: graphCables, entries: [] }, { sinks, onOutput }); });
+  if (!graph) return;
   metroIds = graphBoxes.filter((b) => b.type === "metro").map((b) => b.id);
   initSources();
 }
