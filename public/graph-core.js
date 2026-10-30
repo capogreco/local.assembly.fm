@@ -807,6 +807,20 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
   const node = graph.boxes.get(boxId);
   if (!node) return updates;
 
+  // Wireless receive: forward event from outlet 0. A receive has no inlets; this
+  // is a router entry landing on it (sall → r), so it precedes the type check.
+  if (node.type === "receive" || node.type === "r") {
+    mergeUpdates(updates, helpers.propagateEvent(graph, boxId, 0));
+    return updates;
+  }
+
+  // Events pass passthrough and event inlets and are dropped everywhere else
+  // (number, symbol, array): an event is not a number. Port type from the
+  // type table, carried per box as node.inletDefs.
+  const inletDef = node.inletDefs[inlet];
+  if (!inletDef) throw new Error(`event at box ${boxId} "${node.type}" inlet ${inlet}: no such inlet`);
+  if (inletDef.type !== "passthrough" && inletDef.type !== "event") return updates;
+
   if (graph.sinks && graph.sinks.has(boxId)) {
     graph.sinks.get(boxId)(inlet, "event");
     return updates;
@@ -823,16 +837,9 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
     }
     return updates;
   }
-  // throw sums values; events don't sum, so drop.
-  if (node.type === "throw") return updates;
   // sendup channels numbers to the server; events aren't forwarded.
+  // (throw's inlet is a number inlet, so events never reach it.)
   if (node.type === "sendup") return updates;
-  // Wireless receive / passthrough: forward event from outlet 0.
-  // This path matters when a router entry lands directly on an r/receive box.
-  if (node.type === "receive" || node.type === "r") {
-    mergeUpdates(updates, helpers.propagateEvent(graph, boxId, 0));
-    return updates;
-  }
 
   // Engine message port: an event writes 1 (sendParams posts it to the worklet).
   if (graph.engines && graph.engines.has(boxId)) {
@@ -845,13 +852,19 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
     return updates;
   }
 
+  // Spigot gates propagation, events included: forward when open, drop when closed.
+  if (node.type === "spigot" && inlet === 0) {
+    if ((node.inletValues[1] || 0) > 0) mergeUpdates(updates, helpers.propagateEvent(graph, boxId, 0));
+    return updates;
+  }
+
   // Event-trigger inlets (isEventTrigger) or firesEvent boxes: fire handleEvent.
   if (isEventTrigger(node.type, inlet) || firesEvent(node.type, inlet)) {
     mergeUpdates(updates, helpers.handleEvent(graph, boxId));
     return updates;
   }
 
-  // Everything else (plain number inlets, display sinks): event is dropped.
+  // Everything else (print, a lone outlet): no event behaviour, dropped.
   return updates;
 }
 

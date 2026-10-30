@@ -14,6 +14,7 @@
  */
 
 import * as g from "../public/graph.js";
+import { deployInletDefs } from "../public/gpi-types.js";
 
 // --- Helpers ---
 
@@ -25,6 +26,13 @@ type Case = {
 
 function buildPatch(boxes: any[], cables: any[] = [], entries: any[] = []) {
   return { boxes, cables, entries };
+}
+
+// The deploy carries per-box inletDefs (serializeSynthPatch); derive them the
+// same way so the cases don't spell them out.
+function withInletDefs(patch: any) {
+  const boxes = patch.boxes.map((b: any) => b.inletDefs ? b : { ...b, inletDefs: deployInletDefs(b.text ?? b.type) });
+  return { ...patch, boxes };
 }
 
 function freezeGraphState(graph: any) {
@@ -449,6 +457,78 @@ const cases: Case[] = [
       return log;
     },
   },
+
+  // === D1: events pass passthrough/event inlets, drop at number inlets ===
+  ...[1, 0].map((gate) => ({
+    name: `D1: metro → spigot ${gate ? "open (forwards event)" : "closed (drops event)"} → counter`,
+    patch: buildPatch(
+      [
+        { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 2, type: "spigot", args: "", text: "spigot" },
+        { id: 3, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph: any) => {
+      graph.boxes.get(2).inletValues[1] = gate;
+      return g.propagateEvent(graph, 1, 0);
+    },
+  })),
+  {
+    name: "D1: metro → + 5 (number inlet, event dropped)",
+    patch: buildPatch(
+      [
+        { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 2, type: "+", args: "5", text: "+ 5" },
+        { id: 3, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => g.propagateEvent(graph, 1, 0),
+  },
+  {
+    name: "D1: event → select (number inlet, no longer fires on stale value)",
+    patch: buildPatch(
+      [
+        { id: 1, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 2, type: "select", args: "60", text: "select 60" },
+        { id: 3, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      graph.boxes.get(2).inletValues[0] = 60;
+      return g.propagateEvent(graph, 1, 0);
+    },
+  },
+  {
+    name: "D1: router event → spigot open → t e e → counter (ks_arp shape)",
+    patch: {
+      boxes: [
+        { id: 2, type: "spigot", args: "", text: "spigot" },
+        { id: 3, type: "t", args: "e e", text: "t e e" },
+        { id: 4, type: "counter", args: "0 7", text: "counter 0 7" },
+      ],
+      cables: [
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+        { srcBox: 3, srcOutlet: 1, dstBox: 4, dstInlet: 0 },
+      ],
+      entries: [{ routerId: 1, routerOutlet: 0, targetBox: 2, targetInlet: 0 }],
+    },
+    run: (graph) => {
+      graph.boxes.get(2).inletValues[1] = 1;
+      return g.processRouterEvent(graph, 1, 0);
+    },
+  },
 ];
 
 // --- Run ---
@@ -457,7 +537,7 @@ function runAll(): Record<string, any> {
   const results: Record<string, any> = {};
   for (const c of cases) {
     try {
-      const graph = g.buildGraph(c.patch);
+      const graph = g.buildGraph(withInletDefs(c.patch));
       const result = c.run(graph);
       const state = freezeGraphState(graph);
       results[c.name] = { result, state };

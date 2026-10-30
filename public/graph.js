@@ -35,9 +35,13 @@ function buildGraph(patch) {
   };
 
   for (const box of patch.boxes) {
+    // Port types per inlet (deployInletDefs in gpi-types.js): phones don't load
+    // the type table, so the deploy carries what event delivery needs.
+    if (!Array.isArray(box.inletDefs)) throw new Error(`box ${box.id} "${box.type}": no inletDefs in patch`);
     const node = {
       type: box.type,
       args: box.args || "",
+      inletDefs: box.inletDefs,
       inletValues: [],
       state: createBoxState(box.type, box.args || "", patch.instanceIndex || 0, patch.instanceCount || 1),
       outletCables: [],

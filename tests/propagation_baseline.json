@@ -849,5 +849,176 @@
       },
       "uplinkQueue": []
     }
+  },
+  "D1: metro → spigot open (forwards event) → counter": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "spigot",
+          "inletValues": [
+            null,
+            1
+          ],
+          "state": {}
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 1,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "D1: metro → spigot closed (drops event) → counter": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "spigot",
+          "inletValues": [
+            null,
+            0
+          ],
+          "state": {}
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 0,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "D1: metro → + 5 (number inlet, event dropped)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "+",
+          "inletValues": [],
+          "state": null
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 0,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "D1: event → select (number inlet, no longer fires on stale value)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "metro",
+          "inletValues": [],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.5,
+            "paused": false
+          }
+        },
+        "2": {
+          "type": "select",
+          "inletValues": [
+            60
+          ],
+          "state": {
+            "matchValues": [
+              60
+            ]
+          }
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 0,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "D1: router event → spigot open → t e e → counter (ks_arp shape)": {
+    "result": {},
+    "state": {
+      "boxes": {
+        "2": {
+          "type": "spigot",
+          "inletValues": [
+            null,
+            1
+          ],
+          "state": {}
+        },
+        "3": {
+          "type": "t",
+          "inletValues": [],
+          "state": {
+            "types": [
+              "e",
+              "e"
+            ]
+          }
+        },
+        "4": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 1,
+            "min": 0,
+            "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
   }
 }

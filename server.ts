@@ -16,7 +16,7 @@ import {
   findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
-import { boxTypeName, getBoxDef, isAudioBox, isDac } from "./public/gpi-types.js";
+import { boxTypeName, deployInletDefs, getBoxDef, isAudioBox, isDac } from "./public/gpi-types.js";
 import { type AbstractionDef, applyPatch, checkAbstraction } from "./apply-check.ts";
 
 // Workshop self-signed cert — distinct filenames so generation can never
@@ -254,7 +254,7 @@ function serializeSynthPatch(): Record<string, unknown> {
       synthIds.add(id);
       const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
       // deno-lint-ignore no-explicit-any
-      const pb: any = { id, type: name, args };
+      const pb: any = { id, type: name, args, inletDefs: deployInletDefs(box.text) };
       if (isDac(box.text)) pb.dac = true;
       // Any audio box with number inlets needs paramNames for the synth client
       if (isAudioBox(box.text)) {

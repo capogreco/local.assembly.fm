@@ -344,8 +344,8 @@ const BOX_TYPES = {
                     inlets: [{ name: "in", type: "number", hot: true, firesEvent: true, description: "Value to match" }],
                     outlets: [{ name: "match", type: "event", description: "Event on match" }] },
   spigot:         { description: "Block propagation. When closed, nothing passes downstream (cf. gate which outputs 0).",
-                    inlets: [{ name: "in", type: "number", description: "Signal to pass" }, { name: "gate", type: "number", description: "0 = block, >0 = pass" }],
-                    outlets: [{ name: "out", type: "number", description: "Passed signal" }] },
+                    inlets: [{ name: "in", type: "passthrough", description: "Value or event to pass" }, { name: "gate", type: "number", description: "0 = block, >0 = pass" }],
+                    outlets: [{ name: "out", type: "passthrough", description: "Passed value or event" }] },
   swap:           { description: "Swap two values. Hot inlet 0, cold inlet 1. Fires right-to-left.", args: "[default]", example: "swap 0",
                     inlets: [{ name: "a", type: "number", hot: true, firesEvent: true, description: "Left value (hot)" }, { name: "b", type: "number", description: "Right value (cold)" }],
                     outlets: [{ name: "left", type: "number", description: "Former right value" }, { name: "right", type: "number", description: "Former left value" }] },
@@ -875,6 +875,19 @@ function getOutletDef(text, index) {
   return def.outlets?.[index] || null;
 }
 
+// Per-inlet port type (and the hot flag) of a box, for evaluators that don't
+// load this table: the phone deploy carries it, and graph-core reads it to
+// decide whether an event passes an inlet. Throws on an inlet with no def.
+function deployInletDefs(text) {
+  const out = [];
+  for (let i = 0; i < getBoxPorts(text).inlets; i++) {
+    const d = getInletDef(text, i);
+    if (!d) throw new Error(`"${text}" inlet ${i}: no definition`);
+    out.push(d.hot ? { type: d.type, hot: true } : { type: d.type });
+  }
+  return out;
+}
+
 // Derive audio characteristics from port types
 function hasAudioIn(text) {
   const def = BOX_TYPES[boxTypeName(text)];
@@ -896,5 +909,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxDef, boxBinding, sideOf, isOffSide, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxDef, boxBinding, sideOf, isOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 
