@@ -6,16 +6,16 @@ import { boxTypeName } from "./public/gpi-types.js";
 
 // --- Callbacks injected by server.ts ---
 
-let _setBoxValueAndNotify: (boxId: number, value: BoxValue) => void;
+let _setSourceValue: (boxId: number, value: BoxValue) => void;
 let _sendCtrl: (msg: Record<string, unknown>) => void;
 let _event: (msg: string) => void;
 
 export function initHardware(deps: {
-  setBoxValueAndNotify: (boxId: number, value: BoxValue) => void;
+  setSourceValue: (boxId: number, value: BoxValue) => void;
   sendCtrl: (msg: Record<string, unknown>) => void;
   event: (msg: string) => void;
 }): void {
-  _setBoxValueAndNotify = deps.setBoxValueAndNotify;
+  _setSourceValue = deps.setSourceValue;
   _sendCtrl = deps.sendCtrl;
   _event = deps.event;
 }
@@ -215,11 +215,11 @@ export function rebuildGridRegions(): void {
         _event(`registered ${type} region: box ${boxId} at (${args[0]},${args[1]}) size ${w}×${h}`);
         if (type === "grid-toggle") {
           gridToggleStates.set(boxId, false);
-          _setBoxValueAndNotify(boxId, 0);
+          _setSourceValue(boxId, 0);
         }
         if (type === "grid-array") {
           gridArrayStates.set(boxId, { array: [1], heldButtons: new Set(), rangeGestureActive: false });
-          _setBoxValueAndNotify(boxId, [1]);
+          _setSourceValue(boxId, [1]);
         }
       }
     }
@@ -272,7 +272,7 @@ function handleGridKey(x: number, y: number, pressed: boolean): void {
 }
 
 function handleGridTrig(region: GridRegion, pressed: boolean): void {
-  _setBoxValueAndNotify(region.boxId, pressed ? 1 : 0);
+  _setSourceValue(region.boxId, pressed ? 1 : 0);
   renderGridRegion(region);
 }
 
@@ -282,7 +282,7 @@ function handleGridToggle(region: GridRegion, _x: number, _y: number, pressed: b
   const currentState = gridToggleStates.get(region.boxId) || false;
   const newState = !currentState;
   gridToggleStates.set(region.boxId, newState);
-  _setBoxValueAndNotify(region.boxId, newState ? 1 : 0);
+  _setSourceValue(region.boxId, newState ? 1 : 0);
   renderGridRegion(region);
 }
 
@@ -324,7 +324,7 @@ function handleGridArray(region: GridRegion, x: number, _y: number, pressed: boo
       }
       state.array.sort((a, b) => a - b);
       ensureNonEmpty(state.array);
-      _setBoxValueAndNotify(region.boxId, state.array);
+      _setSourceValue(region.boxId, state.array);
     }
 
     state.heldButtons.add(relativeX);
@@ -342,7 +342,7 @@ function handleGridArray(region: GridRegion, x: number, _y: number, pressed: boo
         }
         state.array.sort((a, b) => a - b);
         ensureNonEmpty(state.array);
-        _setBoxValueAndNotify(region.boxId, state.array);
+        _setSourceValue(region.boxId, state.array);
       }
       state.rangeGestureActive = false;
     }
@@ -393,7 +393,7 @@ function handleArcDelta(encoder: number, delta: number): void {
       const currentValue = arcValues.get(boxId) ?? 0.5;
       const newValue = Math.max(0, Math.min(1, currentValue + delta * ARC_SENSITIVITY));
       arcValues.set(boxId, newValue);
-      _setBoxValueAndNotify(boxId, newValue);
+      _setSourceValue(boxId, newValue);
       renderArcEncoder(encoder);
     }
   }

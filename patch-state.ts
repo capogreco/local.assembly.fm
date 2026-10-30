@@ -20,10 +20,9 @@ export type BoxValue = number | number[] | string;
 
 export const boxes = new Map<number, Box>();
 export const cables = new Map<number, Cable>();
+// Last value shown on each box (display); evaluation state lives in the
+// server graph (eval-engine.ts).
 export const boxValues = new Map<number, BoxValue>();
-export const inletValues = new Map<number, number[]>();
-// deno-lint-ignore no-explicit-any
-export const boxState = new Map<number, any>();
 
 let _patchNextId = 1;
 export function getPatchNextId(): number { return _patchNextId; }
@@ -61,8 +60,6 @@ export function clearPatchState(): void {
   boxes.clear();
   cables.clear();
   boxValues.clear();
-  inletValues.clear();
-  boxState.clear();
   routerState.clear();
   groupState.clear();
   assignState.clear();

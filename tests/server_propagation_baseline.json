@@ -1,5 +1,5 @@
 {
-  "propagate const value to mtof": {
+  "const value to mtof at build": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [],
@@ -7,23 +7,28 @@
       "events": []
     },
     "boxValues": {
+      "1": 60,
       "2": 261.6255653005986
     },
-    "inletValues": {
-      "2": [
-        60
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 60
+        "inletValues": [],
+        "state": {
+          "value": 60
+        }
+      },
+      "2": {
+        "inletValues": [
+          60
+        ],
+        "state": null
       }
     },
     "routerState": {},
     "groupState": {},
     "latestValues": {}
   },
-  "propagate value to wireless send → receive": {
+  "value through wireless send → receive": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [],
@@ -31,24 +36,37 @@
       "events": []
     },
     "boxValues": {
+      "1": 0.5,
       "3": 0.5,
       "4": 0.5
     },
-    "inletValues": {
-      "4": [
-        0.5
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 0.5
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          0.5
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [
+          0.5
+        ],
+        "state": null
       }
     },
     "routerState": {},
     "groupState": {},
     "latestValues": {}
   },
-  "propagate value through wireless throw → catch (sums)": {
+  "value through wireless throw → catch (sums)": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [],
@@ -56,17 +74,32 @@
       "events": []
     },
     "boxValues": {
+      "1": 3,
       "3": 8,
       "4": 8
     },
-    "inletValues": {
-      "4": [
-        8
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 5
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          3
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [
+          8
+        ],
+        "state": null
+      },
+      "4": {
+        "inletValues": [
+          8
+        ],
+        "state": null
       }
     },
     "routerState": {},
@@ -80,17 +113,24 @@
       "clientSends": [],
       "events": []
     },
-    "boxValues": {},
-    "inletValues": {
-      "2": [
-        5
-      ]
+    "boxValues": {
+      "1": 5
     },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 5
+        "inletValues": [],
+        "state": null
       },
-      "2": {}
+      "2": {
+        "inletValues": [
+          5
+        ],
+        "state": {}
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      }
     },
     "routerState": {},
     "groupState": {},
@@ -104,23 +144,35 @@
       "events": []
     },
     "boxValues": {
+      "1": 5,
       "2": 5,
-      "3": 15
+      "3": 15,
+      "4": 1
     },
-    "inletValues": {
-      "2": [
-        5,
-        1
-      ],
-      "3": [
-        5
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 5
+        "inletValues": [],
+        "state": null
       },
-      "2": {}
+      "2": {
+        "inletValues": [
+          5,
+          1
+        ],
+        "state": {}
+      },
+      "3": {
+        "inletValues": [
+          5
+        ],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {
+          "value": 1
+        }
+      }
     },
     "routerState": {},
     "groupState": {},
@@ -134,20 +186,29 @@
       "events": []
     },
     "boxValues": {
+      "1": 1,
       "2": 1,
       "3": 1
     },
-    "inletValues": {
-      "3": [
-        1
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 1
+        "inletValues": [],
+        "state": null
       },
       "2": {
-        "value": 1
+        "inletValues": [
+          null,
+          1
+        ],
+        "state": {
+          "value": 1
+        }
+      },
+      "3": {
+        "inletValues": [
+          1
+        ],
+        "state": null
       }
     },
     "routerState": {},
@@ -162,93 +223,126 @@
       "events": []
     },
     "boxValues": {
+      "1": 7,
       "2": 7,
       "3": 7
     },
-    "inletValues": {
-      "2": [
-        7
-      ],
-      "3": [
-        7
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 5
+        "inletValues": [],
+        "state": null
       },
       "2": {
-        "prev": 7
-      }
-    },
-    "routerState": {},
-    "groupState": {},
-    "latestValues": {}
-  },
-  "applyInletToState on adsr release": {
-    "capture": {
-      "ctrlSends": [],
-      "synthBroadcasts": [],
-      "clientSends": [],
-      "events": []
-    },
-    "boxValues": {},
-    "inletValues": {},
-    "boxState": {
-      "1": {
-        "value": 0.7
-      },
-      "2": {
-        "value": 0,
-        "phase": "idle",
-        "elapsed": 0,
-        "a": 0.05,
-        "d": 0.1,
-        "s": 0.7,
-        "r": 0.7,
-        "gateOpen": false
-      }
-    },
-    "routerState": {},
-    "groupState": {},
-    "latestValues": {}
-  },
-  "seq inlet 2 receives array (preserved through propagation)": {
-    "capture": {
-      "ctrlSends": [],
-      "synthBroadcasts": [],
-      "clientSends": [],
-      "events": []
-    },
-    "boxValues": {},
-    "inletValues": {
-      "2": [
-        null,
-        null,
-        [
-          60,
-          64,
-          67
-        ]
-      ]
-    },
-    "boxState": {
-      "1": {
-        "pitches": []
-      },
-      "2": {
-        "values": [
-          0
+        "inletValues": [
+          7
         ],
-        "behaviour": "asc",
-        "index": 0
+        "state": {
+          "prev": 7
+        }
+      },
+      "3": {
+        "inletValues": [
+          7
+        ],
+        "state": null
       }
     },
     "routerState": {},
     "groupState": {},
     "latestValues": {}
   },
-  "seq inlet 0 trigger advances": {
+  "adsr: release inlet maps to state, gate inlet is stored": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 0.7,
+      "2": 0.16666666666666666,
+      "3": 1
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "value": 0.7
+        }
+      },
+      "2": {
+        "inletValues": [
+          1,
+          null,
+          null,
+          null,
+          0.7
+        ],
+        "state": {
+          "value": 0.16666666666666666,
+          "phase": "attack",
+          "elapsed": 0.008333333333333333,
+          "a": 0.05,
+          "d": 0.1,
+          "s": 0.7,
+          "r": 0.7,
+          "gateOpen": true
+        }
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "seq inlet 2 receives an array": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": [
+        60,
+        64,
+        67
+      ]
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "pitches": []
+        }
+      },
+      "2": {
+        "inletValues": [
+          null,
+          null,
+          [
+            60,
+            64,
+            67
+          ]
+        ],
+        "state": {
+          "values": [
+            0
+          ],
+          "behaviour": "asc",
+          "index": 0
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "seq inlet 0: an event advances it": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [],
@@ -259,30 +353,37 @@
       "2": 1,
       "3": 1
     },
-    "inletValues": {
-      "3": [
-        1
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "elapsed": 0,
-        "interval": 0.1,
-        "paused": false
+        "inletValues": [],
+        "state": {
+          "elapsed": 0,
+          "interval": 0.1,
+          "paused": false
+        }
       },
       "2": {
-        "values": [
+        "inletValues": [],
+        "state": {
+          "values": [
+            1
+          ],
+          "behaviour": "2",
+          "index": 0
+        }
+      },
+      "3": {
+        "inletValues": [
           1
         ],
-        "behaviour": "2",
-        "index": 0
+        "state": null
       }
     },
     "routerState": {},
     "groupState": {},
     "latestValues": {}
   },
-  "held: pitch on inlet 0, velocity on inlet 1 fires event": {
+  "held: pitch on inlet 0, velocity on inlet 1 fires": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [],
@@ -290,34 +391,44 @@
       "events": []
     },
     "boxValues": {
-      "2": 1,
+      "1": 60,
+      "2": [
+        60
+      ],
       "3": [
         60
       ]
     },
-    "inletValues": {
-      "2": [
-        60,
-        100
-      ],
-      "3": [
-        [
-          60
-        ]
-      ]
-    },
-    "boxState": {
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
       "2": {
-        "pitches": [
-          60
-        ]
+        "inletValues": [
+          60,
+          0.7874015748031497
+        ],
+        "state": {
+          "pitches": [
+            60
+          ]
+        }
+      },
+      "3": {
+        "inletValues": [
+          [
+            60
+          ]
+        ],
+        "state": null
       }
     },
     "routerState": {},
     "groupState": {},
     "latestValues": {}
   },
-  "router all → engine paramName": {
+  "router all: initial value broadcast and kept for joiners": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [
@@ -331,11 +442,21 @@
       "clientSends": [],
       "events": []
     },
-    "boxValues": {},
-    "inletValues": {},
-    "boxState": {
+    "boxValues": {
+      "1": 440
+    },
+    "graph": {
       "1": {
-        "value": 440
+        "inletValues": [],
+        "state": {
+          "value": 440
+        }
+      },
+      "2": {
+        "inletValues": [
+          440
+        ],
+        "state": null
       }
     },
     "routerState": {},
@@ -352,20 +473,26 @@
       "events": []
     },
     "boxValues": {
+      "1": 5,
       "2": 10,
       "3": 10
     },
-    "inletValues": {
-      "2": [
-        5
-      ],
-      "3": [
-        10
-      ]
-    },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 5
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          5
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [
+          10
+        ],
+        "state": null
       }
     },
     "routerState": {},
@@ -379,16 +506,356 @@
       "clientSends": [],
       "events": []
     },
-    "boxValues": {},
-    "inletValues": {
-      "2": [
-        null,
-        3
-      ]
+    "boxValues": {
+      "1": 3
     },
-    "boxState": {
+    "graph": {
       "1": {
-        "value": 3
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          null,
+          3
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "select → all: a match goes out as re, a reject as rv": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [
+        {
+          "type": "re",
+          "r": 3,
+          "ch": 0
+        },
+        {
+          "type": "rv",
+          "r": 3,
+          "ch": 1,
+          "v": 99
+        }
+      ],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 99
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          99
+        ],
+        "state": {
+          "matchValues": [
+            60,
+            62
+          ]
+        }
+      },
+      "3": {
+        "inletValues": [
+          null,
+          99
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "3:1": "{\"type\":\"rv\",\"r\":3,\"ch\":1,\"v\":99}"
+    }
+  },
+  "one 1 fed by one outlet on data and fire: data lands first": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 2,
+            "ch": 0,
+            "v": 7
+          }
+        },
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "re",
+            "r": 2,
+            "ch": 1
+          }
+        }
+      ],
+      "events": []
+    },
+    "boxValues": {
+      "1": 7
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          7,
+          7
+        ],
+        "state": null
+      }
+    },
+    "routerState": {
+      "2": {
+        "index": 2,
+        "storedValues": {
+          "0": 7
+        }
+      }
+    },
+    "groupState": {},
+    "latestValues": {}
+  },
+  "sall feeds the one side's r and broadcasts; metro event goes out as re": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [
+        {
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 3
+        },
+        {
+          "type": "re",
+          "r": 2,
+          "ch": 1
+        }
+      ],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 3,
+      "3": 3,
+      "4": 3,
+      "7": 1
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          3
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [
+          3
+        ],
+        "state": null
+      },
+      "5": {
+        "inletValues": [],
+        "state": {
+          "elapsed": 0,
+          "interval": 0.1,
+          "paused": false
+        }
+      },
+      "6": {
+        "inletValues": [],
+        "state": null
+      },
+      "7": {
+        "inletValues": [],
+        "state": {
+          "count": 1,
+          "min": 0,
+          "max": 7
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":3}"
+    }
+  },
+  "one-side audio: params and events go to the laptop, params replay": {
+    "capture": {
+      "ctrlSends": [
+        {
+          "type": "ctrl-audio-param",
+          "boxId": 2,
+          "inlet": 0,
+          "value": 220
+        },
+        {
+          "type": "ctrl-audio-event",
+          "boxId": 4,
+          "inlet": 0
+        },
+        {
+          "type": "ctrl-audio-param",
+          "boxId": 2,
+          "inlet": 0,
+          "value": 220
+        }
+      ],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 220
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "value": 220
+        }
+      },
+      "2": {
+        "inletValues": [
+          220
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": {}
+      },
+      "4": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "tick: metro fires once per interval": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 2
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "elapsed": 0.0008333333333333335,
+          "interval": 0.01,
+          "paused": false
+        }
+      },
+      "2": {
+        "inletValues": [],
+        "state": {
+          "count": 2,
+          "min": 0,
+          "max": 99
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "tick: delay fires once per delayed event": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "3": 1
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {}
+      },
+      "2": {
+        "inletValues": [],
+        "state": {
+          "queue": [],
+          "time": 0.01
+        }
+      },
+      "3": {
+        "inletValues": [],
+        "state": {
+          "count": 1,
+          "min": 0,
+          "max": 99
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "breath: gate fires on threshold crossings only": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 0,
+      "2": 0,
+      "3": 0
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          0
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [
+          0
+        ],
+        "state": null
       }
     },
     "routerState": {},

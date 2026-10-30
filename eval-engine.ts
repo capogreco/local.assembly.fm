@@ -1,15 +1,13 @@
-// eval-engine.ts — graph evaluation, propagation, routing, and tick loop
-// Extracted from server.ts as part of the server split.
+// eval-engine.ts — one-side evaluation (graph.js), routing, and tick loop
 
 import {
   type Box, type BoxValue,
-  boxes, cables, boxValues, inletValues, boxState,
+  boxes, cables, boxValues,
   routerState, groupState, latestValues, assignState,
-  cablesFromOutlet,
 } from "./patch-state.ts";
 import { arcValues } from "./hardware.ts";
-import { boxTypeName, getBoxDef, isAudioBox } from "./public/gpi-types.js";
-import { evaluatePure, createBoxState, tickBox, handleBoxEvent, applyInletToState, deliverValueToInlet } from "./public/graph-core.js";
+import { boxTypeName, deployInletDefs, getInletDef, isAudioBox } from "./public/gpi-types.js";
+import { buildGraph, propagateValue, propagateEvent, tickGraph } from "./public/graph.js";
 
 // --- Timing instrumentation (gated; zero overhead when env vars unset) ---
 // See notes/server-timing-runtime-analysis.md. Timestamps are performance.now()
@@ -179,10 +177,11 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     const names = box.text.split(/\s+/).slice(1);
     const name = names[inlet];
     if (!name) return;
-    for (const [recvId, recvBox] of boxes) {
-      if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isOneSide(recvBox)) {
-        setBoxValueAndNotify(recvId, value);
-      }
+    // It also feeds the one side's receives of that name.
+    const w = graph.wireless.get(name);
+    for (const recvId of w ? w.receives : []) {
+      if (isEvent) propagateEvent(graph, recvId, 0);
+      else propagateValue(graph, recvId, 0, value);
     }
     if (isEvent) {
       emit({ type: "re", r: routerBoxId, ch: inlet });
@@ -246,15 +245,6 @@ function sendViaRouter(routerBoxId: number, channel: number, value: BoxValue): v
   routerDispatch(routerBoxId, msg, { advanceSweep: true, storeLatest: true });
 }
 
-// --- Evaluation core ---
-
-function evaluateBox(box: Box, iv: number[]): number {
-  const name = boxTypeName(box.text);
-  const args = box.text.split(/\s+/).slice(1);
-  const result = evaluatePure(name, args, iv);
-  return result !== null ? result : (iv[0] || 0);
-}
-
 // --- Batched value updates to ctrl at ~30fps ---
 
 let pendingValueUpdates = new Map<number, BoxValue>();
@@ -271,202 +261,87 @@ function flushValueUpdates(): void {
   _sendCtrl({ type: "values", updates });
 }
 
-const ONSET_THRESHOLD = 0.01;
-
-export function setBoxValueAndNotify(boxId: number, value: BoxValue): void {
-  const prev = boxValues.get(boxId) ?? 0;
-  boxValues.set(boxId, value);
-  queueValueUpdate(boxId, value);
-  const box = boxes.get(boxId);
-  if (!box) return;
-  const name = boxTypeName(box.text);
-  const def = getBoxDef(box.text);
-  if (!def) return;
-
-  // breath/bite: outlet 0 = value (0-1 pressure), outlet 1 = gate (0 below threshold, 1 above).
-  // Gate only fires on threshold crossings, not every tick.
-  if (name === "breath" || name === "bite") {
-    propagateAndNotify(boxId, 0, value);
-    const p = typeof prev === "number" ? prev : 0;
-    const v = typeof value === "number" ? value : 0;
-    if (p < ONSET_THRESHOLD && v >= ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 1);
-    else if (p >= ONSET_THRESHOLD && v < ONSET_THRESHOLD) propagateAndNotify(boxId, 1, 0);
-    return;
-  }
-
-  const outlets = def.outlets.length || 1;
-  for (let i = 0; i < outlets; i++) propagateAndNotify(boxId, i, value);
-}
-
-// --- Server graph-view adapter for the shared deliverValueToInlet helper ---
+// --- The one-side graph ---
 //
-// The shared helper (graph-core.js) expects a graph object with a few uniform
-// shapes: boxes.get(id) → { type, args, inletValues, state }, engines, wireless,
-// uplinkQueue. Server stores these across globals (boxes, boxState, inletValues
-// in patch-state.ts), so we wrap them in a thin view that returns shared
-// references — mutations to inletValues / state via the helper land in the
-// real server state.
+// The server evaluates the one side with the phones' graph.js. Its graph holds
+// the one-side boxes and the routers; routers and one-side audio boxes are
+// sinks (graph.sinks), the way engines are on a phone: delivery at them is
+// handed back here instead of evaluated.
 
 // deno-lint-ignore no-explicit-any
-const _serverGraphView: any = {
-  boxes: {
-    get(id: number) {
-      const box = boxes.get(id);
-      if (!box) return undefined;
-      const type = boxTypeName(box.text);
-      const args = box.text.split(/\s+/).slice(1).join(" ");
-      let iv = inletValues.get(id);
-      if (!iv) { iv = []; inletValues.set(id, iv); }
-      return { type, args, inletValues: iv, state: boxState.get(id) || null };
-    },
-    has(id: number): boolean { return boxes.has(id); },
-  },
-  // Server has no engines (engines live on the many side) — empty Map keeps
-  // the helper's engine branch from firing.
-  engines: { has: () => false, get: () => undefined },
-  // Wireless lookups are kept INLINE in propagateAndNotify (server uses
-  // boxValues for catch summing rather than inletValues[0]). The helper's
-  // wireless branches are bypassed by handling send/throw before delegation.
-  wireless: { get: () => null },
-  // Server doesn't use uplinkQueue (sendup is many-bound — server has
-  // its own uplinkIndex for the receive direction).
-  uplinkQueue: null,
-};
+let graph: any = null;
 
-// Server-side helpers passed to deliverValueToInlet. Bridge the helper's
-// recursive callbacks to server-specific side effects.
+// The live graph, for tests.
 // deno-lint-ignore no-explicit-any
-const _serverDeliverHelpers: any = {
-  // Helper calls this for: wireless send forward, toggle inlet 1 propagation,
-  // map inlet 0 lookup, change diff propagation, default hot-inlet eval.
-  // Server's setBoxValueAndNotify sets boxValues + queueValueUpdate +
-  // propagates through all outlets — equivalent for single-outlet ctrl boxes.
-  // deno-lint-ignore no-explicit-any
-  propagateValue: (_graph: any, targetBoxId: number, _outlet: number, v: BoxValue) => {
-    setBoxValueAndNotify(targetBoxId, v);
-    return {};
-  },
-  // Helper calls this for default hot-inlet recompute.
-  // deno-lint-ignore no-explicit-any
-  evaluateNode: (_graph: any, targetBoxId: number) => {
-    const targetBox = boxes.get(targetBoxId);
-    if (!targetBox) return 0;
-    const iv = inletValues.get(targetBoxId) || [];
-    return evaluateBox(targetBox, iv);
-  },
-  debug: false,
-};
+export function serverGraph(): any { return graph; }
 
-export function propagateAndNotify(boxId: number, outletIndex: number, value: BoxValue): void {
-  const deferred: Array<() => void> = [];
+// Sink deliveries are queued and run when the injection that caused them
+// returns: values first, then events, so data lands before a fire (`one N`
+// fed by one outlet on both its data and fire inlets). A sink that re-enters
+// the graph (sall → one-side r) queues more, run in the next round.
+let pending: Array<{ event: boolean; run: () => void }> = [];
+let depth = 0;
 
-  const srcBox = boxes.get(boxId);
-  const srcDef = srcBox ? getBoxDef(srcBox.text) : null;
-  const isEventSource = srcDef?.outlets?.[outletIndex]?.type === "event";
-
-  for (const cable of cablesFromOutlet(boxId, outletIndex)) {
-    const dst = boxes.get(cable.dstBox);
-    if (!dst) continue;
-    const def = getBoxDef(dst.text);
-    if (!def) continue;
-    if (dst.side === "border") {
-      const inletDef = def.inlets[cable.dstInlet];
-      if (inletDef && inletDef.type === "event") {
-        deferred.push(() => handleRouterInlet(cable.dstBox, cable.dstInlet, value, true));
-      } else {
-        handleRouterInlet(cable.dstBox, cable.dstInlet, value, isEventSource);
-      }
-    } else if (isAudioBox(dst.text) && isOneSide(dst)) {
-      const inletDef = def.inlets[cable.dstInlet];
-      if (inletDef?.type === "event") {
-        deferred.push(() => {
-          _sendCtrl({ type: "ctrl-audio-event", boxId: cable.dstBox, inlet: cable.dstInlet });
-          ctrlAudioTrigger(cable.dstBox);
-        });
-      } else {
-        _sendCtrl({ type: "ctrl-audio-param", boxId: cable.dstBox, inlet: cable.dstInlet, value });
-        if (typeof value === "number") {
-          let iv = inletValues.get(cable.dstBox);
-          if (!iv) { iv = []; inletValues.set(cable.dstBox, iv); }
-          iv[cable.dstInlet] = value;
-        }
-      }
-    } else if (isWirelessSend(dst.text)) {
-      const name = dst.text.split(/\s+/).slice(1).join(" ");
-      for (const [recvId, recvBox] of boxes) {
-        if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isOneSide(recvBox)) {
-          setBoxValueAndNotify(recvId, value);
-        }
-      }
-    } else if (isWirelessThrow(dst.text)) {
-      const name = dst.text.split(/\s+/).slice(1).join(" ");
-      const numValue = typeof value === "number" ? value : 0;
-      for (const [catchId, catchBox] of boxes) {
-        if (isWirelessCatch(catchBox.text) && catchBox.text.split(/\s+/).slice(1).join(" ") === name && isOneSide(catchBox)) {
-          const prev = typeof boxValues.get(catchId) === "number" ? boxValues.get(catchId) as number : 0;
-          setBoxValueAndNotify(catchId, prev + numValue);
-        }
-      }
-    } else if (sideStamped(dst) !== "many") {
-      // Pre-helper: event-typed inlet on a stateful box (e.g. ar/sigmoid/cosine
-      // trigger). The shared helper's isEventTrigger covers most of these but
-      // there are edge cases (event-type inlet on stateful boxes not in the
-      // hardcoded list); preserve the explicit check.
-      const inletDef = def.inlets[cable.dstInlet];
-      if (inletDef && inletDef.type === "event" && boxState.has(cable.dstBox) && !inletDef.firesEvent) {
-        const numValue = typeof value === "number" ? value : 0;
-        deferred.push(() => handleEventBox(cable.dstBox, numValue));
-        continue;
-      }
-
-      // Pre-helper: seq inlet 2 array preservation. handleStatefulInlet would
-      // store the coerced numValue (0 for arrays), losing the array; the
-      // shared helper's seq inlet ≥1 branch correctly preserves it via the
-      // top-of-function value-store. Delegate to the helper for this case.
-      const dstName = boxTypeName(dst.text);
-      const numValueForStateful = typeof value === "number" ? value : 0;
-      if (dstName === "seq" && cable.dstInlet === 2) {
-        // fall through to shared dispatch below
-      } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValueForStateful)) {
-        // one-side stateful inlet stores (toggle, sample-hold, adsr inlet 0,
-        // INLET_MAPS-driven cold params, etc.) — handled, no further dispatch.
-        continue;
-      }
-
-      // Pre-helper: length is a server-special with array-aware computation
-      // and queueValueUpdate (the helper doesn't know about queueValueUpdate).
-      if (boxTypeName(dst.text) === "length") {
-        const result = Array.isArray(value) ? value.length : 1;
-        boxValues.set(cable.dstBox, result);
-        queueValueUpdate(cable.dstBox, result);
-        propagateAndNotify(cable.dstBox, 0, result);
-        continue;
-      }
-
-      // Shared dispatch — handles seq inlet 2 (array-preserving), map,
-      // change, spigot gate, default hot-inlet evaluation, firesEvent
-      // signalling, and miscellaneous cold-store cases. inletDef passed
-      // through so the helper can respect per-inlet hot:true metadata.
-      const r = deliverValueToInlet(_serverGraphView, cable.dstBox, cable.dstInlet, value, _serverDeliverHelpers, inletDef);
-      if (r.deferEvent) {
-        const numValue = typeof value === "number" ? value : 0;
-        deferred.push(() => handleEventBox(cable.dstBox, numValue));
-      }
-    } else {
-      // A many-side destination reached by a bare cable. handleApply rejects
-      // these, so getting here means a rule was bypassed: say so, don't drop.
-      console.log(`\x1b[31m✗ cable to "${dst.text}" (box ${cable.dstBox}) dropped: many-side box reached without a router\x1b[0m`);
-    }
+function batch(fn: () => void): void {
+  depth++;
+  try { fn(); } catch (e) { pending = []; throw e; } finally { depth--; }
+  if (depth > 0) return;
+  while (pending.length > 0) {
+    const due = pending;
+    pending = [];
+    for (const d of due) if (!d.event) d.run();
+    for (const d of due) if (d.event) d.run();
   }
-
-  // Phase 2: fire all deferred events after values have been delivered
-  for (const fn of deferred) fn();
 }
 
-function isWirelessSend(text: string): boolean { const t = boxTypeName(text); return t === "send" || t === "s"; }
-function isWirelessReceive(text: string): boolean { const t = boxTypeName(text); return t === "receive" || t === "r"; }
-function isWirelessThrow(text: string): boolean { return boxTypeName(text) === "throw"; }
-function isWirelessCatch(text: string): boolean { return boxTypeName(text) === "catch"; }
+// A value at an event-typed inlet fires it, as before (`key` → `one 2` fire).
+function deliversEvent(boxId: number, inlet: number, kind: string): boolean {
+  return kind === "event" || getInletDef(boxes.get(boxId)!.text, inlet)?.type === "event";
+}
+
+function routerSink(id: number) {
+  return (inlet: number, kind: string, value?: BoxValue) => {
+    const isEvent = deliversEvent(id, inlet, kind);
+    pending.push({ event: isEvent, run: () => handleRouterInlet(id, inlet, value as BoxValue, isEvent) });
+  };
+}
+
+// One-side audio runs on the laptop (ctrl.js). Stage C gives it a deploy;
+// until then it keeps the ctrl-audio-* messages. The latest param per inlet is
+// kept so a laptop that rebuilds its audio after `applied` can have them again.
+const laptopLatest = new Map<string, Record<string, unknown>>();
+
+function laptopSink(id: number) {
+  return (inlet: number, kind: string, value?: BoxValue) => {
+    if (deliversEvent(id, inlet, kind)) {
+      pending.push({ event: true, run: () => {
+        _sendCtrl({ type: "ctrl-audio-event", boxId: id, inlet });
+        ctrlAudioTrigger(id);
+      } });
+    } else {
+      pending.push({ event: false, run: () => {
+        const msg = { type: "ctrl-audio-param", boxId: id, inlet, value };
+        laptopLatest.set(id + ":" + inlet, msg);
+        _sendCtrl(msg);
+      } });
+    }
+  };
+}
+
+export function replayLaptopParams(): void {
+  for (const msg of laptopLatest.values()) _sendCtrl(msg);
+}
+
+// Display: a box shows what leaves its outlet 0. Sources that show something
+// else (bare `cc`, `key`) set their display themselves. Audio boxes are shown
+// by ctrlAudioAnims.
+function onOutput(boxId: number, outlet: number, kind: string, value?: BoxValue): void {
+  if (kind !== "value" || outlet !== 0) return;
+  const box = boxes.get(boxId);
+  if (!box || isAudioBox(box.text)) return;
+  boxValues.set(boxId, value as BoxValue);
+  queueValueUpdate(boxId, value as BoxValue);
+}
 
 // Side is stamped at apply (sideOf in gpi-types.js). An unstamped box means
 // a path skipped the stamp pass: fail loudly rather than guess.
@@ -475,27 +350,79 @@ export function sideStamped(box: Box): "one" | "many" | "border" {
   return box.side;
 }
 
-// The server evaluates the one side and the border (routers).
-function isOneSide(box: Box): boolean {
-  return sideStamped(box) !== "many";
+let metroIds: number[] = [];
+
+// Build the one-side graph from the applied patch. Initial values (const,
+// toggle and every other box with a state value, as on a phone) reach the
+// sinks; then the sources with no graph state get theirs.
+export function buildServerGraph(): void {
+  // deno-lint-ignore no-explicit-any
+  const graphBoxes: any[] = [];
+  const ids = new Set<number>();
+  const sinks = new Map<number, (inlet: number, kind: string, value?: BoxValue) => void>();
+  for (const [id, box] of boxes) {
+    const side = sideStamped(box);
+    if (side === "many") continue;
+    ids.add(id);
+    graphBoxes.push({ id, type: boxTypeName(box.text), args: box.text.split(/\s+/).slice(1).join(" "), inletDefs: deployInletDefs(box.text) });
+    if (side === "border") sinks.set(id, routerSink(id));
+    else if (isAudioBox(box.text)) sinks.set(id, laptopSink(id));
+  }
+  const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
+  laptopLatest.clear();
+  ctrlAudioAnims.clear();
+  batch(() => { graph = buildGraph({ boxes: graphBoxes, cables: graphCables, entries: [] }, { sinks, onOutput }); });
+  metroIds = graphBoxes.filter((b) => b.type === "metro").map((b) => b.id);
+  initSources();
 }
 
-export function evaluateAllConsts(): void {
-  for (const [id, box] of boxes) {
-    if (!isOneSide(box)) continue;
-    const name = boxTypeName(box.text);
-    if (name === "const") {
-      setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
-    } else if (name === "knob") {
-      const kArgs = box.text.split(/\s+/).slice(1).map(Number);
-      const init = kArgs[0] !== undefined ? kArgs[0] : 0.5;
-      boxValues.set(id, init);
-      setBoxValueAndNotify(id, init);
-    } else if (name === "toggle") {
-      const state = boxState.get(id);
-      if (state) setBoxValueAndNotify(id, state.value);
-    }
+// --- Sources: server-only inputs enter the graph here ---
+
+function graphHas(boxId: number): boolean {
+  if (!graph) return false;
+  if (graph.boxes.has(boxId)) return true;
+  const box = boxes.get(boxId);
+  if (box) console.log(`\x1b[31m✗ input to "${box.text}" (box ${boxId}) dropped: not a one-side box\x1b[0m`);
+  return false;
+}
+
+export function injectValue(boxId: number, outlet: number, value: BoxValue): void {
+  if (!graphHas(boxId)) return;
+  batch(() => propagateValue(graph, boxId, outlet, value));
+}
+
+export function injectEvent(boxId: number, outlet: number): void {
+  if (!graphHas(boxId)) return;
+  batch(() => propagateEvent(graph, boxId, outlet));
+}
+
+const ONSET_THRESHOLD = 0.01;
+
+// A single-outlet source's new value (knob, grid, arc, BBC2, clients).
+// breath/bite: outlet 0 = value (0-1 pressure), outlet 1 = gate (0 below
+// threshold, 1 above), fired only on threshold crossings.
+export function setSourceValue(boxId: number, value: BoxValue): void {
+  const box = boxes.get(boxId);
+  if (!box) return;
+  const name = boxTypeName(box.text);
+  if (name === "breath" || name === "bite") {
+    const prev = boxValues.get(boxId) ?? 0;
+    injectValue(boxId, 0, value);
+    const p = typeof prev === "number" ? prev : 0;
+    const v = typeof value === "number" ? value : 0;
+    if (p < ONSET_THRESHOLD && v >= ONSET_THRESHOLD) injectValue(boxId, 1, 1);
+    else if (p >= ONSET_THRESHOLD && v < ONSET_THRESHOLD) injectValue(boxId, 1, 0);
+    return;
   }
+  injectValue(boxId, 0, value);
+}
+
+// The toggle's state is set, then sent on.
+export function setToggle(boxId: number, value: number): void {
+  const node = graph?.boxes.get(boxId);
+  if (!node?.state) return;
+  node.state.value = value;
+  injectValue(boxId, 0, value);
 }
 
 const DEVICE_DEFAULTS: Record<string, number> = {
@@ -515,16 +442,21 @@ function getDeviceInitValue(name: string, text: string): number {
   return DEVICE_DEFAULTS[name] ?? 0;
 }
 
-export function evaluateAllDevices(): void {
+// Knobs and devices start at their arg (or default); `clients` at the count.
+function initSources(): void {
   for (const [id, box] of boxes) {
-    if (!isOneSide(box)) continue;
+    if (!graph.boxes.has(id)) continue;
     const name = boxTypeName(box.text);
-    if (!(name in DEVICE_DEFAULTS)) continue;
-    const init = getDeviceInitValue(name, box.text);
-    boxValues.set(id, init);
-    setBoxValueAndNotify(id, init);
-    if (name === "arc") arcValues.set(id, init);
+    if (name === "knob") {
+      const init = box.text.split(/\s+/).slice(1).map(Number)[0];
+      setSourceValue(id, init !== undefined ? init : 0.5);
+    } else if (name in DEVICE_DEFAULTS) {
+      const init = getDeviceInitValue(name, box.text);
+      setSourceValue(id, init);
+      if (name === "arc") arcValues.set(id, init);
+    }
   }
+  evaluateAllClients();
 }
 
 // Push the live synth-client count to every `clients` box. Called from
@@ -533,12 +465,13 @@ export function evaluateAllDevices(): void {
 // new phones get an assignment immediately and departing phones cause an
 // audible reshuffle. (User-spec behaviour 3.)
 export function evaluateAllClients(): void {
+  if (!graph) return;
   const count = _getSynthClientIds().length;
   for (const [id, box] of boxes) {
-    if (!isOneSide(box)) continue;
+    if (!graph.boxes.has(id)) continue;
     const name = boxTypeName(box.text);
     if (name === "clients") {
-      setBoxValueAndNotify(id, count);
+      setSourceValue(id, count);
     } else if (name === "assign") {
       const s = assignState.get(id);
       if (s && s.lastNotes.length > 0) reassign(id, s.lastNotes);
@@ -632,29 +565,6 @@ function reassign(routerBoxId: number, notes: number[]): void {
   state.assignment = newAssignment;
 }
 
-// --- Time-based box tick ---
-
-export function initBoxState(id: number, box: Box): void {
-  const name = boxTypeName(box.text);
-  const args = box.text.split(/\s+/).slice(1).join(" ");
-  const state = createBoxState(name, args);
-  if (state) boxState.set(id, state);
-}
-
-export function shouldServerEval(box: Box): boolean {
-  if (sideStamped(box) === "many") return false;
-  if (isAudioBox(box.text)) return false;
-  return true;
-}
-
-export function initAllBoxState(): void {
-  boxState.clear();
-  for (const [id, box] of boxes) {
-    if (!shouldServerEval(box)) continue;
-    initBoxState(id, box);
-  }
-}
-
 // --- Cosmetic animations for one-side audio boxes ---
 
 const ctrlAudioAnims = new Map<number, { type: string; elapsed: number; duration: number; curve: number }>();
@@ -669,7 +579,7 @@ function ctrlAudioTrigger(boxId: number): void {
     setTimeout(() => queueValueUpdate(boxId, 0), 80);
   } else if (name === "ramp~") {
     const args = box.text.split(/\s+/).slice(1).map(Number);
-    const iv = inletValues.get(boxId) || [];
+    const iv = graph.boxes.get(boxId)?.inletValues || [];
     const duration = iv[3] || args[2] || 0.5;
     const curve = iv[4] || args[3] || 1;
     ctrlAudioAnims.set(boxId, { type: "ramp", elapsed: 0, duration, curve });
@@ -692,110 +602,18 @@ function tickCtrlAudioAnims(dt: number): void {
 const TICK_RATE = 240;
 const TICK_DT = 1 / TICK_RATE;
 
-function tick(): void {
-  for (const [id, box] of boxes) {
-    if (!shouldServerEval(box)) continue;
-    const name = boxTypeName(box.text);
-    const state = boxState.get(id);
-    if (!state) continue;
-
-    if (name === "slew" || name === "lag" || name === "inertia" || name === "follow") {
-      const iv = inletValues.get(id);
-      if (iv) state.target = iv[0] || 0;
-    }
-
-    const iv = inletValues.get(id) || [];
-    const result = tickBox(name, state, iv, TICK_DT);
-    if (!result) continue;
-
-    const def = getBoxDef(box.text);
-    const outlet0Def = def?.outlets?.[0];
-    if (outlet0Def?.type === "event") {
-      queueValueUpdate(id, result.value);
-      for (const outlet of result.events) {
-        propagateAndNotify(id, outlet, 0);
-      }
-    } else {
-      boxValues.set(id, result.value);
-      queueValueUpdate(id, result.value);
-      propagateAndNotify(id, 0, result.value);
-      for (const outlet of result.events) {
-        propagateAndNotify(id, outlet, 0);
-      }
+// The server's clock drives graph.js's tick. A metro fires only events, so
+// its phase is shown from its state.
+export function tick(): void {
+  if (graph) {
+    batch(() => tickGraph(graph, TICK_DT));
+    for (const id of metroIds) {
+      const node = graph.boxes.get(id);
+      const interval = node.inletValues[1] > 0 ? node.inletValues[1] : node.state.interval;
+      queueValueUpdate(id, node.state.elapsed / interval);
     }
   }
   tickCtrlAudioAnims(TICK_DT);
-}
-
-function handleStatefulInlet(id: number, inlet: number, value: number): boolean {
-  const box = boxes.get(id);
-  if (!box) return false;
-  const name = boxTypeName(box.text);
-  const state = boxState.get(id);
-  if (!state) return false;
-
-  if (applyInletToState(name, state, inlet, value)) return true;
-
-  if (name === "phasor" && inlet === 2) { state.paused = value > 0; return true; }
-  if (name === "metro" && inlet === 0) { state.paused = !(value > 0); return true; }
-  if (name === "adsr" && inlet === 0) return true;
-  if (name === "sample-hold" && inlet === 0) return true;
-  if (name === "seq" && (inlet === 1 || inlet === 2)) {
-    let iv = inletValues.get(id);
-    if (!iv) { iv = []; inletValues.set(id, iv); }
-    iv[inlet] = value;
-    return true;
-  }
-  if (name === "held" && inlet === 0) {
-    let iv = inletValues.get(id);
-    if (!iv) { iv = []; inletValues.set(id, iv); }
-    iv[0] = value;
-    return true;
-  }
-  if (name === "map" && inlet === 1) {
-    const arr = inletValues.get(id)?.[1];
-    if (Array.isArray(arr)) state.table = arr;
-    return true;
-  }
-  if (name === "toggle" && inlet === 1) {
-    const newVal = value > 0 ? 1 : 0;
-    if (newVal !== state.value) {
-      state.value = newVal;
-      setBoxValueAndNotify(id, state.value);
-    }
-    return true;
-  }
-  return false;
-}
-
-function handleEventBox(id: number, _value: number): void {
-  const box = boxes.get(id);
-  if (!box) return;
-  const name = boxTypeName(box.text);
-  const state = boxState.get(id);
-  if (!state) {
-    propagateAndNotify(id, 0, 1);
-    return;
-  }
-
-  const iv = inletValues.get(id) || [];
-  const result = handleBoxEvent(name, state, iv);
-  if (!result) return;
-
-  if (result.outputs) {
-    for (const out of result.outputs) {
-      if (out.type !== "event") {
-        boxValues.set(id, out.value);
-        queueValueUpdate(id, out.value);
-      }
-      propagateAndNotify(id, out.outlet, out.type === "event" ? 0 : out.value);
-    }
-    return;
-  }
-
-  if (result.propagate) {
-    setBoxValueAndNotify(id, result.value);
-  }
 }
 
 // Tick-interval instrumentation. Enabled when PROFILE_TICK env is set

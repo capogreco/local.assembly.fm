@@ -1,6 +1,6 @@
 import {
   type Box, type Cable, type BoxValue,
-  boxes, cables, boxValues, boxState,
+  boxes, cables, boxValues,
   getPatchNextId, setPatchNextId,
   getBorderY, setBorderY,
   getDeployedPatch, setDeployedPatch,
@@ -10,9 +10,8 @@ import {
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
   initEvalEngine, startEvalEngine, buildGroups,
-  setBoxValueAndNotify, propagateAndNotify,
-  evaluateAllConsts, evaluateAllDevices, evaluateAllClients,
-  initAllBoxState,
+  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replayLaptopParams,
+  evaluateAllClients,
   findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
@@ -97,7 +96,7 @@ initEvalEngine({
   broadcastSynth, sendToClient, getSynthClientIds, sendCtrl, event,
 });
 startEvalEngine();
-initHardware({ setBoxValueAndNotify, sendCtrl, event });
+initHardware({ setSourceValue, sendCtrl, event });
 
 // --- TLS cert resolution ---
 // Prefer certbot's live paths (zero-copy renewal); fall back to the repo-root
@@ -216,23 +215,15 @@ function handleApply(msg: any): void {
     sendCtrl({ type: "errors", errors: warnings });
   }
 
-  // rebuild ctrl evaluation
-  initAllBoxState();
-  rebuildGridRegions();
-  evaluateAllConsts();
-  evaluateAllDevices();
-  evaluateAllClients();
-
-  // deploy synth patch to clients
+  // Phones get the new patch first, so the one side's initial values (sent
+  // as the server graph builds) land on it.
   deployPatch();
+  buildServerGraph();
+  rebuildGridRegions();
 
-  // confirm to ctrl — triggers audio rebuild on ctrl client
+  // confirm to ctrl — triggers audio rebuild on ctrl client, which then asks
+  // for the laptop params again (ctrl-audio-ready)
   sendCtrl({ type: "applied" });
-  // re-evaluate consts AFTER "applied" so ctrl-audio-param messages
-  // arrive after the ctrl client has rebuilt its audio graph
-  evaluateAllConsts();
-  evaluateAllDevices();
-  evaluateAllClients();
   status.applied = true;
   event("patch applied");
 }
@@ -330,9 +321,6 @@ function deployPatch(): void {
   broadcastSynth(getDeployedPatch()!);
   event("patch deployed to " + totalSynthClients() + " clients");
   sendCtrl({ type: "deployed" });
-  // re-evaluate consts and devices so rv messages flow immediately after deploy
-  evaluateAllConsts();
-  evaluateAllDevices();
 }
 
 // --- Full state sync for ctrl ---
@@ -384,7 +372,7 @@ function handleCtrlWs(req: Request): Response {
           const name = CC_SOURCE[msg.cc];
           if (name) {
             const id = findBoxByText(name);
-            if (id !== null) setBoxValueAndNotify(id, msg.value / 127);
+            if (id !== null) setSourceValue(id, msg.value / 127);
           }
           const value = msg.value / 127;
           // Generic CC boxes: each box can list one or more CC numbers as args;
@@ -403,7 +391,7 @@ function handleCtrlWs(req: Request): Response {
               if (parseInt(tokens[i]) === msg.cc) {
                 boxValues.set(ccId, value);
                 queueValueUpdate(ccId, value);
-                propagateAndNotify(ccId, i - 1, value);
+                injectValue(ccId, i - 1, value);
               }
             }
           }
@@ -426,25 +414,18 @@ function handleCtrlWs(req: Request): Response {
               const ch = parseInt(arg);
               if (!isNaN(ch) && ch !== msg.channel) continue;
             }
-            boxValues.set(id, msg.note);
-            queueValueUpdate(id, msg.note);
-            propagateAndNotify(id, 0, msg.note);   // outlet 0: pitch
-            propagateAndNotify(id, 1, velocity);    // outlet 1: velocity (0-1)
+            injectValue(id, 0, msg.note);   // outlet 0: pitch (shown on the box)
+            injectValue(id, 1, velocity);   // outlet 1: velocity (0-1)
           }
         }
       } else if (msg.type === "knob") {
-        setBoxValueAndNotify(msg.id, msg.value);
+        setSourceValue(msg.id, msg.value);
       } else if (msg.type === "toggle-click") {
-        const state = boxState.get(msg.id);
-        if (state) {
-          state.value = msg.value;
-          setBoxValueAndNotify(msg.id, state.value);
-        }
+        setToggle(msg.id, msg.value);
       } else if (msg.type === "ctrl-audio-ready") {
-        evaluateAllConsts();
-        evaluateAllDevices();
+        replayLaptopParams();
       } else if (msg.type === "event-click") {
-        propagateAndNotify(msg.id, 0, 1);
+        injectEvent(msg.id, 0);
         // Flash the event box briefly
         queueValueUpdate(msg.id, 1);
         setTimeout(() => queueValueUpdate(msg.id, 0), 100);
@@ -452,8 +433,8 @@ function handleCtrlWs(req: Request): Response {
         // fftPeaks~ spectral analysis injected from the ctrl client (audio→control).
         // Propagate amps first (outlet 1) so a downstream `assign` stores them before
         // freqs (outlet 0) trigger its reallocation.
-        propagateAndNotify(msg.box, 1, msg.amps);
-        propagateAndNotify(msg.box, 0, msg.freqs);
+        injectValue(msg.box, 1, msg.amps);
+        injectValue(msg.box, 0, msg.freqs);
       } else if (msg.type === "health") {
         socket.send(JSON.stringify({ type: "health", ts: Date.now() }));
       }
@@ -522,9 +503,9 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
         const targets = uplinkIndex.get(msg.ch);
         if (targets) {
           for (const { boxId, outletIndex } of targets) {
-            boxValues.set(boxId, msg.v);
+            boxValues.set(boxId, msg.v);   // any channel shows, not only outlet 0
             queueValueUpdate(boxId, msg.v);
-            propagateAndNotify(boxId, outletIndex, msg.v);
+            injectValue(boxId, outletIndex, msg.v);
           }
         }
       }
