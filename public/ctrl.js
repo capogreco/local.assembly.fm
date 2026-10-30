@@ -44,12 +44,13 @@ let laptopPending = [];
 
 const CTRL_NATIVE_NODES = new Set([...BASE_NATIVE_NODES, "adc~", "fftPeaks~"]);
 
-// The context is never resumed in the build path: a page (re)loaded without a
-// gesture would wait there for ever. It builds suspended and resumes on the
-// first click or key (resumeLaptopAudio).
+// The build never waits on resume(): a page (re)loaded without a gesture
+// would wait there for ever. The context may start suspended; it resumes on
+// the first click or key (resumeLaptopAudio).
 function initCtrlAudio() {
   if (ctrlAudioCtx) return;
   ctrlAudioCtx = new AudioContext({ sampleRate: 48000 });
+  ctrlAudioCtx.resume(); // not awaited: runs at once after a gesture, else on the next one
   // Set multi-channel discrete output immediately
   ctrlAudioCtx.destination.channelCount = ctrlAudioCtx.destination.maxChannelCount;
   ctrlAudioCtx.destination.channelInterpretation = "discrete";
