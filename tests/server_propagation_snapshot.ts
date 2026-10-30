@@ -374,7 +374,7 @@ const cases: Case[] = [
       const r = applyPatch(JSON.parse(Deno.readTextFileSync("patches/panharmonium.json")), new Map());
       if (r.errors.length > 0) throw new Error(r.errors.join("; "));
       buildServerGraph();
-      ticks(13); // metro 0.05: one fire at 12/240 s
+      ticks(6); // metro 0.05, switched on at build: one fire, on the first tick
       replay("laptop");
       // Only the laptop's messages: the rest of panharmonium is covered elsewhere.
       capture = { ...capture, ctrlSends: capture.ctrlSends.filter((m) => m.type === "rv" || m.type === "re"), synthBroadcasts: [], clientSends: [] };

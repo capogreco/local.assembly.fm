@@ -641,6 +641,98 @@ const cases: Case[] = [
     ),
     run: (graph) => [0.3, 0.3, 0.3].map((dt) => { g.tickGraph(graph, dt); return graph.boxes.get(2).state.count; }),
   },
+  // metro switched on (inlet 0: off → on) restarts its cycle and fires on the next tick.
+  {
+    name: "metro: switching on fires on the next tick, then every interval",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 3, type: "counter", args: "0 99", text: "counter 0 99" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      g.propagateValue(graph, 1, 0, 1);
+      return [0.01, 0.3, 0.3].map((dt) => { g.tickGraph(graph, dt); return graph.boxes.get(3).state.count; });
+    },
+  },
+  {
+    name: "metro: stop then start restarts the cycle",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 3, type: "counter", args: "0 99", text: "counter 0 99" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      const count = (dt: number) => { g.tickGraph(graph, dt); return graph.boxes.get(3).state.count; };
+      g.propagateValue(graph, 1, 0, 1);
+      const on = [0.01, 0.4].map(count); // fire, then 0.4 s into the cycle
+      g.propagateValue(graph, 1, 0, 0);
+      const off = [0.3].map(count); // stopped: no fire
+      g.propagateValue(graph, 1, 0, 1);
+      const again = [0.01, 0.3, 0.3].map(count); // fires at once, not 0.1 s in
+      return { on, off, again };
+    },
+  },
+  {
+    name: "metro: a new value while running does not reset",
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "metro", args: "0.5", text: "metro 0.5" },
+        { id: 3, type: "counter", args: "0 99", text: "counter 0 99" },
+      ],
+      [
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+        { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 1 },
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph) => {
+      const count = (dt: number) => { g.tickGraph(graph, dt); return graph.boxes.get(3).state.count; };
+      g.propagateValue(graph, 1, 0, 0.5);
+      const first = [0.01, 0.3].map(count); // fire, then 0.3 s into the cycle
+      g.propagateValue(graph, 1, 0, 0.4); // new period, still on
+      const after = [0.01, 0.1].map(count); // no restart fire; fires at 0.4 s
+      return { first, after, elapsed: +graph.boxes.get(2).state.elapsed.toFixed(6) };
+    },
+  },
+  ...([[0, 1], [1, 0]] as const).map((order) => ({
+    name: `metro: the same value into inlets ${order.join(" then ")} starts, retimes and stops it`,
+    patch: buildPatch(
+      [
+        { id: 1, type: "const", args: "0", text: "const 0" },
+        { id: 2, type: "metro", args: "1", text: "metro 1" },
+        { id: 3, type: "counter", args: "0 99", text: "counter 0 99" },
+      ],
+      [
+        ...order.map((dstInlet) => ({ srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet })),
+        { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+      ],
+    ),
+    run: (graph: any) => {
+      const count = (dt: number) => { g.tickGraph(graph, dt); return graph.boxes.get(3).state.count; };
+      g.propagateValue(graph, 1, 0, 0.25);
+      const start = [0.01, 0.2, 0.1].map(count); // fire, then every 0.25 s
+      g.propagateValue(graph, 1, 0, 0.5);
+      const retime = [0.01, 0.45].map(count); // no reset; next fire at 0.5 s
+      g.propagateValue(graph, 1, 0, 0);
+      const stop = [1].map(count);
+      g.propagateValue(graph, 1, 0, 0.25);
+      const restart = [0.01].map(count);
+      return { start, retime, stop, restart };
+    },
+  })),
   {
     name: "tickGraph: delay fires once per delayed event",
     patch: buildPatch(

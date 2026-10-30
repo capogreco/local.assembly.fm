@@ -1144,7 +1144,8 @@
           "state": {
             "elapsed": 0,
             "interval": 0.5,
-            "paused": false
+            "paused": false,
+            "restart": true
           }
         },
         "3": {
@@ -1294,6 +1295,248 @@
             "count": 1,
             "min": 0,
             "max": 7
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "metro: switching on fires on the next tick, then every interval": {
+    "result": [
+      1,
+      1,
+      2
+    ],
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "metro",
+          "inletValues": [
+            1
+          ],
+          "state": {
+            "elapsed": 0.09999999999999998,
+            "interval": 0.5,
+            "paused": false,
+            "restart": false
+          }
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 2,
+            "min": 0,
+            "max": 99
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "metro: stop then start restarts the cycle": {
+    "result": {
+      "on": [
+        1,
+        1
+      ],
+      "off": [
+        1
+      ],
+      "again": [
+        2,
+        2,
+        3
+      ]
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "metro",
+          "inletValues": [
+            1
+          ],
+          "state": {
+            "elapsed": 0.09999999999999998,
+            "interval": 0.5,
+            "paused": false,
+            "restart": false
+          }
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 3,
+            "min": 0,
+            "max": 99
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "metro: a new value while running does not reset": {
+    "result": {
+      "first": [
+        1,
+        1
+      ],
+      "after": [
+        1,
+        2
+      ],
+      "elapsed": 0.01
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "metro",
+          "inletValues": [
+            0.4,
+            0.4
+          ],
+          "state": {
+            "elapsed": 0.010000000000000009,
+            "interval": 0.4,
+            "paused": false,
+            "restart": false
+          }
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 2,
+            "min": 0,
+            "max": 99
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "metro: the same value into inlets 0 then 1 starts, retimes and stops it": {
+    "result": {
+      "start": [
+        1,
+        1,
+        2
+      ],
+      "retime": [
+        2,
+        3
+      ],
+      "stop": [
+        3
+      ],
+      "restart": [
+        4
+      ]
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "metro",
+          "inletValues": [
+            0.25,
+            0.25
+          ],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.25,
+            "paused": false,
+            "restart": false
+          }
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 4,
+            "min": 0,
+            "max": 99
+          }
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
+  "metro: the same value into inlets 1 then 0 starts, retimes and stops it": {
+    "result": {
+      "start": [
+        1,
+        1,
+        2
+      ],
+      "retime": [
+        2,
+        3
+      ],
+      "stop": [
+        3
+      ],
+      "restart": [
+        4
+      ]
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 0
+          }
+        },
+        "2": {
+          "type": "metro",
+          "inletValues": [
+            0.25,
+            0.25
+          ],
+          "state": {
+            "elapsed": 0,
+            "interval": 0.25,
+            "paused": false,
+            "restart": false
+          }
+        },
+        "3": {
+          "type": "counter",
+          "inletValues": [],
+          "state": {
+            "count": 4,
+            "min": 0,
+            "max": 99
           }
         }
       },

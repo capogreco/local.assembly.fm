@@ -920,9 +920,10 @@
           1
         ],
         "state": {
-          "elapsed": 0.004166666666666659,
+          "elapsed": 0.020833333333333332,
           "interval": 0.05,
-          "paused": false
+          "paused": false,
+          "restart": false
         }
       },
       "3": {

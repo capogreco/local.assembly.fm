@@ -574,6 +574,12 @@ function tickBox(type, state, iv, dt) {
     case "metro": {
       if (state.paused) return null;
       if (iv[0] !== undefined && !(iv[0] > 0)) return null;
+      // Switched on (see deliverValueToInlet): restart the cycle and fire now.
+      if (state.restart) {
+        state.restart = false;
+        state.elapsed = 0;
+        return { value: 1, events: [0] }; // null event on outlet 0
+      }
       const interval = iv[1] > 0 ? iv[1] : state.interval;
       state.elapsed += dt;
       if (state.elapsed >= interval) {
@@ -895,6 +901,7 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
 
   // Always store the incoming value first (preserving arrays). Matches the
   // original cable path where inletValues was set before any branching.
+  const prev = node.inletValues[inlet];
   node.inletValues[inlet] = value;
 
   // Sink (see deliverEventToInlet): the caller handles the value.
@@ -974,7 +981,11 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   // `pad` and `held` inlet 0 (pitch) is cold — inlet 1 (velocity) fires.
   if ((node.type === "pad" || node.type === "held") && inlet === 0) return { updates, deferEvent: false };
   // `metro` inlet 0 (on/off) is read by tickBox; a value must not leak out of the event outlet.
-  if (node.type === "metro" && inlet === 0) return { updates, deferEvent: false };
+  // Off (undefined, ≤ 0) → on (> 0) restarts the cycle: tickBox fires on the next tick.
+  if (node.type === "metro" && inlet === 0) {
+    if (!(prev > 0) && value > 0) node.state.restart = true;
+    return { updates, deferEvent: false };
+  }
 
   // Data-driven inlet map (adsr/ar/ramp/sigmoid/cosine/lfo/metro/slew/lag/inertia/follow/counter/step).
   if (node.state && applyInletToState(node.type, node.state, inlet, value)) {
