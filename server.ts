@@ -875,17 +875,19 @@ const portSuffix = cfg.appPort === 443 ? "" : `:${cfg.appPort}`;
 const base = `${scheme}://${appHost}${portSuffix}`;
 const lanNote = MODE === "performance" && lanIP && lanIP !== HOST_IP ? `\n  \x1b[90mLAN IP:   ${lanIP}\x1b[0m` : "";
 const certNote = certSource ? `\n  \x1b[90mcert:     ${certSource}\x1b[0m` : "";
-// Operator click-target on the same host as the server. Loopback sidesteps
-// two MBP-local issues: (1) dnsmasq binds to en6:53, macOS resolver doesn't
-// query it; (2) after a DHCP→static IP swap, en6's own IP has no lo0 alias,
-// so outbound connections to it fail with EADDRNOTAVAIL. Expect a one-time
-// cert warning (SAN is local.tamb.fm, not 127.0.0.1).
-const opNote = MODE === "performance" ? `\n  \x1b[90mop:       https://127.0.0.1/ctrl.html\x1b[0m` : "";
+// In performance, ctrl and ensemble are opened on the laptop running the
+// server, so they point at loopback; synth and the QR stay on local.tamb.fm
+// for phones. Loopback sidesteps two MBP-local issues: (1) dnsmasq binds to
+// en6:53, macOS resolver doesn't query it; (2) after a DHCP→static IP swap,
+// en6's own IP has no lo0 alias, so outbound connections to it fail with
+// EADDRNOTAVAIL. Expect a one-time cert warning (SAN is local.tamb.fm, not
+// 127.0.0.1).
+const opBase = MODE === "performance" ? `${scheme}://127.0.0.1${portSuffix}` : base;
 const banner = `
   \x1b[1mlocal.tamb.fm\x1b[0m  \x1b[90m[${MODE}]\x1b[0m
   synth:    ${base}/
-  ctrl:     ${base}/ctrl.html
-  ensemble: ${base}/ensemble.html${lanNote}${certNote}${opNote}
+  ctrl:     ${opBase}/ctrl.html
+  ensemble: ${opBase}/ensemble.html${lanNote}${certNote}
 `;
 console.log(banner);
 
