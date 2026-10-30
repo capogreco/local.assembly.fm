@@ -175,17 +175,12 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     return;
   }
 
-  // sall — wireless send + broadcast to all synth clients
+  // sall — wireless send to the phones' receives of that name (broadcast).
+  // It reaches phones only, not the one side's receives.
   if (routerType === "sall") {
     const names = box.text.split(/\s+/).slice(1);
     const name = names[inlet];
     if (!name) return;
-    // It also feeds the one side's receives of that name.
-    const w = graph.wireless.get(name);
-    for (const recvId of w ? w.receives : []) {
-      if (isEvent) propagateEvent(graph, recvId, 0);
-      else propagateValue(graph, recvId, 0, value);
-    }
     if (isEvent) {
       emit({ type: "re", r: routerBoxId, ch: inlet });
     } else {
@@ -282,8 +277,8 @@ export function serverGraph(): any { return graph; }
 
 // Sink deliveries are queued and run when the injection that caused them
 // returns: values first, then events, so data lands before a fire (`one N`
-// fed by one outlet on both its data and fire inlets). A sink that re-enters
-// the graph (sall → one-side r) queues more, run in the next round.
+// fed by one outlet on both its data and fire inlets). A sink that re-entered
+// the graph would queue more, run in the next round; none does today.
 let pending: Array<{ event: boolean; run: () => void }> = [];
 let depth = 0;
 
@@ -302,9 +297,9 @@ function batch(fn: () => void): void {
     fn();
     let rounds = 0;
     while (pending.length > 0) {
-      // A sink that feeds itself (r x → … → sall x) would loop here for ever,
-      // blocking the tick and every socket.
-      if (++rounds > MAX_FLUSH_ROUNDS) throw new Error(`feedback loop: sink deliveries still pending after ${MAX_FLUSH_ROUNDS} rounds (a sall feeding its own r?)`);
+      // Guard: a sink that fed back into itself through the graph would loop
+      // here for ever, blocking the tick and every socket.
+      if (++rounds > MAX_FLUSH_ROUNDS) throw new Error(`feedback loop: sink deliveries still pending after ${MAX_FLUSH_ROUNDS} rounds`);
       const due = pending;
       pending = [];
       for (const d of due) if (!d.event) d.run();
