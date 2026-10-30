@@ -1,12 +1,12 @@
 /**
- * Ctrl — Graphical Patching Interface + ctrl-side engine host
+ * Ctrl — Graphical Patching Interface + one-side engine host
  * Canvas-based PD-style patch editor.
  * All edits are local. Cmd+Enter applies the full state to the server.
  * Cmd+Z undoes. Server sends value updates for display.
- * Also hosts ctrl-side engines (above-border) with audio output to laptop speakers.
+ * Also hosts one-side engines (above the border) with audio output to laptop speakers.
  */
 
-import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
+import { boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
 import { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef } from "./patch-editor.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
 
@@ -22,7 +22,7 @@ let connectedClients = 0;
 let midiDeviceNames = [];
 let currentPatchName = null;
 
-// --- ctrl-side audio engine ---
+// --- one-side audio engine ---
 
 let ctrlAudioCtx = null;
 let ctrlChannelMerger = null;
@@ -105,7 +105,7 @@ async function buildCtrlAudioTopology() {
   if (ctrlInputSplitter) { ctrlInputSplitter.disconnect(); ctrlInputSplitter = null; }
   if (ctrlInputSource) { ctrlInputSource.disconnect(); ctrlInputSource = null; }
 
-  // Collect ctrl-zone audio boxes
+  // Collect one-side audio boxes
   const ctrlAudioBoxes = new Map();
   for (const [id, box] of mainEditor.boxes) {
     if (isAudioBox(box.text) && mainEditor.sideOfBox(box) === "one") {
@@ -171,7 +171,7 @@ async function buildCtrlAudioTopology() {
     }
   }
 
-  // Collect audio cables between ctrl-zone audio boxes
+  // Collect audio cables between one-side audio boxes
   const audioCables = [];
   for (const [, cable] of mainEditor.cables) {
     if (!ctrlAudioBoxes.has(cable.srcBox) && !ctrlAudioBoxes.has(cable.dstBox)) continue;
@@ -328,8 +328,8 @@ function scanPeaks(engine, boxId) {
 // =============================================================================
 
 const mainEditor = new PatchEditor(canvas, {
-  synthBorderY: window.innerHeight * 0.55,
-  showSynthBorder: true,
+  borderY: window.innerHeight * 0.55,
+  showBorder: true,
   input: input,
   tooltipEl: tooltipEl,
   onSend: (msg) => send(msg),
@@ -364,8 +364,8 @@ const mainEditor = new PatchEditor(canvas, {
       ctx.fillText(midiDeviceNames[i], w - 12, 28 + i * 14);
     }
 
-    // Client count (position relative to synth border in screen space)
-    const borderScreen = mainEditor.screenFromPatch(0, mainEditor.synthBorderY);
+    // Client count (position relative to the border in screen space)
+    const borderScreen = mainEditor.screenFromPatch(0, mainEditor.borderY);
     ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, borderScreen.y + 8);
     ctx.textAlign = "left";
   }
@@ -469,7 +469,7 @@ function showHelpPopup(name, data) {
   helpCanvas.style.height = (rect.height - titleH - 2) + "px";
 
   helpEditor = new PatchEditor(helpCanvas, {
-    showSynthBorder: false,
+    showBorder: false,
     onDirty: () => { helpDirty = true; popup.querySelector(".help-title").textContent = name + " *"; }
   });
   helpEditor.bindEvents();
@@ -699,7 +699,7 @@ function applyToServer() {
     boxes: [...mainEditor.boxes.entries()],
     cables: [...mainEditor.cables.entries()],
     nextId: mainEditor.nextId,
-    synthBorderY: mainEditor.synthBorderY,
+    borderY: mainEditor.borderY,
   });
 }
 
@@ -744,7 +744,7 @@ function autoCreateSources(deviceName) {
 
   let nextY = 30, created = false;
   for (const box of mainEditor.boxes.values()) {
-    if (getBoxZone(box.text) === "ctrl" && box.y + BOX_HEIGHT + 10 > nextY) nextY = box.y + BOX_HEIGHT + 10;
+    if (boxBinding(box.text).binding === "one" && box.y + BOX_HEIGHT + 10 > nextY) nextY = box.y + BOX_HEIGHT + 10;
   }
   for (const name of sources) {
     let found = false;

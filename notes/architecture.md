@@ -50,13 +50,13 @@ Sequence to Bun:
 2. Hostname `local.tamb.fm` and SSID `tambourine` strings (done in code defaults and notes; cert and DNS are Thomas's).
 3. Core/library sorting (done as `lib: "maker"` tags in gpi-types.js; see notes/core-and-library.md).
 4. Remove SSE (done 2026-10-26: server handler and `sseClients` deleted, `public/connection.js` is WebSocket-only).
-5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. The shared files are plain ES modules (done 2026-10-27) and the CJS shim is gone, so module loading is no longer a Bun risk; what remains is the Deno API surface. `initEvalEngine` takes only the five server callbacks and the timers start in `startEvalEngine()` (done 2026-10-27). Next: side as data (below), then the `ctrl`/`synth` → `one`/`many` rename, then routers as sinks and one deploy shape, then the Bun swap. Phone checkpoint after each step that changes what a phone runs.
+5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. The shared files are plain ES modules (done 2026-10-27) and the CJS shim is gone, so module loading is no longer a Bun risk; what remains is the Deno API surface. `initEvalEngine` takes only the five server callbacks and the timers start in `startEvalEngine()` (done 2026-10-27). Side as data (below) and the `ctrl`/`synth` → `one`/`many` rename are done (2026-10-30). Next: routers as sinks and one deploy shape, then the Bun swap. Phone checkpoint after each step that changes what a phone runs.
 
-## Side and binding (decided 2026-10-27, not built)
+## Side and binding (decided 2026-10-27, built 2026-10-30)
 
 Facts from the zone review of 3e00422 (Fable, read not run).
 
-**Vocabulary.** A box is **free** (its side follows its position against the border) or **bound** (`one` or `many`, whatever its position). Routers are the **border**. The code still says `ctrl`/`synth`/`any`; the rename to `one`/`many`/free is its own mechanical step after this one.
+**Vocabulary.** A box is **free** (its side follows its position against the border) or **bound** (`one` or `many`, whatever its position). Routers are the **border**. In code: a type's `binding` field is `one`, `many` or `border`, and no field means free; the border is `borderY` (saved patches too). `ctrl`/`synth` survive only as client-role names (the ctrl page, synth sockets, `serializeSynthPatch`), which go with one deploy shape.
 
 **Bindings.**
 - One-bound: `arc`, `breath`, `bite`, `nod`, `tilt`, `cc`, `key`, `held`, `grid-trig`, `grid-toggle`, `grid-array`, `uplink`, `clients`, `fftPeaks~`. Laptop hardware or server-only state.
@@ -67,7 +67,7 @@ Facts from the zone review of 3e00422 (Fable, read not run).
 - eval-engine.ts: `isCtrlSide` and its callers (:183, :397, :405, :379, :478, :513, :531), the cable dispatch at ~:456, and `shouldServerEval` (:638-640, its own test).
 - server.ts: `findBorderViolations`, the router snap (:400), `serializeSynthPatch` (:449).
 - patch-editor.js: `isSynthSide` (:688-694) and its users, and the hardcoded abstraction `zone: "any"` (:42).
-- ctrl.js:111 (laptop audio partition). ctrl.js:743 waits for the rename step.
+- ctrl.js:111 (laptop audio partition).
 - tests/server_propagation_snapshot.ts fixtures set only `synthBorderY`; they run the same stamp pass (or stamp `side`), so the snapshot criterion fails only for real reasons.
 
 **Enforcement.**

@@ -2,7 +2,7 @@ import {
   type Box, type Cable, type BoxValue,
   boxes, cables, boxValues, boxState,
   getPatchNextId, setPatchNextId,
-  getSynthBorderY, setSynthBorderY,
+  getBorderY, setBorderY,
   getDeployedPatch, setDeployedPatch,
   routerState, groupState, latestValues, uplinkIndex,
   clearPatchState, cablesFromOutlet,
@@ -287,7 +287,7 @@ function serializeSynthPatch(): Record<string, unknown> {
   for (const [id, box] of boxes) {
     if (box.side !== "border") continue;
     if (boxTypeName(box.text) === "sall") {
-      // sall: match synth-side r/receive boxes by name (multi-name: each name maps to a channel)
+      // sall: match many-side r/receive boxes by name (multi-name: each name maps to a channel)
       const names = box.text.split(/\s+/).slice(1);
       for (let ch = 0; ch < names.length; ch++) {
         const name = names[ch];
@@ -345,7 +345,7 @@ function getFullState(): Record<string, unknown> {
     boxes: [...boxes.entries()],
     cables: [...cables.entries()],
     nextId: getPatchNextId(),
-    synthBorderY: getSynthBorderY(),
+    borderY: getBorderY(),
     boxValues: bv,
   };
 }
@@ -713,7 +713,7 @@ async function handleHelpAPI(req: Request, url: URL): Promise<Response> {
   // PUT /help/name — save a help patch
   if (req.method === "PUT") {
     const raw = JSON.parse(await req.text());
-    delete raw.synthBorderY;
+    delete raw.borderY;
     await Deno.writeTextFile(`${HELP_DIR}/${name}.json`, JSON.stringify(raw));
     event(`saved help: ${name}`);
     return new Response(JSON.stringify({ ok: true, name }), { headers });
@@ -752,7 +752,7 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
     const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
     if (!name) return new Response("Invalid name", { status: 400 });
     const raw = JSON.parse(await req.text());
-    delete raw.synthBorderY;
+    delete raw.borderY;
     const bindingError = checkAbstraction(name, raw, loadedAbstractions);
     if (bindingError) {
       console.log(`\x1b[31m✗ abstraction ${name} rejected: ${bindingError}\x1b[0m`);

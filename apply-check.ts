@@ -5,7 +5,7 @@
 import {
   type Box, type Cable,
   boxes as liveBoxes, cables as liveCables,
-  clearPatchState, getSynthBorderY, setSynthBorderY, setPatchNextId,
+  clearPatchState, getBorderY, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import { boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, isOffSide, sideOf } from "./public/gpi-types.js";
 
@@ -71,7 +71,7 @@ export function expandAbstractions(
           text = text.replace(new RegExp("\\$" + (i + 1), "g"), args[i]);
         }
 
-        // Zone inheritance: cloned boxes get Y of instance box
+        // Side inheritance: cloned boxes get Y of instance box
         const clonedBox = { ...intBox, text, x: intBox.x, y: box.y };
         const p = getBoxPorts(clonedBox.text);
         clonedBox.inlets = p.inlets;
@@ -211,7 +211,7 @@ function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>,
 // Order: unknown types, abstraction bindings, expand, stamp sides, validate.
 // deno-lint-ignore no-explicit-any
 export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, currentBorderY: number): ApplyResult {
-  const borderY: number = msg.synthBorderY ?? currentBorderY;
+  const borderY: number = msg.borderY ?? currentBorderY;
   const boxes = new Map<number, Box>();
   const cables = new Map<number, Cable>();
   // deno-lint-ignore no-explicit-any
@@ -246,13 +246,13 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
 // leaves it untouched. Evaluation and deploy are the caller's job.
 // deno-lint-ignore no-explicit-any
 export function applyPatch(msg: any, loaded: Map<string, AbstractionDef>): ApplyResult {
-  const result = checkApply(msg, loaded, getSynthBorderY());
+  const result = checkApply(msg, loaded, getBorderY());
   if (result.errors.length > 0) return result;
   clearPatchState();
   for (const [id, box] of result.boxes) liveBoxes.set(id, box);
   for (const [id, cable] of result.cables) liveCables.set(id, cable);
   setPatchNextId(msg.nextId || 1);
-  setSynthBorderY(result.borderY);
+  setBorderY(result.borderY);
   return result;
 }
 

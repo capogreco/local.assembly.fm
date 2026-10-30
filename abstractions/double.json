@@ -9,5 +9,5 @@
     [2, {"srcBox": 2, "srcOutlet": 0, "dstBox": 3, "dstInlet": 0}]
   ],
   "nextId": 4,
-  "synthBorderY": 300
+  "borderY": 300
 }

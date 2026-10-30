@@ -19,7 +19,7 @@ import {
   type Box,
   boxes, cables, boxValues, inletValues, boxState,
   routerState, groupState, latestValues, uplinkIndex,
-  setSynthBorderY, getSynthBorderY, clearPatchState, setDeployedPatch,
+  setBorderY, getBorderY, clearPatchState, setDeployedPatch,
 } from "../patch-state.ts";
 
 import * as gpi from "../public/gpi-types.js";
@@ -60,7 +60,7 @@ function reset(): void {
   latestValues.clear();
   uplinkIndex.clear();
   setDeployedPatch(null);
-  setSynthBorderY(400);
+  setBorderY(400);
   resetCapture();
 }
 
@@ -69,7 +69,7 @@ function addBox(id: number, text: string, x = 0, y = 0): void {
   const ports = def ? gpi.getBoxPorts(text) : { inlets: 1, outlets: 1 };
   // Same stamp the server's apply runs.
   const box: Box = { x, y, text, inlets: ports.inlets, outlets: ports.outlets };
-  box.side = gpi.sideOf(box, getSynthBorderY());
+  box.side = gpi.sideOf(box, getBorderY());
   boxes.set(id, box);
   if (shouldServerEval(box)) initBoxState(id, box);
 }
@@ -248,8 +248,8 @@ const cases: Case[] = [
     run: () => {
       reset();
       addBox(1, "const 440");
-      addBox(2, "all 1", 100, 350); // ctrl-side router
-      addBox(10, "karplus-strong~", 100, 500); // synth-side
+      addBox(2, "all 1", 100, 350); // router (border)
+      addBox(10, "karplus-strong~", 100, 500); // many side
       addCable(1, 1, 0, 2, 0);
       // router entry would be added during patch deploy; simulate by
       // calling propagateAndNotify which routes via handleRouterInlet

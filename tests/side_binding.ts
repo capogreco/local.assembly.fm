@@ -6,7 +6,7 @@
  * Usage: deno run --allow-read tests/side_binding.ts
  */
 
-import { boxes, cables, clearPatchState, getPatchNextId, getSynthBorderY, setSynthBorderY } from "../patch-state.ts";
+import { boxes, cables, clearPatchState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-check.ts";
 
 const BORDER = 400;
@@ -24,7 +24,7 @@ const box = (id: number, text: string, y: number, x = 0): B => [id, { x, y, text
 // deno-lint-ignore no-explicit-any
 const cable = (id: number, srcBox: number, srcOutlet: number, dstBox: number, dstInlet: number): [number, any] =>
   [id, { srcBox, srcOutlet, dstBox, dstInlet }];
-const msg = (b: B[], c: [number, unknown][] = []) => ({ boxes: b, cables: c, nextId: 1000, synthBorderY: BORDER });
+const msg = (b: B[], c: [number, unknown][] = []) => ({ boxes: b, cables: c, nextId: 1000, borderY: BORDER });
 
 function absDef(texts: string[]): AbstractionDef {
   return {
@@ -45,7 +45,7 @@ const loaded = new Map<string, AbstractionDef>([
 
 function reset(): void {
   clearPatchState();
-  setSynthBorderY(400);
+  setBorderY(400);
 }
 
 console.log("one-bound box placed many-side");
@@ -110,19 +110,19 @@ console.log("rejected apply leaves the previous patch in place");
   reset();
   const good = applyPatch(msg([box(1, "key", ONE_Y), box(2, "touch", MANY_Y)]), loaded);
   check("first apply accepted", good.errors.length === 0, JSON.stringify(good.errors));
-  const before = JSON.stringify({ b: [...boxes], c: [...cables], n: getPatchNextId(), y: getSynthBorderY() });
+  const before = JSON.stringify({ b: [...boxes], c: [...cables], n: getPatchNextId(), y: getBorderY() });
   const bad = [
     msg([box(7, "key", MANY_Y)]),
     msg([box(7, "mixed-abs", ONE_Y)]),
     msg([box(7, "no-such-box", ONE_Y)]),
-    { ...msg([box(7, "free-abs", ONE_Y), box(8, "key", MANY_Y)]), synthBorderY: 250, nextId: 5 },
+    { ...msg([box(7, "free-abs", ONE_Y), box(8, "key", MANY_Y)]), borderY: 250, nextId: 5 },
   ];
   for (const m of bad) {
     const snapshot = JSON.stringify(m);
     const r = applyPatch(m, loaded);
     check(`rejected: ${m.boxes.map((b) => b[1].text).join(", ")}`, r.errors.length > 0);
     check("running patch untouched",
-      JSON.stringify({ b: [...boxes], c: [...cables], n: getPatchNextId(), y: getSynthBorderY() }) === before);
+      JSON.stringify({ b: [...boxes], c: [...cables], n: getPatchNextId(), y: getBorderY() }) === before);
     check("message not mutated", JSON.stringify(m) === snapshot);
   }
 }

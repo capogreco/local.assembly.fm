@@ -32,9 +32,9 @@ export function bumpPatchNextId(id: number): void {
   if (id >= _patchNextId) _patchNextId = id + 1;
 }
 
-let _synthBorderY = 400;
-export function getSynthBorderY(): number { return _synthBorderY; }
-export function setSynthBorderY(v: number): void { _synthBorderY = v; }
+let _borderY = 400;
+export function getBorderY(): number { return _borderY; }
+export function setBorderY(v: number): void { _borderY = v; }
 
 // deno-lint-ignore no-explicit-any
 let _deployedPatch: Record<string, any> | null = null;

@@ -2,7 +2,7 @@
  * Graph Core — shared evaluation logic
  *
  * Pure functions for box state creation, evaluation, ticking, and event handling.
- * Used by both server.ts (ctrl-side) and graph.js (synth-side).
+ * Used by both server.ts (one side) and graph.js (many side).
  * No I/O, no propagation — callers handle wiring.
  */
 
@@ -798,7 +798,7 @@ function mergeUpdates(target, source) {
 //              debug?: boolean }
 //
 // `graph`: { boxes: Map, engines: Map, wireless: Map }
-//   Engines map can be empty on server (no engines on ctrl side); the engine
+//   Engines map can be empty on server (no engines on the one side); the engine
 //   branch then never fires, naturally degrading to no-op.
 function deliverEventToInlet(graph, boxId, inlet, helpers) {
   const updates = {};

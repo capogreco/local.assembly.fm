@@ -15,7 +15,7 @@ let dirty = false;
 await loadAbstractions();
 
 const editor = new PatchEditor(canvas, {
-  showSynthBorder: false,
+  showBorder: false,
   input: input,
   tooltipEl: tooltipEl,
   onSend: () => {},

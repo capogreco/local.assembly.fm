@@ -180,7 +180,7 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
     const name = names[inlet];
     if (!name) return;
     for (const [recvId, recvBox] of boxes) {
-      if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isCtrlSide(recvBox)) {
+      if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isOneSide(recvBox)) {
         setBoxValueAndNotify(recvId, value);
       }
     }
@@ -321,14 +321,14 @@ const _serverGraphView: any = {
     },
     has(id: number): boolean { return boxes.has(id); },
   },
-  // Server has no engines (engines live on synth side) — empty Map keeps
+  // Server has no engines (engines live on the many side) — empty Map keeps
   // the helper's engine branch from firing.
   engines: { has: () => false, get: () => undefined },
   // Wireless lookups are kept INLINE in propagateAndNotify (server uses
   // boxValues for catch summing rather than inletValues[0]). The helper's
   // wireless branches are bypassed by handling send/throw before delegation.
   wireless: { get: () => null },
-  // Server doesn't use uplinkQueue (sendup is synth-side only — server has
+  // Server doesn't use uplinkQueue (sendup is many-bound — server has
   // its own uplinkIndex for the receive direction).
   uplinkQueue: null,
 };
@@ -376,7 +376,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       } else {
         handleRouterInlet(cable.dstBox, cable.dstInlet, value, isEventSource);
       }
-    } else if (isAudioBox(dst.text) && isCtrlSide(dst)) {
+    } else if (isAudioBox(dst.text) && isOneSide(dst)) {
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef?.type === "event") {
         deferred.push(() => {
@@ -394,7 +394,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
     } else if (isWirelessSend(dst.text)) {
       const name = dst.text.split(/\s+/).slice(1).join(" ");
       for (const [recvId, recvBox] of boxes) {
-        if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isCtrlSide(recvBox)) {
+        if (isWirelessReceive(recvBox.text) && recvBox.text.split(/\s+/).slice(1).join(" ") === name && isOneSide(recvBox)) {
           setBoxValueAndNotify(recvId, value);
         }
       }
@@ -402,7 +402,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       const name = dst.text.split(/\s+/).slice(1).join(" ");
       const numValue = typeof value === "number" ? value : 0;
       for (const [catchId, catchBox] of boxes) {
-        if (isWirelessCatch(catchBox.text) && catchBox.text.split(/\s+/).slice(1).join(" ") === name && isCtrlSide(catchBox)) {
+        if (isWirelessCatch(catchBox.text) && catchBox.text.split(/\s+/).slice(1).join(" ") === name && isOneSide(catchBox)) {
           const prev = typeof boxValues.get(catchId) === "number" ? boxValues.get(catchId) as number : 0;
           setBoxValueAndNotify(catchId, prev + numValue);
         }
@@ -428,7 +428,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
       if (dstName === "seq" && cable.dstInlet === 2) {
         // fall through to shared dispatch below
       } else if (handleStatefulInlet(cable.dstBox, cable.dstInlet, numValueForStateful)) {
-        // ctrl-side stateful inlet stores (toggle, sample-hold, adsr inlet 0,
+        // one-side stateful inlet stores (toggle, sample-hold, adsr inlet 0,
         // INLET_MAPS-driven cold params, etc.) — handled, no further dispatch.
         continue;
       }
@@ -453,9 +453,9 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
         deferred.push(() => handleEventBox(cable.dstBox, numValue));
       }
     } else {
-      // A synth-zone destination reached by a bare cable. handleApply rejects
+      // A many-side destination reached by a bare cable. handleApply rejects
       // these, so getting here means a rule was bypassed: say so, don't drop.
-      console.log(`\x1b[31m✗ cable to "${dst.text}" (box ${cable.dstBox}) dropped: synth-side box reached without a router\x1b[0m`);
+      console.log(`\x1b[31m✗ cable to "${dst.text}" (box ${cable.dstBox}) dropped: many-side box reached without a router\x1b[0m`);
     }
   }
 
@@ -475,13 +475,14 @@ function sideStamped(box: Box): "one" | "many" | "border" {
   return box.side;
 }
 
-function isCtrlSide(box: Box): boolean {
+// The server evaluates the one side and the border (routers).
+function isOneSide(box: Box): boolean {
   return sideStamped(box) !== "many";
 }
 
 export function evaluateAllConsts(): void {
   for (const [id, box] of boxes) {
-    if (!isCtrlSide(box)) continue;
+    if (!isOneSide(box)) continue;
     const name = boxTypeName(box.text);
     if (name === "const") {
       setBoxValueAndNotify(id, parseFloat(box.text.split(/\s+/)[1]) || 0);
@@ -516,7 +517,7 @@ function getDeviceInitValue(name: string, text: string): number {
 
 export function evaluateAllDevices(): void {
   for (const [id, box] of boxes) {
-    if (!isCtrlSide(box)) continue;
+    if (!isOneSide(box)) continue;
     const name = boxTypeName(box.text);
     if (!(name in DEVICE_DEFAULTS)) continue;
     const init = getDeviceInitValue(name, box.text);
@@ -534,7 +535,7 @@ export function evaluateAllDevices(): void {
 export function evaluateAllClients(): void {
   const count = _getSynthClientIds().length;
   for (const [id, box] of boxes) {
-    if (!isCtrlSide(box)) continue;
+    if (!isOneSide(box)) continue;
     const name = boxTypeName(box.text);
     if (name === "clients") {
       setBoxValueAndNotify(id, count);
@@ -654,7 +655,7 @@ export function initAllBoxState(): void {
   }
 }
 
-// --- Cosmetic animations for ctrl-side audio boxes ---
+// --- Cosmetic animations for one-side audio boxes ---
 
 const ctrlAudioAnims = new Map<number, { type: string; elapsed: number; duration: number; curve: number }>();
 

@@ -1,4 +1,4 @@
-import { boxTypeName, boxBinding, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, sideOf } from "./gpi-types.js";
+import { boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, sideOf } from "./gpi-types.js";
 
 // --- constants ---
 
@@ -6,13 +6,13 @@ const COLORS = {
   bg: "#1a1a1a", boxFill: "#2a2a2a", boxStroke: "#666",
   boxSelectedFill: "#333", boxSelectedStroke: "#e0e0e0",
   text: "#e0e0e0", port: "#e0e0e0", cable: "#666", cableInProgress: "#999",
-  synthBorder: "#555", synthLabel: "#555", synthHandle: "#666",
+  border: "#555", borderLabel: "#555", borderHandle: "#666",
   routerFill: "#2a2a2a", routerStroke: "#555",
   abstractionFill: "#2a2a3a", abstractionStroke: "#668",
   commentText: "#888",
   cableAudio: "#8af", portAudio: "#8af", portEvent: "#fa4",
 };
-const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, SYNTH_HANDLE = 8;
+const BOX_HEIGHT = 22, BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -39,17 +39,16 @@ async function loadAbstractions() {
       abstractionTypes.set(name, {
         inlets: maxInlet + 1,
         outlets: maxOutlet + 1,
-        def: { zone: "any", description: `Abstraction: ${name}`, inlets: [], outlets: [] },
+        def: { description: `Abstraction: ${name}`, inlets: [], outlets: [] },
         data,
       });
     }
     // Binding is inferred from contents, so it needs every abstraction loaded
-    // (nested ones too). A bad one stays "any" and throws at its first sideOf.
-    const ZONE_OF_BINDING = { one: "ctrl", many: "synth" };
+    // (nested ones too). A bad one stays free and throws at its first sideOf.
     for (const [name, abs] of abstractionTypes) {
       const { binding, error } = boxBinding(name, absLookup);
       if (error) console.error(error);
-      else abs.def.zone = ZONE_OF_BINDING[binding] || "any";
+      else if (binding !== "free") abs.def.binding = binding;
     }
     console.log(`Loaded ${abstractionTypes.size} abstraction(s)`);
   } catch (e) {
@@ -123,8 +122,8 @@ class PatchEditor {
     this.editingBoxId = null;
 
     // Layout
-    this.synthBorderY = options.synthBorderY ?? canvas.height * 0.55;
-    this.showSynthBorder = options.showSynthBorder ?? true;
+    this.borderY = options.borderY ?? canvas.height * 0.55;
+    this.showBorder = options.showBorder ?? true;
 
     // Pan & zoom (view transform only — never mutates patch coordinates)
     this.panX = 0;
@@ -183,7 +182,7 @@ class PatchEditor {
       boxes: [...this.boxes.entries()],
       cables: [...this.cables.entries()],
       nextId: this.nextId,
-      synthBorderY: this.synthBorderY
+      borderY: this.borderY
     });
   }
 
@@ -199,11 +198,11 @@ class PatchEditor {
     }
     for (const [id, cable] of data.cables) this.cables.set(id, cable);
     this.nextId = data.nextId || 1;
-    if (data.synthBorderY !== undefined) this.synthBorderY = data.synthBorderY;
+    if (data.borderY !== undefined) this.borderY = data.borderY;
     // Fix router Y positions to always be at border
     for (const [, box] of this.boxes) {
       if (this.isRouterType(box.text)) {
-        box.y = this.synthBorderY - BOX_HEIGHT / 2;
+        box.y = this.borderY - BOX_HEIGHT / 2;
       }
     }
     this.selection.clear();
@@ -270,12 +269,12 @@ class PatchEditor {
       parentsOf.get(cable.dstBox)?.push(cable.srcBox);
     }
 
-    // Partition into server / synth / router
-    const serverBoxes = [], synthBoxes = [], routerBoxes = [];
+    // Partition into one / many / router
+    const oneBoxes = [], manyBoxes = [], routerBoxes = [];
     for (const [id, box] of this.boxes) {
       if (this.isRouterType(box.text)) routerBoxes.push(id);
-      else if (box.y + BOX_HEIGHT / 2 < this.synthBorderY) serverBoxes.push(id);
-      else synthBoxes.push(id);
+      else if (box.y + BOX_HEIGHT / 2 < this.borderY) oneBoxes.push(id);
+      else manyBoxes.push(id);
     }
 
     // Find connected components within a set of box ids
@@ -486,15 +485,15 @@ class PatchEditor {
       return startY + maxHeight;
     };
 
-    const serverEnd = layoutRegion(serverBoxes, TOP_MARGIN);
-    if (serverEnd + BORDER_PAD > this.synthBorderY && serverBoxes.length > 0) {
-      this.synthBorderY = serverEnd + BORDER_PAD;
+    const oneEnd = layoutRegion(oneBoxes, TOP_MARGIN);
+    if (oneEnd + BORDER_PAD > this.borderY && oneBoxes.length > 0) {
+      this.borderY = oneEnd + BORDER_PAD;
     }
 
     // Place routers on border, x-aligned to connected boxes
     for (const id of routerBoxes) {
       const box = this.boxes.get(id);
-      box.y = this.synthBorderY - BOX_HEIGHT / 2;
+      box.y = this.borderY - BOX_HEIGHT / 2;
       const connected = [
         ...(parentsOf.get(id) || []),
         ...(childrenOf.get(id) || [])
@@ -504,7 +503,7 @@ class PatchEditor {
       }
     }
 
-    layoutRegion(synthBoxes, this.synthBorderY + BORDER_PAD);
+    layoutRegion(manyBoxes, this.borderY + BORDER_PAD);
     this.zoomToFit();
     this.dirty = true;
     this.onDirty();
@@ -523,8 +522,8 @@ class PatchEditor {
 
   // Piston cascade: after a membrane displacement, resolve any remaining
   // box overlaps by pushing in the sweep direction until settled.
-  // `direction` is "down" (synth zone was squeezed — push lower boxes further
-  // down) or "up" (ctrl zone was squeezed — push upper boxes further up).
+  // `direction` is "down" (many side was squeezed — push lower boxes further
+  // down) or "up" (one side was squeezed — push upper boxes further up).
   // Routers are anchored to the border and skipped.
   cascadeOverlaps(direction, PAD) {
     const ids = [];
@@ -570,16 +569,16 @@ class PatchEditor {
     };
   }
 
-  isSynthZone(y) { return y >= this.synthBorderY; }
+  isBelowBorder(y) { return y >= this.borderY; }
 
-  hitTestSynthHandle(mx, my) {
-    if (!this.showSynthBorder) return false;
-    // Handle is drawn pinned to viewport-left at world-x = panX + (SYNTH_HANDLE/2)/zoom
-    // with width SYNTH_HANDLE/zoom. Hit area is 2x the visible width (matches the
-    // pre-pin behaviour where hit was Math.abs(mx - SYNTH_HANDLE) < SYNTH_HANDLE).
-    const handleCenter = this.panX + SYNTH_HANDLE / this.zoom;
-    const hitRadius = SYNTH_HANDLE / this.zoom;
-    return Math.abs(mx - handleCenter) < hitRadius && Math.abs(my - this.synthBorderY) < hitRadius;
+  hitTestBorderHandle(mx, my) {
+    if (!this.showBorder) return false;
+    // Handle is drawn pinned to viewport-left at world-x = panX + (BORDER_HANDLE/2)/zoom
+    // with width BORDER_HANDLE/zoom. Hit area is 2x the visible width (matches the
+    // pre-pin behaviour where hit was Math.abs(mx - BORDER_HANDLE) < BORDER_HANDLE).
+    const handleCenter = this.panX + BORDER_HANDLE / this.zoom;
+    const hitRadius = BORDER_HANDLE / this.zoom;
+    return Math.abs(mx - handleCenter) < hitRadius && Math.abs(my - this.borderY) < hitRadius;
   }
 
   measureText(text) {
@@ -672,7 +671,7 @@ class PatchEditor {
     if (!src || !dst) return null;
     if (getOutletDef(src.text, srcOutlet)?.type !== "audio") return null;
     if (this.isRouterType(src.text) || this.isRouterType(dst.text)) return "routers carry events and values, not audio";
-    if (this.showSynthBorder && this.isSynthSide(srcBoxId) !== this.isSynthSide(dstBoxId)) return "audio can't cross the border; events and values cross through routers";
+    if (this.showBorder && this.isManySide(srcBoxId) !== this.isManySide(dstBoxId)) return "audio can't cross the border; events and values cross through routers";
     return null;
   }
 
@@ -704,14 +703,14 @@ class PatchEditor {
   // mid-drag; the server rejects the patch at apply.
   sideOfBox(box) {
     try {
-      return sideOf(box, this.synthBorderY, absLookup);
+      return sideOf(box, this.borderY, absLookup);
     } catch (e) {
       this.onError(["✗ " + (e instanceof Error ? e.message : e)]);
-      return box.y >= this.synthBorderY ? "many" : "one";
+      return box.y >= this.borderY ? "many" : "one";
     }
   }
 
-  isSynthSide(boxId) {
+  isManySide(boxId) {
     const box = this.boxes.get(boxId);
     return box ? this.sideOfBox(box) === "many" : false;
   }
@@ -719,10 +718,10 @@ class PatchEditor {
   // A bound box placed on the other side of the border. The abstraction
   // editor has no border, so nothing is off side there.
   boundSideViolation() {
-    if (!this.showSynthBorder) return null;
+    if (!this.showBorder) return null;
     for (const box of this.boxes.values()) {
       let offSide;
-      try { offSide = isOffSide(box, this.synthBorderY, absLookup); } catch { continue; } // reported by sideOfBox
+      try { offSide = isOffSide(box, this.borderY, absLookup); } catch { continue; } // reported by sideOfBox
       if (offSide) {
         const binding = this.sideOfBox(box);
         return `"${box.text}" is bound to the ${binding} side`;
@@ -731,7 +730,7 @@ class PatchEditor {
     return null;
   }
 
-  isRouterType(text) { return getBoxZone(text) === "router"; }
+  isRouterType(text) { return boxBinding(text).binding === "border"; }
 
   findNearestAllRouter(nearX) {
     let best = null, bestDist = Infinity;
@@ -762,7 +761,7 @@ class PatchEditor {
     } else {
       routerId = this.nextId++;
       const ports = getPorts("all 1");
-      this.boxes.set(routerId, { x: midX - 20, y: this.synthBorderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
+      this.boxes.set(routerId, { x: midX - 20, y: this.borderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
       this.cables.set(this.nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
       this.cables.set(this.nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet });
     }
@@ -774,17 +773,17 @@ class PatchEditor {
     const channels = parseInt(router.text.split(/\s+/)[1]) || 1;
     const channelInfo = [];
     for (let ch = 0; ch < channels; ch++) {
-      let ctrlX = 0;
+      let oneX = 0;
       for (const [, c] of this.cables) {
         if (c.dstBox === routerId && c.dstInlet === ch) {
           const src = this.boxes.get(c.srcBox);
-          if (src) ctrlX = src.x + this.boxWidth(src, c.srcBox) / 2;
+          if (src) oneX = src.x + this.boxWidth(src, c.srcBox) / 2;
           break;
         }
       }
-      channelInfo.push({ ch, ctrlX });
+      channelInfo.push({ ch, oneX });
     }
-    const sorted = [...channelInfo].sort((a, b) => a.ctrlX - b.ctrlX);
+    const sorted = [...channelInfo].sort((a, b) => a.oneX - b.oneX);
     const remap = new Map();
     let changed = false;
     for (let newCh = 0; newCh < sorted.length; newCh++) {
@@ -835,7 +834,7 @@ class PatchEditor {
           }
           if (!inCable || !outCable) continue;
           if (inCable.srcBox !== draggedId && outCable.dstBox !== draggedId) continue;
-          if (this.isSynthSide(inCable.srcBox) === this.isSynthSide(outCable.dstBox)) {
+          if (this.isManySide(inCable.srcBox) === this.isManySide(outCable.dstBox)) {
             this.cables.delete(inCableId);
             this.cables.delete(outCableId);
             this.cables.set(this.nextId++, { srcBox: inCable.srcBox, srcOutlet: inCable.srcOutlet, dstBox: outCable.dstBox, dstInlet: outCable.dstInlet });
@@ -852,7 +851,7 @@ class PatchEditor {
       if (!srcBox || !dstBox) continue;
       if (this.isRouterType(srcBox.text) || this.isRouterType(dstBox.text)) continue;
       if (this.isAudioCable(c)) continue; // audio is never routed; the drop is rejected on release
-      if (this.isSynthSide(c.srcBox) !== this.isSynthSide(c.dstBox)) {
+      if (this.isManySide(c.srcBox) !== this.isManySide(c.dstBox)) {
         toReroute.push({ cableId, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
       }
     }
@@ -890,27 +889,27 @@ class PatchEditor {
       }
     }
 
-    // Synth border
-    if (this.showSynthBorder) {
-      this.ctx.strokeStyle = COLORS.synthBorder;
+    // Border
+    if (this.showBorder) {
+      this.ctx.strokeStyle = COLORS.border;
       this.ctx.lineWidth = 1;
       this.ctx.beginPath();
-      this.ctx.moveTo(this.panX, this.synthBorderY);
-      this.ctx.lineTo(this.panX + visW, this.synthBorderY);
+      this.ctx.moveTo(this.panX, this.borderY);
+      this.ctx.lineTo(this.panX + visW, this.borderY);
       this.ctx.stroke();
       // Handle + labels: pin to canvas-left regardless of pan/zoom by
       // converting "12px from viewport left" → world coord (panX + 12/zoom).
-      const handleX = this.panX + (SYNTH_HANDLE / 2) / this.zoom;
-      const handleSize = SYNTH_HANDLE / this.zoom;
+      const handleX = this.panX + (BORDER_HANDLE / 2) / this.zoom;
+      const handleSize = BORDER_HANDLE / this.zoom;
       const labelX = this.panX + 12 / this.zoom;
-      this.ctx.fillStyle = COLORS.synthHandle;
-      this.ctx.fillRect(handleX, this.synthBorderY - handleSize / 2, handleSize, handleSize);
+      this.ctx.fillStyle = COLORS.borderHandle;
+      this.ctx.fillRect(handleX, this.borderY - handleSize / 2, handleSize, handleSize);
       this.ctx.font = SMALL_FONT;
-      this.ctx.fillStyle = COLORS.synthLabel;
+      this.ctx.fillStyle = COLORS.borderLabel;
       this.ctx.textBaseline = "bottom";
-      this.ctx.fillText("ctrl", labelX, this.synthBorderY - 6 / this.zoom);
+      this.ctx.fillText("one", labelX, this.borderY - 6 / this.zoom);
       this.ctx.textBaseline = "top";
-      this.ctx.fillText("synth", labelX, this.synthBorderY + 6 / this.zoom);
+      this.ctx.fillText("many", labelX, this.borderY + 6 / this.zoom);
     }
 
     // Cables
@@ -961,8 +960,7 @@ class PatchEditor {
       const bw = this.boxWidth(box, id);
       const selected = this.selection.has(id);
       const def = getDef(box.text);
-      const zone = def ? def.zone : "any";
-      const isRouter = zone === "router";
+      const isRouter = def?.binding === "border";
       const isUnknown = !def && box.text.length > 0;
       const isAbs = isAbstraction(box.text);
       const isComment = def?.isComment;
@@ -1132,11 +1130,11 @@ class PatchEditor {
         if (c.srcBox === this.editingBoxId && c.srcOutlet >= box.outlets) this.cables.delete(id);
         if (c.dstBox === this.editingBoxId && c.dstInlet >= box.inlets) this.cables.delete(id);
       }
-      if (this.showSynthBorder) {
-        if (this.isRouterType(newText)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
-        const zone = getDef(newText)?.zone;  // abstractions carry an inferred zone
-        if (zone === "synth" && !this.isSynthZone(box.y)) box.y = this.synthBorderY + 20;
-        else if (zone === "ctrl" && this.isSynthZone(box.y)) box.y = this.synthBorderY - BOX_HEIGHT - 20;
+      if (this.showBorder) {
+        if (this.isRouterType(newText)) box.y = this.borderY - BOX_HEIGHT / 2;
+        const binding = getDef(newText)?.binding;  // abstractions carry an inferred binding
+        if (binding === "many" && !this.isBelowBorder(box.y)) box.y = this.borderY + 20;
+        else if (binding === "one" && this.isBelowBorder(box.y)) box.y = this.borderY - BOX_HEIGHT - 20;
       }
     } else if (!box.text) {
       this.pushUndo();
@@ -1169,8 +1167,8 @@ class PatchEditor {
       return;
     }
 
-    if (this.hitTestSynthHandle(m.x, m.y)) {
-      this.mode = "resizing-synth";
+    if (this.hitTestBorderHandle(m.x, m.y)) {
+      this.mode = "resizing-border";
       this.canvas.style.cursor = "ns-resize";
       return;
     }
@@ -1264,10 +1262,10 @@ class PatchEditor {
     const m = this.canvasCoords(e);
     this.mousePos = m;
 
-    if (this.mode === "resizing-synth") {
+    if (this.mode === "resizing-border") {
       const newY = Math.max(30, m.y);
-      const oldY = this.synthBorderY;
-      this.synthBorderY = newY;
+      const oldY = this.borderY;
+      this.borderY = newY;
       const PAD = 4;
       // Piston: displace any box the membrane swept through, then cascade
       // resolve overlaps in the sweep direction so the push propagates
@@ -1302,13 +1300,13 @@ class PatchEditor {
         if (!box) continue;
         if (this.isRouterType(box.text)) {
           box.x = orig.x + dx;
-          box.y = this.synthBorderY - BOX_HEIGHT / 2;
+          box.y = this.borderY - BOX_HEIGHT / 2;
         } else {
           box.x = orig.x + dx;
           box.y = orig.y + dy;
         }
       }
-      if (this.showSynthBorder) this.autoRouteBorderCrossings(this.selection);
+      if (this.showBorder) this.autoRouteBorderCrossings(this.selection);
       this.render();
       return;
     }
@@ -1347,7 +1345,7 @@ class PatchEditor {
     }
 
     // Update cursor and tooltip
-    if (this.hitTestSynthHandle(m.x, m.y)) {
+    if (this.hitTestBorderHandle(m.x, m.y)) {
       this.canvas.style.cursor = "ns-resize";
       if (this.tooltipEl) this.tooltipEl.style.display = "none";
     } else {
@@ -1408,7 +1406,7 @@ class PatchEditor {
 
     const m = this.canvasCoords(e);
 
-    if (this.mode === "resizing-synth") {
+    if (this.mode === "resizing-border") {
       this.pushUndo();
       this.mode = "idle";
       this.canvas.style.cursor = "default";
@@ -1445,11 +1443,11 @@ class PatchEditor {
           return;
         }
         this.pushUndo();
-        const srcSynth = this.isSynthSide(this.cableFrom.boxId);
-        const dstSynth = this.isSynthSide(inlet.boxId);
+        const srcMany = this.isManySide(this.cableFrom.boxId);
+        const dstMany = this.isManySide(inlet.boxId);
         const srcBox = this.boxes.get(this.cableFrom.boxId);
         const dstBox = this.boxes.get(inlet.boxId);
-        if (this.showSynthBorder && srcSynth !== dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
+        if (this.showBorder && srcMany !== dstMany && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
           this.autoRoute(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId, inlet.index);
         } else {
           this.cables.set(this.nextId++, { srcBox: this.cableFrom.boxId, srcOutlet: this.cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
@@ -1724,4 +1722,4 @@ class PatchEditor {
   }
 }
 
-export { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, SYNTH_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };
+export { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };

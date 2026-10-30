@@ -458,7 +458,7 @@ function setupScope() {
   else scopeSetOrbit = null;
 }
 
-// --- Gel stack: layer manager for synth-side display boxes ---
+// --- Gel stack: layer manager for many-side display boxes ---
 
 const layers = new Map();       // boxId -> { el, type, z }
 const layerContainer = document.getElementById("gel-stack");
@@ -617,7 +617,7 @@ function updateDisplayLayers(voice) {
   }
 }
 
-// --- Client-side tick for synth-side time boxes ---
+// --- Client-side tick for many-side time boxes ---
 
 let lastTickTime = 0;
 
