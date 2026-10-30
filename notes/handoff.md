@@ -70,10 +70,22 @@ Patch fixes made during testing (committed):
 - **D2, reversed.** `sall` reaches phones only, not one-side `r` boxes. Feeding
   them made a feedback loop that froze the server.
 - **D3.** Joining phones get a replay for `all` and `sall`, and for each
-  `group` box the latest value of their own group (and no other). Group
-  membership is stable: a joiner goes into the smallest group (lowest index on
-  a tie), a leaver is removed, and no one else moves. Only the shuffle inlet
-  repartitions; after it every phone is sent its new group's latest value.
+  `group` box their group index and the latest value of their own group (and
+  no other). Group membership is stable: a joiner goes into the group with the
+  smallest `length / weight` (lowest index on a tie), a leaver is removed, and
+  no one else moves. Only the shuffle inlet repartitions; after it every phone
+  is sent its new index and its new group's latest value.
+- **Groups (branch `group-index-weights`).** `group N` is N equal groups;
+  `group w0 w1 …` (two or more args) is one group per weight, sized in
+  proportion. Bad args (no arg, a count that isn't a whole number ≥ 1, a
+  weight that isn't a positive number) reject the apply. `groupArgs` in
+  `public/gpi-types.js` is the one parse, shared by the editor, apply and the
+  server. Outlet 1 is the phone's group index, 0-based, sent as `rv` on ch 1
+  whenever its membership is set: at the build (every group box is now
+  partitioned when the server graph builds, not on its first value), on join
+  and after a shuffle, whether or not the group has a stored value. Build and
+  shuffle deal the shuffled phones one by one to the smallest
+  `length / weight` group.
 - **D4 / D7.** The envelope flashes and ramp~ animation are drawn by the ctrl
   page. The server's 240 Hz tick stays as the evaluation clock, and the
   metro-phase display comes from the metro's state. The tick paradigm itself is

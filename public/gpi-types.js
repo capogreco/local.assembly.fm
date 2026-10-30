@@ -359,10 +359,10 @@ const BOX_TYPES = {
                     dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "shuffle", type: "event", description: "Randomize visit order" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on selected phone" }] },
-  group:          { binding: "border", description: "Partitioned send. Phones divided into N groups. Last inlet shuffles membership.", args: "groups", example: "group 3",
+  group:          { binding: "border", description: "Partitioned send: one inlet per group, then a shuffle inlet. `group N` splits the phones into N equal groups. `group w0 w1 …` (two or more args) makes one group per weight, sized in proportion: in `group 2 1 1` group 0 is twice the size of each of the others. A joining phone goes to the group furthest below its share, and only the shuffle repartitions. Outlet 1 gives each phone its group index, counted from 0 like the inlets.", args: "count | w0 w1 …", example: "group 3",
                     dynamic: true,
                     inlets: [{ name: "in", type: "passthrough", description: "Value for this group" }, { name: "shuffle", type: "event", description: "Re-randomize groups" }],
-                    outlets: [{ name: "out", type: "passthrough", description: "Value received by phone" }] },
+                    outlets: [{ name: "out", type: "passthrough", description: "Value received by phone" }, { name: "group", type: "number", description: "This phone's group index (0-based)" }] },
   sweep:          { binding: "border", description: "Send sequentially across phones on each null event.", args: "steps", example: "sweep 16",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to send" }, { name: "trigger", type: "event", description: "Advance to next phone" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Value on current phone" }] },
@@ -717,8 +717,7 @@ function getBoxPorts(text) {
       return { inlets: 1, outlets: n + 1 }; // one per match + reject
     }
     if (name === "group") {
-      const n = parseInt(text.split(/\s+/)[1]) || 1;
-      return { inlets: n + 1, outlets: 1 }; // N group inlets + 1 shuffle, 1 outlet
+      return { inlets: groupArgs(text).n + 1, outlets: 2 }; // N group inlets + shuffle; value, group index
     }
     if (name === "one") {
       const tokens = text.split(/\s+/);
@@ -747,6 +746,23 @@ function getBoxPorts(text) {
     return { inlets: n, outlets: n };
   }
   return { inlets: def.inlets.length, outlets: def.outlets.length };
+}
+
+// A `group` box's args, the one parse the server and the editor share.
+// `group N` is N equal groups; `group w0 w1 … wk` is k+1 groups with those
+// relative weights. Returns { n, weights, error }: on a bad arg, `error` says
+// why (apply rejects it) and n / weights are only good for drawing the box.
+function groupArgs(text) {
+  const args = text.split(/\s+/).slice(1).filter((a) => a !== "");
+  if (args.length === 0) return { n: 1, weights: [1], error: `"${text}": group needs a count or two or more weights` };
+  if (args.length === 1) {
+    const n = Number(args[0]);
+    if (!Number.isInteger(n) || n < 1) return { n: 1, weights: [1], error: `"${text}": the group count must be a whole number of at least 1` };
+    return { n, weights: Array(n).fill(1), error: null };
+  }
+  const bad = args.find((a) => !(Number(a) > 0 && Number.isFinite(Number(a))));
+  if (bad !== undefined) return { n: args.length, weights: Array(args.length).fill(1), error: `"${text}": group weights must be positive numbers, got "${bad}"` };
+  return { n: args.length, weights: args.map(Number), error: null };
 }
 
 function getBoxDef(text) {
@@ -833,7 +849,7 @@ function getInletDef(text, index) {
   if (!def) return null;
   const name = boxTypeName(text);
   if (name === "group") {
-    const n = parseInt(text.split(/\s+/)[1]) || 1;
+    const { n } = groupArgs(text);
     if (index < n) return def.inlets[0]; // group channel inlet
     if (index === n) return def.inlets[1]; // shuffle inlet
     return null;
@@ -932,5 +948,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

@@ -7,7 +7,7 @@ import {
   boxes as liveBoxes, cables as liveCables,
   clearPatchState, getBorderY, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
-import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, isOffSide, positionSide, sideOf } from "./public/gpi-types.js";
+import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, groupArgs, isOffSide, positionSide, sideOf } from "./public/gpi-types.js";
 
 export interface AbstractionDef {
   // deno-lint-ignore no-explicit-any
@@ -178,6 +178,17 @@ function findUnknownBoxTypes(boxes: Map<number, Box>, loaded: Map<string, Abstra
   return [...unknown];
 }
 
+// Args a box type can't run with: a `group` count or weights (groupArgs).
+function findBadArgs(boxes: Map<number, Box>): string[] {
+  const bad = new Set<string>();
+  for (const [, box] of boxes) {
+    if (boxTypeName(box.text) !== "group") continue;
+    const { error } = groupArgs(box.text);
+    if (error) bad.add(error);
+  }
+  return [...bad];
+}
+
 // Rejections that need the expanded graph and stamped sides. Audio never
 // crosses the border, and routers carry events and values only: events and
 // values cross the border through a router, never on a bare cable. A bound box
@@ -240,7 +251,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   if (absErrors.size > 0) return { errors, warnings: [], boxes, cables, borderY };
 
   const { warnings, errors: expandErrors } = expandAbstractions(boxes, cables, msg.nextId || 1, loaded);
-  errors.push(...expandErrors, ...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`));
+  errors.push(...expandErrors, ...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`), ...findBadArgs(boxes));
   if (errors.length > 0) return { errors, warnings, boxes, cables, borderY };
   for (const [, box] of boxes) box.side = sideOf(box, borderY, lookup);
   errors.push(...findSideViolations(boxes, cables, borderY, loaded));

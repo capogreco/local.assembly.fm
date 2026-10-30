@@ -22,6 +22,8 @@ import {
 
 import * as gpi from "../public/gpi-types.js";
 import { applyPatch } from "../apply-check.ts";
+import { serializeSynthPatch } from "../deploy.ts";
+import { buildGraph as buildPhoneGraph, processRouterValue } from "../public/graph.js";
 
 // --- Capture state ---
 
@@ -522,7 +524,7 @@ const cases: Case[] = [
     }),
   },
   {
-    name: "group: a deploy clears the latest group values and the membership",
+    name: "group: a deploy clears the latest group values and rebuilds the membership",
     run: () => seeded(() => {
       reset();
       groupPatch();
@@ -533,7 +535,76 @@ const cases: Case[] = [
       addBox(5, "group 3", 0, 389); // nothing feeds it
       buildServerGraph();
       capture.events.push(`after: groupLatest=${groupLatest.size} groupState=${groupState.size}`);
-      join(104); // nothing to replay
+      join(104); // nothing to replay but its index
+    }),
+  },
+
+  // === group: index outlet, weights ===
+  {
+    name: "group: a phone learns its index on the build, a join and a shuffle with no value stored",
+    run: () => seeded(() => {
+      reset();
+      addBox(4, "event");
+      addBox(5, "group 3", 0, 389); // only the shuffle is fed
+      addCable(1, 4, 0, 5, 3);
+      buildServerGraph(); // every phone: its index, nothing else
+      capture.events.push("joined");
+      join(104); // its index only
+      capture.events.push("shuffled");
+      injectEvent(4, 0); // every phone: its new index only
+    }),
+  },
+  {
+    name: "group: weighted joins converge to the proportions (group 2 1, six joins; group 1.5 0.5, eight)",
+    run: () => seeded(() => {
+      reset();
+      clients = [];
+      addBox(5, "group 2 1", 0, 389);
+      addBox(6, "group 1.5 0.5", 100, 389);
+      buildServerGraph();
+      for (let id = 101; id <= 108; id++) {
+        join(id);
+        if (id === 106) capture.events.push("after six: " + groupState.get(5)!.map((g) => g.length).join(" "));
+      }
+      capture.events.push("after eight: " + groupState.get(6)!.map((g) => g.length).join(" "));
+      members();
+      capture.clientSends = []; // the sends are covered elsewhere
+    }),
+  },
+  {
+    name: "group: a weighted shuffle partitions in proportion (group 2 1 1, eight phones)",
+    run: () => seeded(() => {
+      reset();
+      clients = [101, 102, 103, 104, 105, 106, 107, 108];
+      addBox(4, "event");
+      addBox(5, "group 2 1 1", 0, 389);
+      addCable(1, 4, 0, 5, 3);
+      buildServerGraph();
+      capture.events.push("built: " + groupState.get(5)!.map((g) => g.length).join(" "));
+      injectEvent(4, 0);
+      members();
+      capture.events.push("shuffled: " + groupState.get(5)!.map((g) => g.length).join(" "));
+      capture.clientSends = []; // the sends are covered elsewhere
+    }),
+  },
+  {
+    name: "group: outlet 1 reaches a many-side box through the phone deploy",
+    run: () => seeded(() => {
+      reset();
+      const r = applyPatch({
+        boxes: [[5, { x: 0, y: 389, text: "group 2" }], [6, { x: 0, y: 600, text: "+ 100" }]],
+        cables: [[1, { srcBox: 5, srcOutlet: 1, dstBox: 6, dstInlet: 0 }]],
+        nextId: 10, borderY: 400,
+      }, new Map());
+      if (r.errors.length > 0) throw new Error(r.errors.join("; "));
+      const deploy = serializeSynthPatch();
+      capture.events.push(`outlets=${boxes.get(5)!.outlets} entries=${JSON.stringify(deploy.entries)}`);
+      buildServerGraph();
+      const phone = buildPhoneGraph(deploy);
+      // deno-lint-ignore no-explicit-any
+      const msg = capture.clientSends.find((s) => s.clientId === 103)!.msg as any; // group 1
+      processRouterValue(phone, msg.r, msg.ch, msg.v);
+      capture.events.push("phone 103, + 100 inlets: " + JSON.stringify(phone.boxes.get(6).inletValues));
     }),
   },
 

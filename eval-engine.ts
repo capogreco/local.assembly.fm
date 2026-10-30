@@ -6,7 +6,7 @@ import {
   routerState, groupState, latestValues, groupLatest, assignState,
 } from "./patch-state.ts";
 import { arcValues } from "./hardware.ts";
-import { boxTypeName, deployInletDefs, getInletDef, isAudioBox } from "./public/gpi-types.js";
+import { boxTypeName, deployInletDefs, getInletDef, groupArgs, isAudioBox } from "./public/gpi-types.js";
 import { buildGraph, propagateValue, propagateEvent, tickGraph } from "./public/graph.js";
 
 // --- Timing instrumentation (gated; zero overhead when env vars unset) ---
@@ -58,30 +58,38 @@ export function initEvalEngine(deps: {
 
 // --- Router state (for one/sweep/group targeting) ---
 
-// Built once, from the phones there, the first time a group box needs it, and
-// rebuilt (reshuffled) only by its shuffle inlet. Joins and leaves move no one
-// else: see joinGroups / leaveGroups.
-function buildGroups(routerBoxId: number): void {
-  const box = boxes.get(routerBoxId);
-  if (!box) return;
-  const n = parseInt(box.text.split(/\s+/)[1]) || 1;
-  const clients = shuffleArray([..._getSynthClientIds()]);
-  const groups: number[][] = Array.from({ length: n }, () => []);
-  for (let i = 0; i < clients.length; i++) {
-    groups[i % n].push(clients[i]);
-  }
-  groupState.set(routerBoxId, groups);
+// A group box's weights. Apply has rejected bad args, so one here is a bug.
+function groupWeights(routerBoxId: number): number[] {
+  const { weights, error } = groupArgs(boxes.get(routerBoxId)!.text);
+  if (error) throw new Error(error);
+  return weights;
 }
 
-// A joining phone goes into the smallest group of every built group box
-// (ties: the lowest index). Call before replay(id), which sends it its group's
-// latest value.
+// The group furthest below its share: the smallest length / weight, the lowest
+// index on a tie. Equal weights make it the smallest group.
+function lightestGroup(groups: number[][], weights: number[]): number {
+  let k = 0;
+  for (let i = 1; i < groups.length; i++) if (groups[i].length * weights[k] < groups[k].length * weights[i]) k = i;
+  return k;
+}
+
+// Partition the phones there at random, in proportion to the weights: shuffled,
+// then dealt one by one to the lightest group. Then every phone is sent its
+// group (sendGroup). Built for every group box as the server graph builds,
+// and rebuilt only by its shuffle inlet. Joins and leaves move no one else:
+// see joinGroups / leaveGroups.
+function buildGroups(routerBoxId: number, opts: { replay?: boolean }): void {
+  const weights = groupWeights(routerBoxId);
+  const groups: number[][] = weights.map(() => []);
+  for (const clientId of shuffleArray([..._getSynthClientIds()])) groups[lightestGroup(groups, weights)].push(clientId);
+  groupState.set(routerBoxId, groups);
+  for (const clientId of groups.flat()) sendGroup(routerBoxId, clientId, opts);
+}
+
+// A joining phone goes into the lightest group of every group box. Call
+// before replay(id), which sends it its group.
 export function joinGroups(clientId: number): void {
-  for (const groups of groupState.values()) {
-    let k = 0;
-    for (let i = 1; i < groups.length; i++) if (groups[i].length < groups[k].length) k = i;
-    groups[k].push(clientId);
-  }
+  for (const [id, groups] of groupState) groups[lightestGroup(groups, groupWeights(id))].push(clientId);
 }
 
 // A leaving phone is removed from its group; no one is rebalanced.
@@ -94,12 +102,14 @@ export function leaveGroups(clientId: number): void {
   }
 }
 
-// Send a phone its group's latest value on a group box, if there is one.
-function replayGroup(routerBoxId: number, clientId: number): void {
+// Send a phone its group on a group box: its index on outlet 1 (ch 1), always,
+// then its group's latest value on outlet 0, if there is one.
+function sendGroup(routerBoxId: number, clientId: number, opts: { replay?: boolean }): void {
   const k = groupState.get(routerBoxId)!.findIndex((g) => g.includes(clientId));
   if (k < 0) throw new Error(`client ${clientId} is in no group of box ${routerBoxId}: joinGroups must run before replay`);
+  emit({ type: "rv", r: routerBoxId, ch: 1, v: k }, clientId, opts);
   const msg = groupLatest.get(routerBoxId)?.[k];
-  if (msg) emit(msg, clientId, { replay: true });
+  if (msg) emit(msg, clientId, opts);
 }
 
 function shuffleArray(arr: number[]): number[] {
@@ -169,14 +179,12 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
 
   // for `group`: last inlet is shuffle trigger
   if (routerType === "group") {
-    const n = parseInt(box.text.split(/\s+/)[1]) || 1;
-    if (inlet === n) {
-      buildGroups(routerBoxId);
-      for (const clientId of groupState.get(routerBoxId)!.flat()) replayGroup(routerBoxId, clientId);
+    const groups = groupState.get(routerBoxId);
+    if (!groups) throw new Error(`group box ${routerBoxId} has no groups: buildServerGraph builds them`);
+    if (inlet === groups.length) {
+      buildGroups(routerBoxId, { replay: true });
       return;
     }
-    if (!groupState.has(routerBoxId)) buildGroups(routerBoxId);
-    const groups = groupState.get(routerBoxId)!;
     if (inlet < groups.length) {
       // An event arrives as v 0 (routerSink) and is stored like any value:
       // the phones hold it as a value, so a joiner should too.
@@ -422,14 +430,14 @@ function laptopSink(id: number) {
 
 // Replay the stored values to a client that has just been sent its deploy
 // (the caller sends the deploy first): a joining phone gets the last value of
-// every broadcast router channel (latestValues) and of its own group on each
-// group box (groupLatest), a (re)connecting ctrl page the last value of every
-// laptop inlet. The stores are cleared together, in buildServerGraph, before
+// every broadcast router channel (latestValues) and, on each group box, its
+// group index and its own group's latest value (groupLatest); a (re)connecting
+// ctrl page gets the last value of every laptop inlet. The stores are cleared together, in buildServerGraph, before
 // the initial values propagate.
 export function replay(to: number | "laptop"): void {
   const stored = to === "laptop" ? laptopLatest : latestValues;
   for (const msg of stored.values()) emit(msg, to, { replay: true });
-  if (to !== "laptop") for (const id of groupState.keys()) replayGroup(id, to);
+  if (to !== "laptop") for (const id of groupState.keys()) sendGroup(id, to, { replay: true });
 }
 
 // Display: a box shows what leaves its outlet 0. Sources that show something
@@ -478,6 +486,8 @@ export function buildServerGraph(): boolean {
       else if (isAudioBox(box.text)) sinks.set(id, laptopSink(id));
     }
     const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
+    // Every phone learns its group before the initial values, which may feed one.
+    for (const [id, box] of boxes) if (boxTypeName(box.text) === "group") buildGroups(id, {});
     graph = buildGraph({ boxes: graphBoxes, cables: graphCables, entries: [] }, { sinks, onOutput });
   });
   if (!graph) return false;

@@ -150,6 +150,21 @@ console.log("unknown box type inside an abstraction");
   check("nothing committed", boxes.size === 0);
 }
 
+console.log("group args: a count or two or more positive weights");
+{
+  for (const text of ["group", "group 0", "group 2.5", "group x", "group 2 0", "group 2 -1", "group 1 x", "group 1 Infinity"]) {
+    reset();
+    const r = applyPatch(msg([box(1, text, BORDER)]), loaded);
+    check(`"${text}" rejected`, r.errors.length === 1 && r.errors[0].startsWith(`"${text}"`), JSON.stringify(r.errors));
+    check(`"${text}" nothing committed`, boxes.size === 0);
+  }
+  for (const [text, inlets] of [["group 3", 4], ["group 1", 2], ["group 2 1", 3], ["group 1.5 0.5 1", 4]] as const) {
+    reset();
+    const r = applyPatch(msg([box(1, text, BORDER)]), loaded);
+    check(`"${text}" accepted, ${inlets} inlets, 2 outlets`, r.errors.length === 0 && boxes.get(1)?.inlets === inlets && boxes.get(1)?.outlets === 2, JSON.stringify(r.errors));
+  }
+}
+
 console.log("border crossings are still caught after expansion");
 {
   reset();

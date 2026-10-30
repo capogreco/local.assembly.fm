@@ -1209,7 +1209,34 @@
           }
         },
         {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
           "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 0,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 103,
           "msg": {
             "type": "rv",
             "r": 3,
@@ -1222,7 +1249,7 @@
           "msg": {
             "type": "rv",
             "r": 3,
-            "ch": 0,
+            "ch": 1,
             "v": 0
           }
         }
@@ -1269,8 +1296,26 @@
           "msg": {
             "type": "rv",
             "r": 5,
+            "ch": 1,
+            "v": 2
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
             "ch": 0,
             "v": 30
+          }
+        },
+        {
+          "clientId": 105,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
           }
         },
         {
@@ -1347,6 +1392,15 @@
           "msg": {
             "type": "rv",
             "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
             "ch": 0,
             "v": 10
           }
@@ -1414,8 +1468,26 @@
           "msg": {
             "type": "rv",
             "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
             "ch": 0,
             "v": 10
+          }
+        },
+        {
+          "clientId": 105,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 1
           }
         },
         {
@@ -1491,8 +1563,26 @@
           "msg": {
             "type": "rv",
             "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 5,
             "ch": 0,
             "v": 10
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
           }
         },
         {
@@ -1509,8 +1599,26 @@
           "msg": {
             "type": "rv",
             "r": 5,
+            "ch": 1,
+            "v": 1
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 5,
             "ch": 0,
             "v": 20
+          }
+        },
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 2
           }
         },
         {
@@ -1575,14 +1683,51 @@
     },
     "latestValues": {}
   },
-  "group: a deploy clears the latest group values and the membership": {
+  "group: a deploy clears the latest group values and rebuilds the membership": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [],
-      "clientSends": [],
+      "clientSends": [
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 1
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 2
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        }
+      ],
       "events": [
         "before: groupLatest=1 groupState=1",
-        "after: groupLatest=0 groupState=0"
+        "after: groupLatest=0 groupState=1"
       ]
     },
     "boxValues": {},
@@ -1593,7 +1738,288 @@
       }
     },
     "routerState": {},
-    "groupState": {},
+    "groupState": {
+      "5": [
+        [
+          102,
+          104
+        ],
+        [
+          101
+        ],
+        [
+          103
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: a phone learns its index on the build, a join and a shuffle with no value stored": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 1
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 2
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 104,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 1
+          }
+        },
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 2
+          }
+        }
+      ],
+      "events": [
+        "joined",
+        "shuffled"
+      ]
+    },
+    "boxValues": {},
+    "graph": {
+      "4": {
+        "inletValues": [],
+        "state": {}
+      },
+      "5": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          101,
+          104
+        ],
+        [
+          103
+        ],
+        [
+          102
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: weighted joins converge to the proportions (group 2 1, six joins; group 1.5 0.5, eight)": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": [
+        "after six: 4 2",
+        "after eight: 6 2",
+        "groups {\"5\":[[101,103,104,106,107],[102,105,108]],\"6\":[[101,103,104,105,107,108],[102,106]]}"
+      ]
+    },
+    "boxValues": {},
+    "graph": {
+      "5": {
+        "inletValues": [],
+        "state": null
+      },
+      "6": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          101,
+          103,
+          104,
+          106,
+          107
+        ],
+        [
+          102,
+          105,
+          108
+        ]
+      ],
+      "6": [
+        [
+          101,
+          103,
+          104,
+          105,
+          107,
+          108
+        ],
+        [
+          102,
+          106
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: a weighted shuffle partitions in proportion (group 2 1 1, eight phones)": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": [
+        "built: 4 2 2",
+        "groups {\"5\":[[107,103,102,106],[101,108],[104,105]]}",
+        "shuffled: 4 2 2"
+      ]
+    },
+    "boxValues": {},
+    "graph": {
+      "4": {
+        "inletValues": [],
+        "state": {}
+      },
+      "5": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          107,
+          103,
+          102,
+          106
+        ],
+        [
+          101,
+          108
+        ],
+        [
+          104,
+          105
+        ]
+      ]
+    },
+    "latestValues": {}
+  },
+  "group: outlet 1 reaches a many-side box through the phone deploy": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [
+        {
+          "clientId": 102,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 0
+          }
+        },
+        {
+          "clientId": 103,
+          "msg": {
+            "type": "rv",
+            "r": 5,
+            "ch": 1,
+            "v": 1
+          }
+        }
+      ],
+      "events": [
+        "outlets=2 entries=[{\"routerId\":5,\"routerOutlet\":1,\"targetBox\":6,\"targetInlet\":0}]",
+        "phone 103, + 100 inlets: [1]"
+      ]
+    },
+    "boxValues": {},
+    "graph": {
+      "5": {
+        "inletValues": [],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {
+      "5": [
+        [
+          102,
+          101
+        ],
+        [
+          103
+        ]
+      ]
+    },
     "latestValues": {}
   },
   "tick: metro fires once per interval": {
