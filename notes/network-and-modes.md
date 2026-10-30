@@ -275,6 +275,23 @@ community launch this is the difference between "learn this by putting on a
 show" and "learn this alone on a Tuesday night." Treat it as a headline
 feature, not a debug utility.
 
+**To do: one viewport tile per voice (noted 2026-10-30).** At the moment the
+ensemble has one shared gel stack and one touch surface (`public/main.js`:
+`setupLayers`, `updateDisplayLayers`, `sendTouchValues`). So:
+- the display shows whichever voice updated last;
+- every touch reaches every voice, and the server's `uplink` gets N identical
+  copies.
+
+Per-phone patterns (`one`, `assign`, `group`, round-robin toggles) and
+per-phone uplink values therefore can't be seen or tested without real phones.
+For example, there's no way to check that epimetheus's `delay → one` advances
+exactly one voice.
+
+The plan is a grid of N tiles, each with its own gel stack. A touch inside a
+tile goes only to that voice, and text scales to fit the tile. Phone mode is
+the single-tile case and doesn't change. A cheaper stopgap is a row of dots in
+the control bar, one per voice, each showing that voice's screen colour.
+
 #### Rung 0b — borrowed WiFi, and why it bites
 
 Workshop mode tolerates any LAN IP, needs no DNS hijack and no captive portal,
