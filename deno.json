@@ -15,7 +15,7 @@
     "performance": "deno run performance-hint.ts",
     "performance:watch": "deno run performance-hint.ts --watch",
     "start": "deno run -A --unstable-net server.ts",
-    "test": "deno run --allow-read tests/propagation_snapshot.ts verify && deno run --allow-read tests/server_propagation_snapshot.ts verify && deno run --allow-read tests/side_binding.ts",
-    "test:capture": "deno run --allow-read --allow-write tests/propagation_snapshot.ts capture && deno run --allow-read --allow-write tests/server_propagation_snapshot.ts capture"
+    "test": "deno run --allow-read tests/propagation_snapshot.ts verify && deno run --allow-read tests/server_propagation_snapshot.ts verify && deno run --allow-read tests/side_binding.ts && deno run --allow-read tests/deploy_snapshot.ts verify",
+    "test:capture": "deno run --allow-read --allow-write tests/propagation_snapshot.ts capture && deno run --allow-read --allow-write tests/server_propagation_snapshot.ts capture && deno run --allow-read --allow-write tests/deploy_snapshot.ts capture"
   }
 }
