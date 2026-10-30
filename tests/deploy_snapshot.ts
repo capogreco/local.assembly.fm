@@ -1,6 +1,7 @@
 /**
  * Snapshot of what the server deploys, per saved patch: the phone deploy
- * (serializeSynthPatch) byte for byte, as phones receive it.
+ * (serializeSynthPatch) byte for byte, as phones receive it, and the laptop
+ * deploy (serializeLaptopPatch) the ctrl page builds one-side audio from.
  *
  * Usage:
  *   deno run --allow-read --allow-write tests/deploy_snapshot.ts capture
@@ -8,7 +9,7 @@
  */
 
 import { applyPatch, type AbstractionDef } from "../apply-check.ts";
-import { serializeSynthPatch } from "../deploy.ts";
+import { serializeLaptopPatch, serializeSynthPatch } from "../deploy.ts";
 
 // Tomorrow's four, plus the one-side audio and sall cases.
 const PATCHES = ["ks_arp", "frogs", "panharmonium", "epimetheus", "fftPeak_test", "cute-sine_keys", "archive/sall_test", "archive/symbiogenesis"];
@@ -25,6 +26,7 @@ function runAll(): Record<string, string> {
     const r = applyPatch(JSON.parse(Deno.readTextFileSync(`patches/${name}.json`)), loaded);
     if (r.errors.length > 0) throw new Error(`${name}: ${r.errors.join("; ")}`);
     results[`${name} phone`] = JSON.stringify(serializeSynthPatch());
+    results[`${name} laptop`] = JSON.stringify(serializeLaptopPatch());
   }
   return results;
 }

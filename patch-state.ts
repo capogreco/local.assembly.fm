@@ -42,6 +42,14 @@ export function getDeployedPatch(): Record<string, any> | null { return _deploye
 // deno-lint-ignore no-explicit-any
 export function setDeployedPatch(v: Record<string, any> | null): void { _deployedPatch = v; }
 
+// The laptop deploy (one-side audio, deploy.ts), sent to every ctrl socket.
+// deno-lint-ignore no-explicit-any
+let _laptopPatch: Record<string, any> | null = null;
+// deno-lint-ignore no-explicit-any
+export function getLaptopPatch(): Record<string, any> | null { return _laptopPatch; }
+// deno-lint-ignore no-explicit-any
+export function setLaptopPatch(v: Record<string, any> | null): void { _laptopPatch = v; }
+
 // --- Pipeline state ---
 
 export const routerState = new Map<number, { index: number; order?: number[]; storedValues?: Record<number, unknown> }>();
