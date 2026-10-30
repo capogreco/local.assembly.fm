@@ -1,4 +1,4 @@
-import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, positionSide, sideOf } from "./gpi-types.js";
+import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, positionSide, sideOf } from "./gpi-types.js";
 
 // --- constants ---
 
@@ -720,14 +720,18 @@ class PatchEditor {
     return box ? this.sideOfBox(box) === "many" : false;
   }
 
-  // A bound box not wholly on its side (isOffSide: on the other side, or
-  // straddling the border). The abstraction editor has no border, so nothing
-  // is off side there.
-  boundSideViolation() {
+  // A bound box the move just took off side (isOffSide: on the other side, or
+  // straddling the border). `before` holds each box's position (id → {x, y})
+  // when the move began, against beforeY; a box already off side then moves
+  // freely, so it can be brought back (movesOffSide). The abstraction editor
+  // has no border, so nothing is off side there.
+  boundSideViolation(before, beforeY = this.borderY) {
     if (!this.showBorder) return null;
-    for (const box of this.boxes.values()) {
+    for (const [id, box] of this.boxes) {
+      const prev = before.get(id);
+      const from = prev ? { ...box, x: prev.x, y: prev.y } : null;
       let offSide;
-      try { offSide = isOffSide(box, this.borderY, absLookup); } catch { continue; } // reported by sideOfBox
+      try { offSide = movesOffSide(from, beforeY, box, this.borderY, absLookup); } catch { continue; } // reported by sideOfBox
       if (offSide) {
         const binding = this.sideOfBox(box);
         return `"${box.text}" is bound to the ${binding} side`;
@@ -1424,8 +1428,8 @@ class PatchEditor {
     const m = this.canvasCoords(e);
 
     if (this.mode === "resizing-border") {
-      const problem = this.audioBorderViolation() ?? this.boundSideViolation();
-      if (problem && this.resizeSnapshot) {
+      const problem = this.resizeSnapshot && (this.audioBorderViolation() ?? this.boundSideViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY));
+      if (problem) {
         this.borderY = this.resizeSnapshot.borderY;
         for (const [id, pos] of this.resizeSnapshot.boxes) {
           const box = this.boxes.get(id);
@@ -1498,7 +1502,7 @@ class PatchEditor {
           if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
         }
       }
-      const dropProblem = moved && this.dragSnapshot ? (this.audioBorderViolation() ?? this.boundSideViolation()) : null;
+      const dropProblem = moved && this.dragSnapshot ? (this.audioBorderViolation() ?? this.boundSideViolation(this.dragSnapshot.boxes)) : null;
       if (dropProblem) {
         this.cables.clear();
         for (const [id, c] of this.dragSnapshot.cables) this.cables.set(id, { ...c });
@@ -1612,13 +1616,14 @@ class PatchEditor {
       const step = e.shiftKey ? 20 : 1;
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
       const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+      const before = new Map([...this.boxes].map(([id, b]) => [id, { x: b.x, y: b.y }]));
       for (const id of this.selection) {
         const box = this.boxes.get(id);
         if (box) { box.x += dx; box.y += dy; }
       }
-      // Same rule as a drop: a nudge that leaves a bound box off side, or audio
+      // Same rule as a drop: a nudge that takes a bound box off side, or audio
       // across the border, doesn't happen.
-      const problem = this.audioBorderViolation() ?? this.boundSideViolation();
+      const problem = this.audioBorderViolation() ?? this.boundSideViolation(before);
       if (problem) {
         for (const id of this.selection) {
           const box = this.boxes.get(id);

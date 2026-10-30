@@ -819,6 +819,14 @@ function isOffSide(box, borderY, lookup) {
   return (binding === "one" || binding === "many") && binding !== wholeSide(box, borderY);
 }
 
+// Does a move take a bound box off side? A move is judged by where it ends:
+// a box already off side at `from` (against fromY) moves freely, since it is
+// flagged and apply rejects it until it is back. `from` null is a new box,
+// judged by `to` alone.
+function movesOffSide(from, fromY, to, toY, lookup) {
+  return isOffSide(to, toY, lookup) && !(from && isOffSide(from, fromY, lookup));
+}
+
 // Resolve port definition for a specific inlet/outlet index (handles dynamic types)
 function getInletDef(text, index) {
   const def = BOX_TYPES[boxTypeName(text)];
@@ -924,5 +932,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

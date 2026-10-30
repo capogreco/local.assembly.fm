@@ -8,6 +8,7 @@
 
 import { boxes, cables, clearPatchState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-check.ts";
+import { movesOffSide } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const ONE_Y = 100, MANY_Y = 600;
@@ -198,6 +199,19 @@ console.log("abstraction save check");
   check("free accepted", checkAbstraction("f", ok, loaded) === null);
   const self = { boxes: [[1, { text: "self" }], [2, { text: "key" }]], cables: [] };
   check("self-reference rejected", /contains itself/.test(checkAbstraction("self", self, loaded) ?? ""));
+}
+
+console.log("editor move judged by where it ends (movesOffSide)");
+{
+  const at = (text: string, y: number) => ({ x: 0, y, text });
+  check("on side to on side accepted", !movesOffSide(at("key", ONE_Y), BORDER, at("key", ONE_Y + 50), BORDER));
+  check("on side to off side refused", movesOffSide(at("key", ONE_Y), BORDER, at("key", MANY_Y), BORDER));
+  check("on side to overhang refused", movesOffSide(at("key", ONE_Y), BORDER, at("key", BORDER - 21), BORDER));
+  check("off side back on side accepted", !movesOffSide(at("key", MANY_Y), BORDER, at("key", ONE_Y), BORDER));
+  check("off side moves freely while off side", !movesOffSide(at("key", MANY_Y), BORDER, at("key", MANY_Y + 30), BORDER));
+  check("border moved onto a bound box refused", movesOffSide(at("touch", MANY_Y), BORDER, at("touch", MANY_Y), MANY_Y + 1));
+  check("new box judged by where it lands", movesOffSide(null, BORDER, at("touch", ONE_Y), BORDER) && !movesOffSide(null, BORDER, at("touch", MANY_Y), BORDER));
+  check("free box never off side", !movesOffSide(at("+ 1", ONE_Y), BORDER, at("+ 1", MANY_Y), BORDER));
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);
