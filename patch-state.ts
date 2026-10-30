@@ -6,6 +6,8 @@
 
 export interface Box {
   x: number; y: number; text: string; inlets: number; outlets: number;
+  // Stamped at apply (sideOf in gpi-types.js); never sent to phones.
+  side?: "one" | "many" | "border";
 }
 
 export interface Cable {
@@ -78,8 +80,4 @@ export function cablesFromOutlet(boxId: number, outlet: number): Cable[] {
     if (c.srcBox === boxId && c.srcOutlet === outlet) r.push(c);
   }
   return r;
-}
-
-export function isSynthZone(_px: number, py: number): boolean {
-  return py >= _synthBorderY;
 }

@@ -278,6 +278,8 @@ async function loadPatchForVoice(voice, patch) {
         if (engine) {
           engine.messagePorts = def.messagePorts;
           voice.engines.set(id, engine);
+        } else {
+          console.error(`phone cannot build ${def.type} (box ${id}): no engine`);
         }
       } catch (err) {
         console.error(`engine ${def.type} (box ${id}) failed to load:`, err);

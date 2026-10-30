@@ -19,7 +19,7 @@ import {
   type Box,
   boxes, cables, boxValues, inletValues, boxState,
   routerState, groupState, latestValues, uplinkIndex,
-  setSynthBorderY, clearPatchState, setDeployedPatch,
+  setSynthBorderY, getSynthBorderY, clearPatchState, setDeployedPatch,
 } from "../patch-state.ts";
 
 import * as gpi from "../public/gpi-types.js";
@@ -67,10 +67,11 @@ function reset(): void {
 function addBox(id: number, text: string, x = 0, y = 0): void {
   const def = gpi.getBoxDef(text);
   const ports = def ? gpi.getBoxPorts(text) : { inlets: 1, outlets: 1 };
-  boxes.set(id, { x, y, text, inlets: ports.inlets, outlets: ports.outlets });
-  if (shouldServerEval({ x, y, text, inlets: ports.inlets, outlets: ports.outlets } as Box)) {
-    initBoxState(id, boxes.get(id)!);
-  }
+  // Same stamp the server's apply runs.
+  const box: Box = { x, y, text, inlets: ports.inlets, outlets: ports.outlets };
+  box.side = gpi.sideOf(box, getSynthBorderY());
+  boxes.set(id, box);
+  if (shouldServerEval(box)) initBoxState(id, box);
 }
 
 function addCable(id: number, srcBox: number, srcOutlet: number, dstBox: number, dstInlet: number): void {

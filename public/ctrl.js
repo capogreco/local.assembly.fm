@@ -108,7 +108,7 @@ async function buildCtrlAudioTopology() {
   // Collect ctrl-zone audio boxes
   const ctrlAudioBoxes = new Map();
   for (const [id, box] of mainEditor.boxes) {
-    if (isAudioBox(box.text) && !mainEditor.isSynthZone(box.y)) {
+    if (isAudioBox(box.text) && mainEditor.sideOfBox(box) === "one") {
       ctrlAudioBoxes.set(id, box);
     }
   }
@@ -165,6 +165,10 @@ async function buildCtrlAudioTopology() {
     const args = box.text.split(/\s+/).slice(1).join(" ");
     const engine = await createCtrlEngine(type, args);
     if (engine) ctrlEngines.set(id, engine);
+    else {
+      console.error(`ctrl cannot build "${box.text}" (box ${id})`);
+      notify([`✗ ctrl cannot build "${box.text}"`]);
+    }
   }
 
   // Collect audio cables between ctrl-zone audio boxes

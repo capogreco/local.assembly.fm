@@ -72,6 +72,9 @@ async function save() {
     if (window.opener) {
       try { window.opener.postMessage({ type: "abs-saved", name: absName }, "*"); } catch {}
     }
+  } else {
+    const { error } = await res.json().catch(() => ({}));
+    alert("save rejected: " + (error ?? res.status));
   }
 }
 

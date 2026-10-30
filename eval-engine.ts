@@ -5,10 +5,10 @@ import {
   type Box, type BoxValue,
   boxes, cables, boxValues, inletValues, boxState,
   routerState, groupState, latestValues, assignState,
-  cablesFromOutlet, isSynthZone,
+  cablesFromOutlet,
 } from "./patch-state.ts";
 import { arcValues } from "./hardware.ts";
-import { boxTypeName, getBoxDef, getBoxZone, isAudioBox } from "./public/gpi-types.js";
+import { boxTypeName, getBoxDef, isAudioBox } from "./public/gpi-types.js";
 import { evaluatePure, createBoxState, tickBox, handleBoxEvent, applyInletToState, deliverValueToInlet } from "./public/graph-core.js";
 
 // --- Timing instrumentation (gated; zero overhead when env vars unset) ---
@@ -369,7 +369,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
     if (!dst) continue;
     const def = getBoxDef(dst.text);
     if (!def) continue;
-    if (def.zone === "router") {
+    if (dst.side === "border") {
       const inletDef = def.inlets[cable.dstInlet];
       if (inletDef && inletDef.type === "event") {
         deferred.push(() => handleRouterInlet(cable.dstBox, cable.dstInlet, value, true));
@@ -407,7 +407,7 @@ export function propagateAndNotify(boxId: number, outletIndex: number, value: Bo
           setBoxValueAndNotify(catchId, prev + numValue);
         }
       }
-    } else if (def.zone !== "synth" && !(def.zone === "any" && isSynthZone(dst.x, dst.y))) {
+    } else if (sideStamped(dst) !== "many") {
       // Pre-helper: event-typed inlet on a stateful box (e.g. ar/sigmoid/cosine
       // trigger). The shared helper's isEventTrigger covers most of these but
       // there are edge cases (event-type inlet on stateful boxes not in the
@@ -468,9 +468,15 @@ function isWirelessReceive(text: string): boolean { const t = boxTypeName(text);
 function isWirelessThrow(text: string): boolean { return boxTypeName(text) === "throw"; }
 function isWirelessCatch(text: string): boolean { return boxTypeName(text) === "catch"; }
 
+// Side is stamped at apply (sideOf in gpi-types.js). An unstamped box means
+// a path skipped the stamp pass: fail loudly rather than guess.
+function sideStamped(box: Box): "one" | "many" | "border" {
+  if (box.side === undefined) throw new Error(`box "${box.text}" has no side: apply must stamp sides before evaluation`);
+  return box.side;
+}
+
 function isCtrlSide(box: Box): boolean {
-  const zone = getBoxZone(box.text);
-  return zone === "ctrl" || zone === "router" || (zone === "any" && !isSynthZone(box.x, box.y));
+  return sideStamped(box) !== "many";
 }
 
 export function evaluateAllConsts(): void {
@@ -635,9 +641,7 @@ export function initBoxState(id: number, box: Box): void {
 }
 
 export function shouldServerEval(box: Box): boolean {
-  const zone = getBoxZone(box.text);
-  if (zone === "synth") return false;
-  if (zone === "any" && isSynthZone(box.x, box.y)) return false;
+  if (sideStamped(box) === "many") return false;
   if (isAudioBox(box.text)) return false;
   return true;
 }

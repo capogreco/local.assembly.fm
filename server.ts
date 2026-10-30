@@ -5,7 +5,7 @@ import {
   getSynthBorderY, setSynthBorderY,
   getDeployedPatch, setDeployedPatch,
   routerState, groupState, latestValues, uplinkIndex,
-  clearPatchState, cablesFromOutlet, isSynthZone,
+  clearPatchState, cablesFromOutlet,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
@@ -16,7 +16,8 @@ import {
   findBoxByText, CC_SOURCE, queueValueUpdate,
 } from "./eval-engine.ts";
 import { getLanIP, qrText } from "./onboarding.ts";
-import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getOutletDef, isAudioBox, isDac } from "./public/gpi-types.js";
+import { boxTypeName, getBoxDef, isAudioBox, isDac } from "./public/gpi-types.js";
+import { type AbstractionDef, applyPatch, checkAbstraction } from "./apply-check.ts";
 
 // Workshop self-signed cert — distinct filenames so generation can never
 // clobber a hand-copied Let's Encrypt pair sitting in the repo root.
@@ -196,220 +197,23 @@ const authenticatedIPs = new Set<string>();
 
 // --- Edit handling ---
 
-// --- Abstraction expansion ---
-
-function expandAbstractions(): string[] {
-  const errors: string[] = [];
-  const MAX_DEPTH = 16;
-  let globalIdCounter = 100000;
-  let nextCableId = getPatchNextId() + 50000;
-
-  for (let depth = 0; depth < MAX_DEPTH; depth++) {
-    let expanded = 0;
-
-    for (const [boxId, box] of [...boxes]) {
-      const absName = boxTypeName(box.text);
-      const absDef = loadedAbstractions.get(absName);
-      if (!absDef) continue;
-
-      // Parse arguments: "scale-note 48 7" → args = ["48", "7"]
-      const args = box.text.split(/\s+/).slice(1);
-      const instanceId = String(globalIdCounter);  // $0
-
-      // Build inlet/outlet index → internal box mapping
-      const inletMap = new Map<number, number>();
-      const outletMap = new Map<number, number>();
-
-      for (const [localId, intBox] of absDef.boxes) {
-        const type = boxTypeName(intBox.text);
-        const idx = parseInt(intBox.text.split(/\s+/)[1]) || 0;
-        if (type === "inlet") inletMap.set(idx, localId);
-        if (type === "outlet") outletMap.set(idx, localId);
-      }
-
-      // Clone internal boxes (excluding inlet/outlet boxes)
-      const localToGlobal = new Map<number, number>();
-      for (const [localId, intBox] of absDef.boxes) {
-        const type = boxTypeName(intBox.text);
-        if (type === "inlet" || type === "outlet") continue;
-
-        const globalId = globalIdCounter++;
-        localToGlobal.set(localId, globalId);
-
-        // Argument substitution: $0=instanceId, $1=args[0], $2=args[1], ...
-        let text = intBox.text;
-        text = text.replace(/\$0/g, instanceId);
-        for (let i = 0; i < args.length; i++) {
-          text = text.replace(new RegExp("\\$" + (i + 1), "g"), args[i]);
-        }
-
-        // Zone inheritance: cloned boxes get Y of instance box
-        const clonedBox = { ...intBox, text, x: intBox.x, y: box.y };
-        const p = getBoxPorts(clonedBox.text);
-        clonedBox.inlets = p.inlets;
-        clonedBox.outlets = p.outlets;
-        boxes.set(globalId, clonedBox);
-      }
-
-      // Clone internal cables (skip those touching inlet/outlet)
-      for (const [, cable] of absDef.cables) {
-        const srcBox = absDef.boxes.get(cable.srcBox);
-        const dstBox = absDef.boxes.get(cable.dstBox);
-        const srcType = srcBox ? boxTypeName(srcBox.text) : "";
-        const dstType = dstBox ? boxTypeName(dstBox.text) : "";
-        if (srcType === "inlet" || dstType === "outlet") continue;
-
-        const srcGlobal = localToGlobal.get(cable.srcBox);
-        const dstGlobal = localToGlobal.get(cable.dstBox);
-        if (srcGlobal === undefined || dstGlobal === undefined) continue;
-
-        cables.set(nextCableId++, {
-          srcBox: srcGlobal, srcOutlet: cable.srcOutlet,
-          dstBox: dstGlobal, dstInlet: cable.dstInlet,
-        });
-      }
-
-      // Rewire external cables through inlet/outlet
-      for (const [cableId, cable] of [...cables]) {
-        if (cable.dstBox === boxId) {
-          const inletLocalId = inletMap.get(cable.dstInlet);
-          if (inletLocalId === undefined) {
-            errors.push(`${absName}: cable targets inlet ${cable.dstInlet}, but only inlets 0-${inletMap.size - 1} exist`);
-            cables.delete(cableId);
-            continue;
-          }
-          for (const [, intCable] of absDef.cables) {
-            if (intCable.srcBox === inletLocalId) {
-              const targetGlobal = localToGlobal.get(intCable.dstBox);
-              if (targetGlobal !== undefined) {
-                cables.set(nextCableId++, {
-                  srcBox: cable.srcBox, srcOutlet: cable.srcOutlet,
-                  dstBox: targetGlobal, dstInlet: intCable.dstInlet,
-                });
-              }
-            }
-          }
-          cables.delete(cableId);
-        }
-
-        if (cable.srcBox === boxId) {
-          const outletLocalId = outletMap.get(cable.srcOutlet);
-          if (outletLocalId === undefined) {
-            errors.push(`${absName}: cable from outlet ${cable.srcOutlet}, but only outlets 0-${outletMap.size - 1} exist`);
-            cables.delete(cableId);
-            continue;
-          }
-          for (const [, intCable] of absDef.cables) {
-            if (intCable.dstBox === outletLocalId) {
-              const sourceGlobal = localToGlobal.get(intCable.srcBox);
-              if (sourceGlobal !== undefined) {
-                cables.set(nextCableId++, {
-                  srcBox: sourceGlobal, srcOutlet: intCable.srcOutlet,
-                  dstBox: cable.dstBox, dstInlet: cable.dstInlet,
-                });
-              }
-            }
-          }
-          cables.delete(cableId);
-        }
-      }
-
-      boxes.delete(boxId);
-      expanded++;
-    }
-
-    if (expanded === 0) break;
-
-    // Cycle detection: check if any remaining abstraction was just expanded
-    if (depth === MAX_DEPTH - 1) {
-      errors.push("Abstraction nesting limit reached (16 levels) — possible circular reference");
-    }
-  }
-
-  return errors;
-}
-
 // --- Apply (replaces entire graph state from ctrl) ---
-
-// Audio never crosses the border, and routers carry events and values only.
-// Events and values cross the border through a router, never on a bare cable.
-// The editor refuses audio crossings and auto-routes the rest; this catches
-// patch files edited by hand and anything else that bypasses the editor.
-// deno-lint-ignore no-explicit-any
-function findBorderViolations(msg: any): string[] {
-  const by = msg.synthBorderY ?? getSynthBorderY();
-  // deno-lint-ignore no-explicit-any
-  const byId = new Map<number, any>(msg.boxes);
-  // deno-lint-ignore no-explicit-any
-  const synthSide = (box: any) => {
-    const zone = getBoxZone(box.text);
-    return zone === "synth" || (zone === "any" && box.y >= by);
-  };
-  const problems = new Set<string>();
-  // deno-lint-ignore no-explicit-any
-  for (const [, c] of msg.cables as [number, any][]) {
-    const src = byId.get(c.srcBox), dst = byId.get(c.dstBox);
-    if (!src || !dst) continue;
-    const viaRouter = getBoxZone(src.text) === "router" || getBoxZone(dst.text) === "router";
-    if (getOutletDef(src.text, c.srcOutlet)?.type === "audio") {
-      if (viaRouter) {
-        problems.add(`audio cable "${src.text}" to "${dst.text}": routers carry events and values, not audio`);
-      } else if (synthSide(src) !== synthSide(dst)) {
-        problems.add(`audio cable "${src.text}" to "${dst.text}" crosses the border`);
-      }
-    } else if (!viaRouter && synthSide(src) !== synthSide(dst)) {
-      problems.add(`cable "${src.text}" to "${dst.text}" crosses the border without a router`);
-    }
-  }
-  return [...problems];
-}
-
-// Box types that are neither built in nor a known abstraction. Empty boxes are
-// ignored (a freshly placed box has no text yet).
-// deno-lint-ignore no-explicit-any
-function findUnknownBoxTypes(applyBoxes: [number, any][]): string[] {
-  const unknown = new Set<string>();
-  for (const [, box] of applyBoxes) {
-    const text = (box.text ?? "").trim();
-    if (!text) continue;
-    const type = boxTypeName(text);
-    if (!getBoxDef(text) && !loadedAbstractions.has(type)) unknown.add(type);
-  }
-  return [...unknown];
-}
 
 // deno-lint-ignore no-explicit-any
 function handleApply(msg: any): void {
-  // Refuse the whole apply if any box has no definition. The previous patch
-  // keeps running; nothing is half-applied and nothing is silently dropped.
-  const errors = [
-    ...findUnknownBoxTypes(msg.boxes).map((t) => `unknown box type "${t}"`),
-    ...findBorderViolations(msg),
-  ];
+  // Build and validate the new patch in local maps first. A rejected apply
+  // leaves the running patch untouched; nothing is half-applied and nothing
+  // is silently dropped.
+  const { errors, warnings } = applyPatch(msg, loadedAbstractions);
   if (errors.length > 0) {
     for (const err of errors) console.log(`\x1b[31m✗ apply rejected: ${err}\x1b[0m`);
     sendCtrl({ type: "apply-rejected", errors });
     return;
   }
-  clearPatchState();
-  for (const [id, box] of msg.boxes) {
-    const p = getBoxPorts(box.text);
-    box.inlets = p.inlets; box.outlets = p.outlets;
-    boxes.set(id, box);
-    // snap routers to border
-    if (getBoxZone(box.text) === "router") {
-      box.y = getSynthBorderY() - 11;
-    }
-  }
-  for (const [id, cable] of msg.cables) cables.set(id, cable);
-  setPatchNextId(msg.nextId || 1);
-  if (msg.synthBorderY !== undefined) setSynthBorderY(msg.synthBorderY);
 
-  // expand abstractions inline
-  const absErrors = expandAbstractions();
-  if (absErrors.length > 0) {
-    for (const err of absErrors) console.log(`\x1b[33m⚠ ${err}\x1b[0m`);
-    sendCtrl({ type: "errors", errors: absErrors });
+  if (warnings.length > 0) {
+    for (const err of warnings) console.log(`\x1b[33m⚠ ${err}\x1b[0m`);
+    sendCtrl({ type: "errors", errors: warnings });
   }
 
   // rebuild ctrl evaluation
@@ -446,8 +250,7 @@ function serializeSynthPatch(): Record<string, unknown> {
       console.log(`\x1b[31m✗ deploy skipped box ${id} "${box.text}": no definition\x1b[0m`);
       continue;
     }
-    const synth = def.zone === "synth" || (def.zone === "any" && isSynthZone(box.x, box.y));
-    if (synth) {
+    if (box.side === "many") {
       synthIds.add(id);
       const name = boxTypeName(box.text), args = box.text.split(/\s+/).slice(1).join(" ");
       // deno-lint-ignore no-explicit-any
@@ -482,8 +285,7 @@ function serializeSynthPatch(): Record<string, unknown> {
   }
 
   for (const [id, box] of boxes) {
-    const def = getBoxDef(box.text);
-    if (!def || def.zone !== "router") continue;
+    if (box.side !== "border") continue;
     if (boxTypeName(box.text) === "sall") {
       // sall: match synth-side r/receive boxes by name (multi-name: each name maps to a channel)
       const names = box.text.split(/\s+/).slice(1);
@@ -779,11 +581,6 @@ await Deno.mkdir(HELP_DIR, { recursive: true });
 
 // --- Abstraction loading ---
 
-interface AbstractionDef {
-  boxes: Map<number, any>;
-  cables: Map<number, any>;
-}
-
 const loadedAbstractions = new Map<string, AbstractionDef>();
 
 async function loadAbstractions(): Promise<void> {
@@ -956,6 +753,11 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
     if (!name) return new Response("Invalid name", { status: 400 });
     const raw = JSON.parse(await req.text());
     delete raw.synthBorderY;
+    const bindingError = checkAbstraction(name, raw, loadedAbstractions);
+    if (bindingError) {
+      console.log(`\x1b[31m✗ abstraction ${name} rejected: ${bindingError}\x1b[0m`);
+      return new Response(JSON.stringify({ ok: false, error: bindingError }), { status: 400, headers });
+    }
     await Deno.writeTextFile(`${ABSTRACTIONS_DIR}/${name}.json`, JSON.stringify(raw));
     event(`saved abstraction: ${name}`);
     await loadAbstractions();  // Reload registry

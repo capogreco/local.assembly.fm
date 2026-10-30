@@ -655,14 +655,14 @@ const BOX_TYPES = {
                       { name: "trigger", type: "event", description: "Fire a pluck" },
                       { name: "amplitude", type: "number", description: "Output level (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "ewing~":       { zone: "synth", lib: "maker", description: "Ewing's Tree Frog (Litoria ewingii). Autonomous frog — picks its own personality at init (formant pitch, pulse rate, call template) and chatters on its own schedule. Hold engages: the grain stream that was exciting the species formant smoothly shifts to excite a formant at the user-controlled pitch — no separate held tone, just the ongoing ring continued at a different pitch. Arg: portamento seconds — governs both chatter→singing morph AND note-to-note pitch glides in singing (default 1.0).",
+  "ewing~":       { zone: "any", lib: "maker", description: "Ewing's Tree Frog (Litoria ewingii). Autonomous frog — picks its own personality at init (formant pitch, pulse rate, call template) and chatters on its own schedule. Hold engages: the grain stream that was exciting the species formant smoothly shifts to excite a formant at the user-controlled pitch — no separate held tone, just the ongoing ring continued at a different pitch. Arg: portamento seconds — governs both chatter→singing morph AND note-to-note pitch glides in singing (default 1.0).",
                     args: "[glide_sec]", example: "ewing~ 1.0",
                     inlets: [
                       { name: "pitch", type: "number", description: "Held-tone fundamental in Hz (used when hold > 0)" },
                       { name: "hold", type: "number", description: "0-1 → 0=autonomous chatter, 1=sustained tone at pitch" },
                       { name: "active", type: "number", description: "On/off gate. Calls wind up when high and wind down when low over glideSec × 6 (default 6s)." }],
                     outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
-  "frog~":        { zone: "synth", lib: "maker", description: "Single-frog voice. Pulse train through formants with biological micro-modulation. Trigger fires a burst; hold morphs to a sustained pitched tone for chord work. Arg: pitch portamento seconds (default 0.15).",
+  "frog~":        { zone: "any", lib: "maker", description: "Single-frog voice. Pulse train through formants with biological micro-modulation. Trigger fires a burst; hold morphs to a sustained pitched tone for chord work. Arg: pitch portamento seconds (default 0.15).",
                     args: "[glide_sec]", example: "frog~ 0.15",
                     inlets: [
                       { name: "trigger", type: "event", description: "Fire one burst (callsPerBurst calls)" },
@@ -758,6 +758,57 @@ function getBoxDef(text) {
   return BOX_TYPES[boxTypeName(text)] || null;
 }
 
+// --- Side and binding ---
+// A box is free (its side follows its position against the border) or bound
+// to one side whatever its position; routers are the border. Today's `zone`
+// field carries the binding: ctrl -> one, synth -> many, router -> border,
+// any -> free. `lookup(name)` returns an abstraction's inner boxes (anything
+// iterable of {text}) or null; without it, unknown types count as free.
+
+const BINDING_OF_ZONE = { ctrl: "one", synth: "many", router: "border" };
+
+// Binding of a box: { binding: "one" | "many" | "border" | "free", error }.
+// An abstraction's binding is inferred from its contents (nested ones too):
+// one-bound if any inner box is one-bound, many-bound if any is many-bound.
+// Both kinds, or a router, inside is an error (`error` is set).
+function boxBinding(text, lookup, seen = new Set()) {
+  const name = boxTypeName(text);
+  const def = BOX_TYPES[name];
+  if (def) return { binding: BINDING_OF_ZONE[def.zone] || "free", error: null };
+  const inner = lookup ? lookup(name) : null;
+  if (!inner || seen.has(name)) return { binding: "free", error: null };
+  const path = new Set(seen).add(name);
+  let one = null, many = null;
+  for (const innerBox of inner) {
+    const b = boxBinding(innerBox.text, lookup, path);
+    if (b.error) return b;
+    if (b.binding === "border") return { binding: "free", error: `abstraction "${name}" contains router "${innerBox.text}": an abstraction lives on one side` };
+    if (b.binding === "one") one ??= innerBox.text;
+    if (b.binding === "many") many ??= innerBox.text;
+  }
+  if (one && many) return { binding: "free", error: `abstraction "${name}" mixes one-bound "${one}" and many-bound "${many}": an abstraction lives on one side` };
+  return { binding: one ? "one" : many ? "many" : "free", error: null };
+}
+
+function positionSide(box, borderY) {
+  return box.y >= borderY ? "many" : "one";
+}
+
+// The one place a box's side is decided: "one" | "many" | "border".
+// Bound boxes ignore borderY. Throws on an abstraction with an inconsistent binding.
+function sideOf(box, borderY, lookup) {
+  const { binding, error } = boxBinding(box.text, lookup);
+  if (error) throw new Error(error);
+  return binding === "free" ? positionSide(box, borderY) : binding;
+}
+
+// A bound box positioned on the other side of the border.
+function isOffSide(box, borderY, lookup) {
+  const { binding, error } = boxBinding(box.text, lookup);
+  if (error) throw new Error(error);
+  return (binding === "one" || binding === "many") && binding !== positionSide(box, borderY);
+}
+
 // Resolve port definition for a specific inlet/outlet index (handles dynamic types)
 function getInletDef(text, index) {
   const def = BOX_TYPES[boxTypeName(text)];
@@ -850,5 +901,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, boxTypeName, getBoxPorts, getBoxZone, getBoxDef, boxBinding, sideOf, isOffSide, getInletDef, getOutletDef, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

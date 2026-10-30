@@ -1,4 +1,4 @@
-import { boxTypeName, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox } from "./gpi-types.js";
+import { boxTypeName, boxBinding, getBoxPorts, getBoxZone, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, sideOf } from "./gpi-types.js";
 
 // --- constants ---
 
@@ -43,10 +43,24 @@ async function loadAbstractions() {
         data,
       });
     }
+    // Binding is inferred from contents, so it needs every abstraction loaded
+    // (nested ones too). A bad one stays "any" and throws at its first sideOf.
+    const ZONE_OF_BINDING = { one: "ctrl", many: "synth" };
+    for (const [name, abs] of abstractionTypes) {
+      const { binding, error } = boxBinding(name, absLookup);
+      if (error) console.error(error);
+      else abs.def.zone = ZONE_OF_BINDING[binding] || "any";
+    }
     console.log(`Loaded ${abstractionTypes.size} abstraction(s)`);
   } catch (e) {
     console.error("Failed to load abstractions:", e);
   }
+}
+
+// Inner boxes of a loaded abstraction, for gpi-types' binding inference.
+function absLookup(name) {
+  const abs = abstractionTypes.get(name);
+  return abs ? abs.data.boxes.map(([, b]) => b) : null;
 }
 
 function isAbstraction(text) {
@@ -658,7 +672,7 @@ class PatchEditor {
     if (!src || !dst) return null;
     if (getOutletDef(src.text, srcOutlet)?.type !== "audio") return null;
     if (this.isRouterType(src.text) || this.isRouterType(dst.text)) return "routers carry events and values, not audio";
-    if (this.isSynthSide(srcBoxId) !== this.isSynthSide(dstBoxId)) return "audio can't cross the border; events and values cross through routers";
+    if (this.showSynthBorder && this.isSynthSide(srcBoxId) !== this.isSynthSide(dstBoxId)) return "audio can't cross the border; events and values cross through routers";
     return null;
   }
 
@@ -685,12 +699,36 @@ class PatchEditor {
 
   // --- Routing ---
 
+  // A bad abstraction on disk (mixed binding, router inside) makes sideOf
+  // throw. Report it and fall back to position so pointer handlers never die
+  // mid-drag; the server rejects the patch at apply.
+  sideOfBox(box) {
+    try {
+      return sideOf(box, this.synthBorderY, absLookup);
+    } catch (e) {
+      this.onError(["✗ " + (e instanceof Error ? e.message : e)]);
+      return box.y >= this.synthBorderY ? "many" : "one";
+    }
+  }
+
   isSynthSide(boxId) {
     const box = this.boxes.get(boxId);
-    if (!box) return false;
-    const def = getDef(box.text);
-    const zone = def ? def.zone : "any";
-    return zone === "synth" || (zone === "any" && this.isSynthZone(box.y));
+    return box ? this.sideOfBox(box) === "many" : false;
+  }
+
+  // A bound box placed on the other side of the border. The abstraction
+  // editor has no border, so nothing is off side there.
+  boundSideViolation() {
+    if (!this.showSynthBorder) return null;
+    for (const box of this.boxes.values()) {
+      let offSide;
+      try { offSide = isOffSide(box, this.synthBorderY, absLookup); } catch { continue; } // reported by sideOfBox
+      if (offSide) {
+        const binding = this.sideOfBox(box);
+        return `"${box.text}" is bound to the ${binding} side`;
+      }
+    }
+    return null;
   }
 
   isRouterType(text) { return getBoxZone(text) === "router"; }
@@ -1094,10 +1132,12 @@ class PatchEditor {
         if (c.srcBox === this.editingBoxId && c.srcOutlet >= box.outlets) this.cables.delete(id);
         if (c.dstBox === this.editingBoxId && c.dstInlet >= box.inlets) this.cables.delete(id);
       }
-      if (this.isRouterType(newText)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
-      const zone = getBoxZone(newText);
-      if (zone === "synth" && !this.isSynthZone(box.y)) box.y = this.synthBorderY + 20;
-      else if (zone === "ctrl" && this.isSynthZone(box.y)) box.y = this.synthBorderY - BOX_HEIGHT - 20;
+      if (this.showSynthBorder) {
+        if (this.isRouterType(newText)) box.y = this.synthBorderY - BOX_HEIGHT / 2;
+        const zone = getDef(newText)?.zone;  // abstractions carry an inferred zone
+        if (zone === "synth" && !this.isSynthZone(box.y)) box.y = this.synthBorderY + 20;
+        else if (zone === "ctrl" && this.isSynthZone(box.y)) box.y = this.synthBorderY - BOX_HEIGHT - 20;
+      }
     } else if (!box.text) {
       this.pushUndo();
       for (const [id, c] of this.cables) {
@@ -1268,7 +1308,7 @@ class PatchEditor {
           box.y = orig.y + dy;
         }
       }
-      this.autoRouteBorderCrossings(this.selection);
+      if (this.showSynthBorder) this.autoRouteBorderCrossings(this.selection);
       this.render();
       return;
     }
@@ -1409,7 +1449,7 @@ class PatchEditor {
         const dstSynth = this.isSynthSide(inlet.boxId);
         const srcBox = this.boxes.get(this.cableFrom.boxId);
         const dstBox = this.boxes.get(inlet.boxId);
-        if (srcSynth !== dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
+        if (this.showSynthBorder && srcSynth !== dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
           this.autoRoute(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId, inlet.index);
         } else {
           this.cables.set(this.nextId++, { srcBox: this.cableFrom.boxId, srcOutlet: this.cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });
@@ -1431,7 +1471,7 @@ class PatchEditor {
           if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
         }
       }
-      const dropProblem = moved && this.dragSnapshot ? this.audioBorderViolation() : null;
+      const dropProblem = moved && this.dragSnapshot ? (this.audioBorderViolation() ?? this.boundSideViolation()) : null;
       if (dropProblem) {
         this.cables.clear();
         for (const [id, c] of this.dragSnapshot.cables) this.cables.set(id, { ...c });
