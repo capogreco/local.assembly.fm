@@ -379,14 +379,14 @@ function laptopSink(id: number) {
   };
 }
 
-export function replayLaptop(): void {
-  for (const msg of laptopLatest.values()) emit(msg, "laptop", { replay: true });
-}
-
-// A joining phone gets the last value of every broadcast router channel,
-// after its deploy (the caller sends the deploy first).
-export function replayToPhone(clientId: number): void {
-  for (const msg of latestValues.values()) emit(msg, clientId, { replay: true });
+// Replay the stored values to a client that has just been sent its deploy
+// (the caller sends the deploy first): a joining phone gets the last value of
+// every broadcast router channel (latestValues), a (re)connecting ctrl page
+// the last value of every laptop inlet. Both stores are cleared together, in
+// buildServerGraph, before the initial values propagate.
+export function replay(to: number | "laptop"): void {
+  const stored = to === "laptop" ? laptopLatest : latestValues;
+  for (const msg of stored.values()) emit(msg, to, { replay: true });
 }
 
 // Display: a box shows what leaves its outlet 0. Sources that show something
@@ -426,6 +426,7 @@ export function buildServerGraph(): void {
     else if (isAudioBox(box.text)) sinks.set(id, laptopSink(id));
   }
   const graphCables = [...cables.values()].filter((c) => ids.has(c.srcBox) && ids.has(c.dstBox));
+  latestValues.clear();
   laptopLatest.clear();
   graph = null; // a build that throws leaves no graph, not the old one
   metroIds = [];

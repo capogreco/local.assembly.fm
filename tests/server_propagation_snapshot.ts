@@ -41,7 +41,7 @@ function resetCapture(): void {
 
 import {
   initEvalEngine, buildServerGraph, serverGraph, injectValue, injectEvent, setSourceValue,
-  replayLaptop, replayToPhone, tick,
+  replay, tick,
 } from "../eval-engine.ts";
 
 initEvalEngine({
@@ -349,7 +349,7 @@ const cases: Case[] = [
       addCable(2, 3, 0, 4, 0);
       buildServerGraph();
       injectEvent(3, 0); // as an event-click
-      replayLaptop();
+      replay("laptop");
     },
   },
 
@@ -375,7 +375,7 @@ const cases: Case[] = [
       if (r.errors.length > 0) throw new Error(r.errors.join("; "));
       buildServerGraph();
       ticks(13); // metro 0.05: one fire at 12/240 s
-      replayLaptop();
+      replay("laptop");
       // Only the laptop's messages: the rest of panharmonium is covered elsewhere.
       capture = { ...capture, ctrlSends: capture.ctrlSends.filter((m) => m.type === "rv" || m.type === "re"), synthBroadcasts: [], clientSends: [] };
     },
@@ -392,7 +392,7 @@ const cases: Case[] = [
       addCable(2, 1, 0, 3, 0);
       buildServerGraph();
       resetCapture();
-      replayToPhone(104);
+      replay(104);
     },
   },
 

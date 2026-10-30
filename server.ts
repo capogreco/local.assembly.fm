@@ -4,12 +4,12 @@ import {
   getPatchNextId, setPatchNextId,
   getBorderY, setBorderY,
   getDeployedPatch, setDeployedPatch, getLaptopPatch, setLaptopPatch,
-  routerState, groupState, latestValues, uplinkIndex,
+  routerState, groupState, uplinkIndex,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
   initEvalEngine, startEvalEngine, buildGroups,
-  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replayLaptop, replayToPhone,
+  buildServerGraph, injectValue, injectEvent, setSourceValue, setToggle, replay,
   evaluateAllClients,
   findBoxByText, CC_SOURCE, queueValueUpdate, sideStamped,
 } from "./eval-engine.ts";
@@ -230,7 +230,6 @@ function handleApply(msg: any): void {
 
 function deployPatch(): void {
   setDeployedPatch(serializeSynthPatch());
-  latestValues.clear();
   // rebuild uplink channel index
   uplinkIndex.clear();
   for (const [id, box] of boxes) {
@@ -290,7 +289,7 @@ function handleCtrlWs(req: Request): Response {
     // The replay goes to every ctrl socket; setting a param again is harmless.
     if (getLaptopPatch()) {
       socket.send(JSON.stringify(getLaptopPatch()));
-      replayLaptop();
+      replay("laptop");
     }
   });
 
@@ -397,7 +396,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
     if (getDeployedPatch()) {
       socket.send(JSON.stringify(getDeployedPatch()));
-      replayToPhone(id);
+      replay(id);
     }
     broadcastClientCount();
   });
