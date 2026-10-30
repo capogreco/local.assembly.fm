@@ -273,7 +273,10 @@ async function loadPatchForVoice(voice, patch) {
     // Create all engines and effects (unconnected). One engine failing to load
     // (e.g. addModule rejecting) shouldn't cost us the rest of the patch.
     const unbuilt = [];
+    // dac~ has no engine: buildAudioTopology wires it as the output.
+    const dacIds = new Set(patch.boxes.filter((b) => b.dac).map((b) => b.id));
     for (const [id, def] of voice.graph.engines) {
+      if (dacIds.has(id)) continue;
       try {
         const engine = await createEngine(def.type, def.args);
         if (engine) {
