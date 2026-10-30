@@ -2373,3 +2373,42 @@ laptop side.
   `HOST_DOMAIN` override is silently dropped. It doesn't matter while the
   default is right.
 - The laptop's legacy `/opt/homebrew/etc/dnsmasq.d/assembly.conf`.
+
+## 2026-10-30 (late) — groups that do different things, for the_fold
+
+Built for `patches/the_fold.json`: four pizz groups started from pads at
+their own periods, plus one arco group played from the keyboard.
+
+- **metro restarts when switched on** (`591dd4e`). On an off→on edge at inlet
+  0, the cycle restarts and it fires on the next tick, so a pad press plucks
+  at once. A period change while running doesn't reset it. One side effect:
+  patches that switch a metro on with `const 1` at load now fire on the first
+  tick.
+- **Stable groups and group replay** (`2350621`). Before, every join or leave
+  reshuffled every phone into random groups, and phones were never sent their
+  new group's value. Now a joiner goes into the smallest group, nobody else
+  moves, and a leaver is removed with no rebalancing. Each group channel's
+  latest value is replayed to a phone that joins or is moved by a shuffle.
+  That extends D3 on its own reasoning: a group value belongs to that group's
+  phones.
+- **Group index outlet and weights** (`2b42f3a`; Fable design review, options
+  B + weights).
+  - `group` has a second phone-side outlet with the phone's 0-based group
+    index, sent at the build, on join and after a shuffle.
+  - `group w0 w1 …` sizes the groups in proportion to the weights.
+  - One `groupArgs` parse is shared by the editor, apply and the server, and
+    bad args reject the apply.
+  - Groups are now partitioned when the server graph builds.
+  - It replaces the sign-encoding trick (`const -1` = arco).
+- **A cabled value reaches `adsr~`'s gate** (`5591295`). The arco was silent
+  because `* hot` → `adsr~` gate was dropped: the cable path let only events
+  into message ports. The same value from a router got through, so the two
+  paths disagreed. Number-typed message ports (only `adsr~`'s gate) now take
+  values over cables. Triggers are unchanged. Found by simulating the phone
+  graph on the deployed patch, with `serializeSynthPatch` →
+  `buildGraph` → `processRouterValue`.
+
+Parked for after the gig:
+- group-scoped routers (design C: `all @fold:4`, `assign @fold:4`);
+- the router/cable mismatch for triggers;
+- root-owned patch saves.

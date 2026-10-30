@@ -75,7 +75,7 @@ Patch fixes made during testing (committed):
   smallest `length / weight` (lowest index on a tie), a leaver is removed, and
   no one else moves. Only the shuffle inlet repartitions; after it every phone
   is sent its new index and its new group's latest value.
-- **Groups (branch `group-index-weights`).** `group N` is N equal groups;
+- **Groups.** `group N` is N equal groups;
   `group w0 w1 …` (two or more args) is one group per weight, sized in
   proportion. Bad args (no arg, a count that isn't a whole number ≥ 1, a
   weight that isn't a positive number) reject the apply. `groupArgs` in
@@ -90,6 +90,12 @@ Patch fixes made during testing (committed):
   page. The server's 240 Hz tick stays as the evaluation clock, and the
   metro-phase display comes from the metro's state. The tick paradigm itself is
   still an open question.
+- **Metro restart.** When metro inlet 0 goes from off (undefined, ≤0) to on
+  (>0), the cycle restarts and it fires on the next tick. A new value while it
+  is running doesn't reset it.
+- **Engine message ports.** A cabled value reaches a message port only if the
+  port's inlet is number-typed. The only one is `adsr~`'s gate (>0 opens, 0
+  closes). Event-typed ports (triggers) are fired by events only.
 - **Phone semantics win:** `phasor once` stays finished, `delay` fires once,
   `seq` inlet 1 takes a string.
 - **Side rule.** A bound box (one/many) must sit wholly on its side, and
@@ -124,12 +130,36 @@ Patch fixes made during testing (committed):
 
 ## Next and parked
 
-- **Next:** Thomas designs the instrument for the 2026-10-31 performance.
+- **Next:** Thomas finishes `patches/the_fold.json` for the 2026-10-31
+  performance, at the airport. It is wired and simulated, but not yet heard:
+  - `group 2 1 1 1 1`: group 0 is arco (double weight) and gets `const 0` so
+    its metro stays off. Groups 1–4 are pizz.
+  - Pads 40–43 toggle pizz groups 1–4 at periods 0.222/0.333/0.5/0.75, and
+    pad 39 stops all pizz.
+  - Arco: `key 1` → `pad` → `mtof` and `held` count → `all 2`, into `adsr~` →
+    `cute-sine~` on every phone. Group outlet 1 → `== 0` → `* 0.3` → `sig~`
+    → `*~` sets the arco level, so only arco phones are heard.
+  - Arco is mono unison (the last key pressed).
+  - Server and editor need a restart and a reload from disk to pick up
+    tonight's commits.
 - **After the gig:**
   - merge to main;
   - per-voice ensemble viewport tiles (see `network-and-modes.md`, Rung 0a);
   - the ctrl.js auto-create side fix;
-  - the Bun swap.
+  - the Bun swap;
+  - **group-scoped routers** (Fable's design C): name a partition
+    (`group 5 fold`) and target it (`all @fold:4`, `assign @fold:4`), for
+    polyphonic arco across only the arco phones, with no gating;
+  - **router vs cable mismatch for triggers:** `processRouterValue`
+    (`public/graph.js` ~280) writes a value into an event-typed trigger, but a
+    cable drops it. Make the two paths agree;
+  - **patches saved from the editor are root-owned**, because the server runs
+    under sudo, so they can't be edited directly afterwards;
+  - the `run_deno` sudo line passes only `MODE` (a `HOST_DOMAIN` override is
+    dropped);
+  - delete the legacy `/opt/homebrew/etc/dnsmasq.d/assembly.conf`;
+  - the `group` help text in `gpi-types.js` was written by an agent, for
+    Thomas to rewrite.
 - **Network (updated 2026-10-30, evening).** The Beryl AX is configured and
   working on the laptop side. The setup is in `dev_log.md` (2026-10-30), and
   the `local.tamb.fm` cert is issued. It hasn't been tested with phones or
