@@ -352,6 +352,20 @@ const cases: Case[] = [
     },
   },
 
+  {
+    name: "replay to joiners: all and sall values only (D3)",
+    run: () => {
+      reset();
+      addBox(1, "knob 0.5");
+      addBox(2, "all 1", 0, 389);
+      addBox(3, "one", 0, 389);
+      addBox(4, "sweep", 0, 389);
+      addBox(5, "sall x", 0, 389);
+      for (const [c, r] of [[1, 2], [2, 3], [3, 4], [4, 5]]) addCable(c, 1, 0, r, 0);
+      buildServerGraph();
+    },
+  },
+
   // === the tick and the phone semantics ===
   {
     name: "tick: metro fires once per interval",

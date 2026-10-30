@@ -761,6 +761,92 @@
     "groupState": {},
     "latestValues": {}
   },
+  "replay to joiners: all and sall values only (D3)": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [
+        {
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 0.5
+        },
+        {
+          "type": "rv",
+          "r": 5,
+          "ch": 0,
+          "v": 0.5
+        }
+      ],
+      "clientSends": [
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 3,
+            "ch": 0,
+            "v": 0.5
+          }
+        },
+        {
+          "clientId": 101,
+          "msg": {
+            "type": "rv",
+            "r": 4,
+            "ch": 0,
+            "v": 0.5
+          }
+        }
+      ],
+      "events": []
+    },
+    "boxValues": {
+      "1": 0.5
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          0.5
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [
+          0.5
+        ],
+        "state": null
+      },
+      "4": {
+        "inletValues": [
+          0.5
+        ],
+        "state": null
+      },
+      "5": {
+        "inletValues": [
+          0.5
+        ],
+        "state": null
+      }
+    },
+    "routerState": {
+      "3": {
+        "index": 1
+      },
+      "4": {
+        "index": 1
+      }
+    },
+    "groupState": {},
+    "latestValues": {
+      "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":0.5}",
+      "5:0": "{\"type\":\"rv\",\"r\":5,\"ch\":0,\"v\":0.5}"
+    }
+  },
   "tick: metro fires once per interval": {
     "capture": {
       "ctrlSends": [],

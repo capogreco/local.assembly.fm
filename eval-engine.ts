@@ -206,7 +206,9 @@ function routerDispatch(routerBoxId: number, msg: Record<string, unknown>, opts:
   if (!box) return;
   const routerType = boxTypeName(box.text);
 
-  if (opts.storeLatest) {
+  // Only a broadcast is replayed to a joining phone: a `one`/`sweep` value was
+  // meant for one phone (D3). sall stores its own.
+  if (opts.storeLatest && routerType === "all") {
     latestValues.set(routerBoxId + ":" + (msg.ch || 0), JSON.stringify(msg));
   }
 
