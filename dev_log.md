@@ -2316,3 +2316,60 @@ scheme *first*.
   (`eval-engine.ts:631-633`) and returns early on an empty one, so
   phones joining between chords hold no voice until the next chord.
   Not a bug, but it reads as one under pressure.
+
+## 2026-10-30 — Beryl AX bring-up for the 2026-10-31 gig
+
+The GL.iNet Beryl AX (GL-MT3000) replaces the Fritzbox + GS305PP + two U6+
+for the show. It's brought up on the gig MBP and working end to end on the
+laptop side.
+
+### What it took
+
+- **The cert was missing.** `HOST_DOMAIN` defaults to `local.tamb.fm`, but
+  the only Let's Encrypt lineage was `local.assembly.fm`. The repo `cert.pem`
+  (also `local.assembly.fm`) had expired on 2026-06-16, so performance mode
+  would have fallen through to it and exited. Issued `local.tamb.fm` with
+  `./start-macos.sh renew` (DNS-01, TXT at Namecheap).
+- **Router settings.**
+  - SSID and key `tambourine` on both bands, WPA2 only.
+  - 5 GHz on channel 36 at 80 MHz, with 160 MHz off: 160 MHz reaches into the
+    DFS channels 52–64, and a radar event would silence the radio for about
+    a minute. 2.4 GHz at 20 MHz.
+  - TX power at max.
+  - LAN moved to `192.168.178.1/24`.
+  - DNS mode Automatic (not Encrypted), override DNS for all clients on.
+  - The hijack over SSH: `uci add_list dhcp.@dnsmasq[0].address='/#/192.168.178.24'`
+    with `rebind_protection=0`.
+    `dig @192.168.178.1 captive.apple.com` → `192.168.178.24`.
+- **The laptop joins by wire only.** The Beryl's USB-C port is power and its
+  USB-A port is for modems. Laptop → USB-Ethernet dongle (`en5`) → a LAN
+  port; the start script forces `.24`.
+- **A stale server.** A performance server from 2026-10-17 was still holding
+  ports 80 and 443, so `Deno.serve` threw AddrInUse.
+
+### Changes
+
+- **The banner's ctrl and ensemble links work on the laptop.** In
+  performance mode they now print `https://127.0.0.1/…`. The laptop can't
+  resolve `local.tamb.fm`: the static-IP swap leaves the dongle with no DNS
+  servers. `synth:` and the QR stay on `local.tamb.fm` for phones. The
+  separate `op:` line is gone, so cmd+click on the banner just works (after
+  the one-time cert warning).
+- **Deploy baseline re-captured.** `845823f` changed `epimetheus.json` but
+  never re-saved `tests/deploy_baseline.json`. The only differences are
+  `screen 10` → `screen` and the `touch` 1/2 → `sendup` cables. All four
+  suites pass.
+- **Friction noted** in `notes/openwrt-router.md`: router setup needed an
+  agent at every step and must not. The fix will be automation (a
+  `router-setup` script plus a preflight/doctor command), scaffolding (a
+  printed click-through and a config backup), or both.
+
+### Still open
+
+- The phone test: join by QR on iOS and Android, padlock, sound, still joined
+  after a 30 s lock.
+- The phone-side checks in `notes/handoff.md`.
+- `start-macos.sh` `run_deno` passes only `MODE` through sudo, so a
+  `HOST_DOMAIN` override is silently dropped. It doesn't matter while the
+  default is right.
+- The laptop's legacy `/opt/homebrew/etc/dnsmasq.d/assembly.conf`.

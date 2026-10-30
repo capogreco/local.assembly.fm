@@ -114,10 +114,12 @@ Patch fixes made during testing (committed):
   - per-voice ensemble viewport tiles (see `network-and-modes.md`, Rung 0a);
   - the ctrl.js auto-create side fix;
   - the Bun swap.
-- **Network.** Bringing the GL.iNet Beryl AX instead of the Fritzbox, GS305PP
-  and two U6+ is under consideration. The estimate is 30–60 phones comfortably;
-  it's untested for this setup. Check the subnet vs the laptop's static IP, DNS
-  for `local.tamb.fm`, and SSID/QR before relying on it. See
-  `network-and-modes.md` and `openwrt-router.md`.
+- **Network (updated 2026-10-30, evening).** The Beryl AX is configured and
+  working on the laptop side. The setup is in `dev_log.md` (2026-10-30), and
+  the `local.tamb.fm` cert is issued. It hasn't been tested with phones or
+  load yet, so bring the old rig as a backup. In performance mode the banner's
+  ctrl and ensemble links are `https://127.0.0.1/…`, which is what works on
+  the laptop. See `network-and-modes.md` and `openwrt-router.md`, including the
+  friction note there.
 - **Parked:** laptop DNS decoupling, salvaged network hardware, and the 240 Hz
   tick paradigm.
