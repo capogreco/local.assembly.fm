@@ -462,7 +462,12 @@
     "routerState": {},
     "groupState": {},
     "latestValues": {
-      "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":440}"
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 440
+      }
     }
   },
   "* hot recompute and propagate": {
@@ -579,7 +584,12 @@
     "routerState": {},
     "groupState": {},
     "latestValues": {
-      "3:1": "{\"type\":\"rv\",\"r\":3,\"ch\":1,\"v\":99}"
+      "3:1": {
+        "type": "rv",
+        "r": 3,
+        "ch": 1,
+        "v": 99
+      }
     }
   },
   "one 1 fed by one outlet on data and fire: data lands first": {
@@ -704,7 +714,12 @@
     "routerState": {},
     "groupState": {},
     "latestValues": {
-      "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":3}"
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 3
+      }
     }
   },
   "one-side audio: params and events go to the laptop, params replay": {
@@ -843,8 +858,18 @@
     },
     "groupState": {},
     "latestValues": {
-      "2:0": "{\"type\":\"rv\",\"r\":2,\"ch\":0,\"v\":0.5}",
-      "5:0": "{\"type\":\"rv\",\"r\":5,\"ch\":0,\"v\":0.5}"
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 0.5
+      },
+      "5:0": {
+        "type": "rv",
+        "r": 5,
+        "ch": 0,
+        "v": 0.5
+      }
     }
   },
   "panharmonium: laptop gets minHz and max at build, trigger on the metro, replay": {
@@ -1071,7 +1096,12 @@
     "routerState": {},
     "groupState": {},
     "latestValues": {
-      "63:0": "{\"type\":\"rv\",\"r\":63,\"ch\":0,\"v\":2}"
+      "63:0": {
+        "type": "rv",
+        "r": 63,
+        "ch": 0,
+        "v": 2
+      }
     }
   },
   "tick: metro fires once per interval": {

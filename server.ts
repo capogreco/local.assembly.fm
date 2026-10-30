@@ -397,7 +397,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
     socket.send(JSON.stringify({ type: "welcome", id, clients: totalSynthClients() }));
     if (getDeployedPatch()) {
       socket.send(JSON.stringify(getDeployedPatch()));
-      for (const data of latestValues.values()) socket.send(data);
+      for (const msg of latestValues.values()) socket.send(JSON.stringify(msg));
     }
     broadcastClientCount();
   });

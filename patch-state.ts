@@ -54,7 +54,9 @@ export function setLaptopPatch(v: Record<string, any> | null): void { _laptopPat
 
 export const routerState = new Map<number, { index: number; order?: number[]; storedValues?: Record<number, unknown> }>();
 export const groupState = new Map<number, number[][]>();
-export const latestValues = new Map<string, string>();
+// Last rv per broadcast router channel ("routerId:ch"), replayed to a joining
+// phone. Events are never stored: a replayed re would fire on join.
+export const latestValues = new Map<string, Record<string, unknown>>();
 export const uplinkIndex = new Map<string, Array<{ boxId: number; outletIndex: number }>>();
 
 // Per-`assign` box state: clientIdx → assigned note. lastNotes used to detect changes.
