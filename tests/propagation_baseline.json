@@ -855,6 +855,60 @@
       "uplinkQueue": []
     }
   },
+  "buildGraph hooks see the initial values": {
+    "result": {
+      "log": [
+        [
+          "out",
+          1,
+          0,
+          "value",
+          3
+        ],
+        [
+          "out",
+          2,
+          0,
+          "value",
+          4
+        ],
+        [
+          "sink",
+          0,
+          "value",
+          4
+        ]
+      ],
+      "hasSinks": true,
+      "plainHasSinks": false
+    },
+    "state": {
+      "boxes": {
+        "1": {
+          "type": "const",
+          "inletValues": [],
+          "state": {
+            "value": 3
+          }
+        },
+        "2": {
+          "type": "+",
+          "inletValues": [
+            3
+          ],
+          "state": null
+        },
+        "3": {
+          "type": "all",
+          "inletValues": [
+            4
+          ],
+          "state": null
+        }
+      },
+      "uplinkQueue": []
+    }
+  },
   "D1: metro → spigot open (forwards event) → counter": {
     "result": {},
     "state": {

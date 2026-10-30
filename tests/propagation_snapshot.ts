@@ -51,6 +51,18 @@ function freezeGraphState(graph: any) {
 
 // --- Test cases ---
 
+const HOOKS_PATCH = buildPatch(
+  [
+    { id: 1, type: "const", args: "3", text: "const 3" },
+    { id: 2, type: "+", args: "1", text: "+ 1" },
+    { id: 3, type: "all", args: "1", text: "all 1" },
+  ],
+  [
+    { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 },
+    { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 },
+  ],
+);
+
 const cases: Case[] = [
   // === propagateValue cases ===
   {
@@ -455,6 +467,20 @@ const cases: Case[] = [
       graph.onOutput = (boxId: number, outlet: number, kind: string, value: any) => log.push([boxId, outlet, kind, value]);
       g.propagateValue(graph, 1, 0, 5);
       return log;
+    },
+  },
+
+  {
+    name: "buildGraph hooks see the initial values",
+    patch: HOOKS_PATCH,
+    run: (graph) => {
+      // The case's own graph is built without hooks; build a second one with them.
+      const log: any[] = [];
+      const hooked = g.buildGraph(withInletDefs(HOOKS_PATCH), {
+        sinks: new Map([[3, (inlet: number, kind: string, value: any) => log.push(["sink", inlet, kind, value])]]),
+        onOutput: (boxId: number, outlet: number, kind: string, value: any) => log.push(["out", boxId, outlet, kind, value]),
+      });
+      return { log, hasSinks: hooked.sinks instanceof Map, plainHasSinks: "sinks" in graph };
     },
   },
 

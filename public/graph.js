@@ -25,7 +25,10 @@ function disableGraphDebug() { graphDebug = false; }
 
 // --- Graph ---
 
-function buildGraph(patch) {
+// `hooks` ({ sinks, onOutput }, server only; see deliverEventToInlet in
+// graph-core.js) are attached before the initial values propagate, so those
+// reach them too. Phones pass none.
+function buildGraph(patch, hooks = {}) {
   const graph = {
     boxes: new Map(),
     entries: new Map(),
@@ -33,6 +36,8 @@ function buildGraph(patch) {
     wireless: new Map(),    // name -> { sends: [boxId], receives: [boxId], throws: [boxId], catches: [boxId] }
     uplinkQueue: [],        // collected { ch, v } messages for sendup → server
   };
+  if (hooks.sinks) graph.sinks = hooks.sinks;
+  if (hooks.onOutput) graph.onOutput = hooks.onOutput;
 
   for (const box of patch.boxes) {
     // Port types per inlet (deployInletDefs in gpi-types.js): phones don't load
