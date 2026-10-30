@@ -396,6 +396,23 @@ const cases: Case[] = [
     },
   },
 
+  {
+    name: "sall feeding its own r is stopped and reported, not looped for ever",
+    run: () => {
+      reset();
+      addBox(1, "knob 0");
+      addBox(2, "sall loop", 0, 389);
+      addBox(3, "r loop");
+      addBox(4, "+ 1");
+      addCable(1, 1, 0, 2, 0);
+      addCable(2, 3, 0, 4, 0);
+      addCable(3, 4, 0, 2, 0);
+      buildServerGraph();
+      // A thousand broadcasts went out before the cap; keep the count, not the messages.
+      capture = { ...capture, synthBroadcasts: [{ count: capture.synthBroadcasts.length }] };
+    },
+  },
+
   // === the tick and the phone semantics ===
   {
     name: "tick: metro fires once per interval",

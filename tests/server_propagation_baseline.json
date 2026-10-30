@@ -1159,6 +1159,62 @@
       }
     }
   },
+  "sall feeding its own r is stopped and reported, not looped for ever": {
+    "capture": {
+      "ctrlSends": [
+        {
+          "type": "errors",
+          "errors": [
+            "evaluation error: feedback loop: sink deliveries still pending after 1000 rounds (a sall feeding its own r?)"
+          ]
+        }
+      ],
+      "synthBroadcasts": [
+        {
+          "count": 1000
+        }
+      ],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 0,
+      "3": 999,
+      "4": 1000
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": null
+      },
+      "2": {
+        "inletValues": [
+          1000
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": null
+      },
+      "4": {
+        "inletValues": [
+          999
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 999
+      }
+    }
+  },
   "tick: metro fires once per interval": {
     "capture": {
       "ctrlSends": [],

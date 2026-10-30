@@ -289,6 +289,8 @@ let depth = 0;
 
 // Every evaluation (tick, input, build) runs in a batch, so the outermost one
 // is where a throw is caught: reported, and the server keeps running.
+const MAX_FLUSH_ROUNDS = 1000;
+
 function batch(fn: () => void): void {
   if (depth > 0) {
     depth++;
@@ -298,7 +300,11 @@ function batch(fn: () => void): void {
   depth++;
   try {
     fn();
+    let rounds = 0;
     while (pending.length > 0) {
+      // A sink that feeds itself (r x → … → sall x) would loop here for ever,
+      // blocking the tick and every socket.
+      if (++rounds > MAX_FLUSH_ROUNDS) throw new Error(`feedback loop: sink deliveries still pending after ${MAX_FLUSH_ROUNDS} rounds (a sall feeding its own r?)`);
       const due = pending;
       pending = [];
       for (const d of due) if (!d.event) d.run();
