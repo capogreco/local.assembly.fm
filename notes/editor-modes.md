@@ -39,3 +39,8 @@ so a performer could edit mid-show without switching modes. Its costs:
 
 - A Max-style presentation mode: a second layout of the same patch, for
   playing. Separate question; revisit once edit and run exist.
+- **The abstraction workflow** (flagged by Thomas, 2026-11-06): needs rethinking
+  as a whole: creating, editing, saving, and how a saved abstraction's port
+  changes reach boxes already in a running patch. For now, run mode blocks
+  Shift+N (new abstraction). The abstraction editor and the help popup always
+  stay in edit mode.
