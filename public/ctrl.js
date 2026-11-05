@@ -7,7 +7,7 @@
  */
 
 import { boxTypeName, boxBinding, getBoxPorts } from "./gpi-types.js";
-import { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef } from "./patch-editor.js";
+import { PatchEditor, platformMod, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef } from "./patch-editor.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
 
 // DOM elements
@@ -417,12 +417,15 @@ const mainEditor = new PatchEditor(canvas, {
   onOpenAbstraction: (text) => openAbstractionForEdit(text),
   onDirty: () => {},
   renderOverlay: (ctx, w, h) => {
-    // Status label
+    // Status label, then the editor mode beside it
     ctx.font = SMALL_FONT;
     ctx.textBaseline = "top";
-    if (mainEditor.dirty) { ctx.fillStyle = "#865"; ctx.fillText("modified", 12, 8); }
-    else if (mainEditor.applied) { ctx.fillStyle = "#686"; ctx.fillText("applied", 12, 8); }
-    else { ctx.fillStyle = "#555"; ctx.fillText("edit", 12, 8); }
+    const status = mainEditor.dirty ? "modified" : mainEditor.applied ? "applied" : "unapplied";
+    ctx.fillStyle = mainEditor.dirty ? "#865" : mainEditor.applied ? "#686" : "#555";
+    ctx.fillText(status, 12, 8);
+    const modeX = 12 + ctx.measureText(status).width + 12;
+    ctx.fillStyle = mainEditor.editorMode === "run" ? "#aaa" : "#555";
+    ctx.fillText(mainEditor.editorMode, modeX, 8);
 
     // Patch name
     if (currentPatchName) {
@@ -612,9 +615,17 @@ window.addEventListener("message", async (e) => {
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && helpPopup) { closeHelpPopup(); return; }
+  // Cmd+E (Ctrl+E off macOS): toggle edit/run. Commits a box being typed into.
+  if (platformMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+    e.preventDefault();
+    mainEditor.toggleEditorMode();
+    return;
+  }
   if (mainEditor.mode === "text-editing") return;
+  if (e.key === "Meta" || e.key === "Control") refreshHoverCursor(e);
+  const editing = mainEditor.editorMode === "edit";
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); mainEditor.undo(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); if (editing) mainEditor.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "c") {
     e.preventDefault();
     if (mainEditor.selection.size === 0) return;
@@ -635,6 +646,7 @@ window.addEventListener("keydown", (e) => {
   }
   if ((e.metaKey || e.ctrlKey) && e.key === "v") {
     e.preventDefault();
+    if (!editing) return;
     const clip = localStorage.getItem("clipboard");
     if (!clip) return;
     const clipData = JSON.parse(clip);
@@ -671,7 +683,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "N" && !e.metaKey && !e.ctrlKey && e.shiftKey) { e.preventDefault(); newAbstraction(); return; }
   if (e.key === "o" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); loadPatch(); return; }
   if (e.key === "p" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); fetch("/patches/reveal", { method: "POST" }); return; }
-  if (e.key === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); mainEditor.pushUndo(); mainEditor.boxes.clear(); mainEditor.cables.clear(); mainEditor.selection.clear(); mainEditor.cableSelection.clear(); mainEditor.nextId = 1; mainEditor.dirty = true; mainEditor.onDirty(); mainEditor.resetView(); currentPatchName = null; mainEditor.render(); return; }
+  if (e.key === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!editing) return; mainEditor.pushUndo(); mainEditor.boxes.clear(); mainEditor.cables.clear(); mainEditor.selection.clear(); mainEditor.cableSelection.clear(); mainEditor.nextId = 1; mainEditor.dirty = true; mainEditor.onDirty(); mainEditor.resetView(); currentPatchName = null; mainEditor.render(); return; }
   if (e.key === "h" && mainEditor.selection.size === 1) {
     e.preventDefault();
     const boxId = [...mainEditor.selection][0];
@@ -695,9 +707,17 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keyup", (e) => {
   if (e.key === " ") {
     mainEditor.spaceHeld = false;
-    if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = "default";
+    if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = mainEditor.hoverCursor(mainEditor.mousePos, platformMod(e));
   }
+  if (e.key === "Meta" || e.key === "Control") refreshHoverCursor(e);
 });
+
+// Holding Cmd/Ctrl in edit mode turns a press into a run press: show it under
+// the resting pointer without waiting for the mouse to move.
+function refreshHoverCursor(e) {
+  if (mainEditor.mode !== "idle" || mainEditor.spaceHeld || mainEditor.isPanning) return;
+  mainEditor.canvas.style.cursor = mainEditor.hoverCursor(mainEditor.mousePos, platformMod(e));
+}
 
 // --- WebSocket ---
 
@@ -803,6 +823,7 @@ async function loadPatch() {
   if (!patchRes.ok) { console.error("Not found:", resolved); return; }
   mainEditor.pushUndo();
   mainEditor.load(await patchRes.text());
+  mainEditor.setEditorMode("edit");  // a loaded patch opens in edit mode
   currentPatchName = resolved;
   mainEditor.dirty = true;
   console.log("Loaded:", resolved, "— Cmd+Enter to apply");
