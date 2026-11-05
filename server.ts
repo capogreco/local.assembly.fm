@@ -35,7 +35,7 @@ const LE_KEY = `/etc/letsencrypt/live/${HOST_DOMAIN}/privkey.pem`;
 const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourin";
 const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourin";
 
-// --- Run mode ---
+// --- Network mode (practice / workshop / performance) ---
 // One explicit switch drives bind host, ports, cert policy, captive portal and
 // dnsmasq expectations. Tracks *who the audience is*, not where it runs.
 // See notes/network-and-modes.md.

@@ -1,7 +1,7 @@
 # Network, modes, and hardware
 
 > Design note for the lines release. Defines what "hardware-agnostic" actually
-> means for this project, names the three run modes, and records the hardware
+> means for this project, names the three network modes, and records the hardware
 > tiers. Pairs with the `MODE` table in `server.ts` and `start-macos.sh`
 > (implemented — this doc is the spec it satisfies).
 
@@ -18,7 +18,7 @@
   audience phones on the network.
 
 Conflating them is the trap. The two contracts are documented separately below,
-and the three run modes exist precisely so the heavyweight trust requirements
+and the three network modes exist precisely so the heavyweight trust requirements
 are quarantined to the one mode that actually needs them.
 
 ---
@@ -73,7 +73,7 @@ briefly tether the laptop) before load-in. This risk is isolated to
 
 ---
 
-## The three modes
+## The three network modes
 
 One explicit `MODE` switch replaces today's split-brained inference (cert-file
 presence + `start-macos.sh` subcommand). The modes track *who the audience is*,
