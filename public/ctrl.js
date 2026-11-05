@@ -414,6 +414,7 @@ const mainEditor = new PatchEditor(canvas, {
   tooltipEl: tooltipEl,
   onSend: (msg) => send(msg),
   onError: (lines) => notify(lines),
+  onEditorMode: (mode) => { if (mode === "edit") flushPendingSources(); },
   onOpenAbstraction: (text) => openAbstractionForEdit(text),
   onDirty: () => {},
   renderOverlay: (ctx, w, h) => {
@@ -841,6 +842,10 @@ async function loadPatch() {
 const MIDI_DEVICES = [{ match: ["bbc", "tecontrol", "breath controller"], sources: ["breath", "bite", "nod", "tilt"] }];
 const MIDI_IGNORE = ["af16rig"];
 
+// Devices plugged in during run mode. Run mode never edits the patch, so
+// their source boxes wait for the next switch to edit mode.
+const pendingSourceDevices = new Set();
+
 function autoCreateSources(deviceName) {
   const lower = deviceName.toLowerCase();
   if (MIDI_IGNORE.some(p => lower.includes(p))) return;
@@ -848,21 +853,38 @@ function autoCreateSources(deviceName) {
   let sources = null;
   for (const dev of MIDI_DEVICES) if (dev.match.some(p => lower.includes(p))) { sources = dev.sources; break; }
   if (!sources) return; // unknown device — don't auto-create boxes
+  if (mainEditor.editorMode !== "edit") { pendingSourceDevices.add(deviceName); return; }
 
-  let nextY = 30, created = false;
+  const existing = new Set([...mainEditor.boxes.values()].map((b) => b.text));
+  const missing = sources.filter((name) => !existing.has(name));
+  if (missing.length === 0) return;
+
+  // Stack below the lowest one-bound box. A box that would land off its side
+  // is snapped back by placeOnSide; once that happens the rest go in a row
+  // along the snapped line instead of piling on top of each other.
+  let x = 20, y = 30, inRow = false;
   for (const box of mainEditor.boxes.values()) {
-    if (boxBinding(box.text).binding === "one" && box.y + BOX_HEIGHT + 10 > nextY) nextY = box.y + BOX_HEIGHT + 10;
+    if (boxBinding(box.text).binding === "one" && box.y + BOX_HEIGHT + 10 > y) y = box.y + BOX_HEIGHT + 10;
   }
-  for (const name of sources) {
-    let found = false;
-    for (const box of mainEditor.boxes.values()) if (box.text === name) { found = true; break; }
-    if (found) continue;
+  mainEditor.pushUndo();
+  for (const name of missing) {
     const p = getPorts(name);
-    mainEditor.boxes.set(mainEditor.nextId++, { x: 20, y: nextY, text: name, inlets: p.inlets, outlets: p.outlets });
-    nextY += 60;
-    created = true;
+    const box = { x, y, text: name, inlets: p.inlets, outlets: p.outlets };
+    mainEditor.placeOnSide(box);
+    if (box.y !== y) { inRow = true; y = box.y; }
+    const id = mainEditor.nextId++;
+    mainEditor.boxes.set(id, box);
+    if (inRow) x += mainEditor.boxWidth(box, id) + 20;
+    else y += 60;
   }
-  if (created) { mainEditor.dirty = true; mainEditor.render(); }
+  mainEditor.render();
+}
+
+function flushPendingSources() {
+  const devices = [...pendingSourceDevices];
+  pendingSourceDevices.clear();
+  // A device unplugged while waiting has nothing to create.
+  for (const name of devices) if (midiDeviceNames.includes(name)) autoCreateSources(name);
 }
 
 function onMIDIMessage(e) {

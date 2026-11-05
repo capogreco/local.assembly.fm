@@ -172,6 +172,7 @@ class PatchEditor {
     this.renderOverlay = options.renderOverlay ?? (() => {});
     this.onSend = options.onSend ?? (() => {});
     this.onOpenAbstraction = options.onOpenAbstraction ?? (() => {});
+    this.onEditorMode = options.onEditorMode ?? (() => {});
 
     // Optional DOM elements
     this.tooltipEl = options.tooltipEl ?? null;
@@ -1161,6 +1162,7 @@ class PatchEditor {
     if (this.tooltipEl) this.tooltipEl.style.display = "none";
     this.canvas.style.cursor = this.spaceHeld ? "grab" : this.hoverCursor(this.mousePos, this.modHeld);
     this.render();
+    this.onEditorMode(next);
     return true;
   }
 
