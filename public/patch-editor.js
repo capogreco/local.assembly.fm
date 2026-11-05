@@ -18,6 +18,20 @@ const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 
+// --- editor modes ---
+
+// The platform's command key: Cmd on macOS, Ctrl elsewhere. Cmd+E toggles the
+// editor mode; holding it in edit mode uses a box as if in run mode (as in Pd).
+// Ctrl on macOS is the context-menu click, so it isn't the run modifier there.
+const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+function platformMod(e) { return IS_MAC ? e.metaKey : e.ctrlKey; }
+
+// Boxes that answer the pointer in run mode.
+const INTERACTIVE_TYPES = new Set(["toggle", "event", "fan", "knob"]);
+
+// Knob sensitivity: normalised units per screen pixel of vertical drag.
+const KNOB_DRAG_STEP = 0.005, KNOB_DRAG_STEP_FINE = 0.0005;
+
 // --- abstraction registry ---
 
 const abstractionTypes = new Map();
@@ -122,6 +136,11 @@ class PatchEditor {
     this.resizeSnapshot = null;
     this.mousePos = { x: 0, y: 0 };
     this.editingBoxId = null;
+    this.knobDrag = null;
+
+    // Editor mode: "edit" (select, move, cable, type) or "run" (the pointer
+    // plays interactive boxes). Local to this editor; never sent anywhere.
+    this.editorMode = "edit";
 
     // Layout
     this.borderY = options.borderY ?? canvas.height * 0.55;
@@ -914,14 +933,16 @@ class PatchEditor {
     this.ctx.scale(this.zoom, this.zoom);
     this.ctx.translate(-this.panX, -this.panY);
 
-    // Dot grid (cover visible area in patch space)
+    // Dot grid (cover visible area in patch space), edit mode only
     const visW = w / this.zoom, visH = h / this.zoom;
-    const gridStartX = Math.floor(this.panX / 20) * 20;
-    const gridStartY = Math.floor(this.panY / 20) * 20;
-    this.ctx.fillStyle = "#333";
-    for (let x = gridStartX; x < this.panX + visW; x += 20) {
-      for (let y = gridStartY; y < this.panY + visH; y += 20) {
-        this.ctx.fillRect(x, y, 1, 1);
+    if (this.editorMode === "edit") {
+      const gridStartX = Math.floor(this.panX / 20) * 20;
+      const gridStartY = Math.floor(this.panY / 20) * 20;
+      this.ctx.fillStyle = "#333";
+      for (let x = gridStartX; x < this.panX + visW; x += 20) {
+        for (let y = gridStartY; y < this.panY + visH; y += 20) {
+          this.ctx.fillRect(x, y, 1, 1);
+        }
       }
     }
 
@@ -1117,6 +1138,104 @@ class PatchEditor {
     this.ctx.restore();
   }
 
+  // --- Editor mode ---
+
+  // Switch between "edit" and "run". A box being typed into is committed
+  // first. Returns false (and stays put) while the mouse is mid-gesture.
+  setEditorMode(next) {
+    if (next !== "edit" && next !== "run") throw new Error(`unknown editor mode: ${next}`);
+    if (next === this.editorMode) return true;
+    if (this.mode === "text-editing") this.finishEditing(true);
+    if (this.mode !== "idle" || this.isPanning) return false;
+    this.editorMode = next;
+    if (next === "run") {
+      // As in Pd: nothing stays selected in run mode.
+      this.selection.clear();
+      this.cableSelection.clear();
+    }
+    if (this.tooltipEl) this.tooltipEl.style.display = "none";
+    this.canvas.style.cursor = this.spaceHeld ? "grab" : this.hoverCursor(this.mousePos, false);
+    this.render();
+    return true;
+  }
+
+  toggleEditorMode() {
+    return this.setEditorMode(this.editorMode === "edit" ? "run" : "edit");
+  }
+
+  // Whether a pointer event acts as run mode: in run mode, or Cmd/Ctrl held in edit.
+  isRunPress(e) {
+    return this.editorMode === "run" || platformMod(e);
+  }
+
+  isInteractive(boxId) {
+    const box = this.boxes.get(boxId);
+    return !!box && INTERACTIVE_TYPES.has(boxTypeName(box.text));
+  }
+
+  // Cursor for the pointer resting at patch point m (no gesture in progress).
+  hoverCursor(m, runPress) {
+    if (runPress || this.editorMode === "run") {
+      const id = this.hitTestBox(m.x, m.y);
+      if (id === null || !this.isInteractive(id)) return "default";
+      return boxTypeName(this.boxes.get(id).text) === "knob" ? "ns-resize" : "pointer";
+    }
+    if (this.hitTestBorderHandle(m.x, m.y)) return "ns-resize";
+    if (this.hitTestOutlet(m.x, m.y) || this.hitTestInlet(m.x, m.y)) return "crosshair";
+    return this.hitTestBox(m.x, m.y) !== null ? "move" : "default";
+  }
+
+  // --- Knob value (normalised 0-1 space, with the knob's curve) ---
+
+  knobArgs(box) {
+    const args = box.text.split(/\s+/).slice(1).map(Number);
+    return {
+      init: args[0] !== undefined ? args[0] : 0.5,
+      min: args[1] !== undefined ? args[1] : 0,
+      max: args[2] !== undefined ? args[2] : 1,
+      curve: args[3] || 1,
+    };
+  }
+
+  knobNorm(knobId) {
+    const { init, min, max, curve } = this.knobArgs(this.boxes.get(knobId));
+    const range = max - min;
+    const current = this.boxValues.get(knobId) ?? init;
+    return range !== 0 ? Math.pow(Math.max(0, Math.min(1, (current - min) / range)), 1 / curve) : 0;
+  }
+
+  setKnobNorm(knobId, norm) {
+    const { min, max, curve } = this.knobArgs(this.boxes.get(knobId));
+    const clamped = Math.max(0, Math.min(1, norm));
+    const value = min + Math.pow(clamped, curve) * (max - min);
+    this.boxValues.set(knobId, value);
+    this.onSend({ type: "knob", id: knobId, value });
+    this.render();
+  }
+
+  // --- Run-mode press: toggles and events fire on mousedown, knobs start a drag ---
+
+  _onRunPress(e, m) {
+    if (e.button !== 0) return;
+    const id = this.hitTestBox(m.x, m.y);
+    if (id === null || !this.isInteractive(id)) return;
+    const type = boxTypeName(this.boxes.get(id).text);
+    if (type === "toggle") {
+      const cur = this.boxValues.get(id) || 0;
+      const next = cur > 0 ? 0 : 1;
+      this.boxValues.set(id, next);
+      this.onSend({ type: "toggle-click", id, value: next });
+      this.render();
+    } else if (type === "event" || type === "fan") {
+      this.onSend({ type: "event-click", id });
+    } else if (type === "knob") {
+      e.preventDefault();
+      this.mode = "knob-dragging";
+      this.knobDrag = { id, lastY: e.clientY, norm: this.knobNorm(id) };
+      this.canvas.style.cursor = "ns-resize";
+    }
+  }
+
   // --- Text Editing ---
 
   startEditing(boxId) {
@@ -1195,6 +1314,11 @@ class PatchEditor {
       this.panStart = { x: e.clientX, y: e.clientY };
       this.panOrigin = { x: this.panX, y: this.panY };
       this.canvas.style.cursor = "grabbing";
+      return;
+    }
+
+    if (this.isRunPress(e)) {
+      this._onRunPress(e, m);
       return;
     }
 
@@ -1298,6 +1422,19 @@ class PatchEditor {
     const m = this.canvasCoords(e);
     this.mousePos = m;
 
+    if (this.mode === "knob-dragging") {
+      // The button came up off-canvas: end the drag rather than stick to it.
+      if (e.buttons === 0) { this._endKnobDrag(); return; }
+      // Vertical drag: up raises, Shift for fine. Incremental, so pressing or
+      // releasing Shift mid-drag doesn't make the value jump.
+      const step = e.shiftKey ? KNOB_DRAG_STEP_FINE : KNOB_DRAG_STEP;
+      const kd = this.knobDrag;
+      kd.norm = Math.max(0, Math.min(1, kd.norm - (e.clientY - kd.lastY) * step));
+      kd.lastY = e.clientY;
+      this.setKnobNorm(kd.id, kd.norm);
+      return;
+    }
+
     if (this.mode === "resizing-border") {
       const newY = Math.max(30, m.y);
       const oldY = this.borderY;
@@ -1380,13 +1517,14 @@ class PatchEditor {
     }
 
     // Update cursor and tooltip
-    if (this.hitTestBorderHandle(m.x, m.y)) {
-      this.canvas.style.cursor = "ns-resize";
+    const runPress = this.isRunPress(e);
+    if (!this.spaceHeld) this.canvas.style.cursor = this.hoverCursor(m, runPress);
+    if (!runPress && this.hitTestBorderHandle(m.x, m.y)) {
       if (this.tooltipEl) this.tooltipEl.style.display = "none";
     } else {
-      const o = this.hitTestOutlet(m.x, m.y);
-      const i = this.hitTestInlet(m.x, m.y);
-      this.canvas.style.cursor = (o || i) ? "crosshair" : this.hitTestBox(m.x, m.y) !== null ? "move" : "default";
+      // Ports can't be cabled in run mode, so only box tooltips show there.
+      const o = runPress ? null : this.hitTestOutlet(m.x, m.y);
+      const i = runPress ? null : this.hitTestInlet(m.x, m.y);
 
       const port = i || o;
       if (port) {
@@ -1436,6 +1574,11 @@ class PatchEditor {
       this.panStart = null;
       this.panOrigin = null;
       this.canvas.style.cursor = this.spaceHeld ? "grab" : "default";
+      return;
+    }
+
+    if (this.mode === "knob-dragging") {
+      this._endKnobDrag();
       return;
     }
 
@@ -1527,22 +1670,6 @@ class PatchEditor {
         this.render();
       } else if (moved) {
         this.pushUndo();
-      } else if (this.selection.size === 1) {
-        // click without drag — check for interactive boxes
-        const id = [...this.selection][0];
-        const box = this.boxes.get(id);
-        if (box) {
-          const type = boxTypeName(box.text);
-          if (type === "toggle") {
-            const cur = this.boxValues.get(id) || 0;
-            const next = cur > 0 ? 0 : 1;
-            this.boxValues.set(id, next);
-            this.onSend({ type: "toggle-click", id, value: next });
-            this.render();
-          } else if (type === "event" || type === "fan") {
-            this.onSend({ type: "event-click", id });
-          }
-        }
       }
       this.mode = "idle";
       this.dragStart = null;
@@ -1565,7 +1692,15 @@ class PatchEditor {
     }
   }
 
+  _endKnobDrag() {
+    this.mode = "idle";
+    this.knobDrag = null;
+    this.canvas.style.cursor = this.hoverCursor(this.mousePos, false);
+  }
+
   _onDblClick(e) {
+    // Run mode (or a Cmd-held run press in edit) never edits text or makes boxes.
+    if (this.isRunPress(e)) return;
     const m = this.canvasCoords(e);
     const boxId = this.hitTestBox(m.x, m.y);
     if (boxId !== null) {
@@ -1605,6 +1740,8 @@ class PatchEditor {
 
   onKeyDown(e) {
     if (this.mode === "text-editing") return false;
+    // Delete, nudge, Enter-to-edit, Tab-create, Escape: all edit-mode only.
+    if (this.editorMode === "run") return false;
 
     if (e.key === "Backspace" || e.key === "Delete") {
       if (this.selection.size > 0 || this.cableSelection.size > 0) {
@@ -1692,27 +1829,17 @@ class PatchEditor {
 
   _onWheel(e) {
     e.preventDefault();
-    // Check if scrolling over a knob box
-    const m = this.canvasCoords(e);
-    const knobId = this.hitTestBox(m.x, m.y);
-    if (knobId !== null) {
-      const box = this.boxes.get(knobId);
-      if (box && boxTypeName(box.text) === "knob") {
-        const args = box.text.split(/\s+/).slice(1).map(Number);
-        const min = args[1] !== undefined ? args[1] : 0;
-        const max = args[2] !== undefined ? args[2] : 1;
-        const curve = args[3] || 1;
-        const range = max - min;
-        const current = this.boxValues.get(knobId) ?? (args[0] !== undefined ? args[0] : 0.5);
-        // Work in normalised 0-1 space, apply curve
-        const norm = range !== 0 ? Math.pow(Math.max(0, Math.min(1, (current - min) / range)), 1 / curve) : 0;
+    // Scrolling over a knob sets it, in run mode only. Ctrl/meta wheel is
+    // zoom, and pinch-zoom arrives as a ctrl wheel, so those always zoom,
+    // even over a knob.
+    const zoomGesture = e.ctrlKey || e.metaKey;
+    if (this.editorMode === "run" && !zoomGesture) {
+      const m = this.canvasCoords(e);
+      const knobId = this.hitTestBox(m.x, m.y);
+      if (knobId !== null && boxTypeName(this.boxes.get(knobId).text) === "knob") {
         const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
         const step = e.shiftKey ? 0.0005 : 0.005;
-        const newNorm = Math.max(0, Math.min(1, norm - delta * step));
-        const newVal = min + Math.pow(newNorm, curve) * range;
-        this.boxValues.set(knobId, newVal);
-        this.onSend({ type: "knob", id: knobId, value: newVal });
-        this.render();
+        this.setKnobNorm(knobId, this.knobNorm(knobId) - delta * step);
         return;
       }
     }
@@ -1781,4 +1908,4 @@ class PatchEditor {
   }
 }
 
-export { PatchEditor, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };
+export { PatchEditor, platformMod, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };
