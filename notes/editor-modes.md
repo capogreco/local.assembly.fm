@@ -44,3 +44,9 @@ so a performer could edit mid-show without switching modes. Its costs:
   changes reach boxes already in a running patch. For now, run mode blocks
   Shift+N (new abstraction). The abstraction editor and the help popup always
   stay in edit mode.
+- **breath / bite / nod / tilt as abstractions** (Thomas, 2026-11-06). They
+  are BBC2 MIDI CC inputs (CC 2, 1, 12, 13, with a threshold gate on breath
+  and bite), hard-coded as `lib: "maker"` box types. The core `cc` object
+  already exists, so they should become abstractions built on it, in the
+  assembly library. Do this as part of the abstraction workflow; it may need
+  abstraction arguments (for `[init]`).
