@@ -644,7 +644,7 @@
     "groupState": {},
     "latestValues": {}
   },
-  "sall reaches phones only, not the one side's r; metro event goes out as re": {
+  "sall reaches phones only, not the ctrl side's r; metro event goes out as re": {
     "capture": {
       "ctrlSends": [],
       "synthBroadcasts": [
@@ -717,7 +717,7 @@
       }
     }
   },
-  "one-side audio: params and events go to the laptop, params replay": {
+  "ctrl-side audio: params and events go to the laptop, params replay": {
     "capture": {
       "ctrlSends": [
         {

@@ -1,6 +1,6 @@
 /**
- * Snapshot test for the server's one-side evaluation (eval-engine.ts): the
- * phones' graph.js with routers and one-side audio boxes as sinks.
+ * Snapshot test for the server's ctrl-side evaluation (eval-engine.ts): the
+ * phones' graph.js with routers and ctrl-side audio boxes as sinks.
  *
  * Stubs initEvalEngine deps with capturing mocks, fills the patch-state
  * globals with a test patch, builds the server graph (its initial values are
@@ -65,7 +65,7 @@ function reset(): void {
   resetCapture();
 }
 
-// y defaults to the one side (border at 400).
+// y defaults to the ctrl side (border at 400).
 function addBox(id: number, text: string, x = 0, y = 0): void {
   const ports = gpi.getBoxPorts(text);
   // Same stamp the server's apply runs.
@@ -255,7 +255,7 @@ const cases: Case[] = [
       reset();
       addBox(1, "const 440");
       addBox(2, "all 1", 100, 389); // router (border)
-      addBox(10, "karplus-strong~", 100, 500); // many side: not in the server graph
+      addBox(10, "karplus-strong~", 100, 500); // synth side: not in the server graph
       addCable(1, 1, 0, 2, 0);
       addCable(2, 2, 0, 10, 0);
       buildServerGraph();
@@ -317,7 +317,7 @@ const cases: Case[] = [
     },
   },
   {
-    name: "sall reaches phones only, not the one side's r; metro event goes out as re",
+    name: "sall reaches phones only, not the ctrl side's r; metro event goes out as re",
     run: () => {
       reset();
       addBox(1, "knob 0");
@@ -338,7 +338,7 @@ const cases: Case[] = [
     },
   },
   {
-    name: "one-side audio: params and events go to the laptop, params replay",
+    name: "ctrl-side audio: params and events go to the laptop, params replay",
     run: () => {
       reset();
       addBox(1, "const 220");
