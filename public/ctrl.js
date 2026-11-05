@@ -612,7 +612,7 @@ window.addEventListener("message", async (e) => {
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && helpPopup) { closeHelpPopup(); return; }
-  if (mainEditor.mode === "editing") return;
+  if (mainEditor.mode === "text-editing") return;
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); mainEditor.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "c") {
@@ -683,7 +683,7 @@ window.addEventListener("keydown", (e) => {
     openHelp("tambourin");
     return;
   }
-  if (e.key === " " && mainEditor.mode !== "editing") {
+  if (e.key === " " && mainEditor.mode !== "text-editing") {
     e.preventDefault();
     mainEditor.spaceHeld = true;
     if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = "grab";

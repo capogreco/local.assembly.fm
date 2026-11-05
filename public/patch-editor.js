@@ -113,7 +113,7 @@ class PatchEditor {
     // Runtime values
     this.boxValues = new Map();
 
-    // Interaction state
+    // Interaction state: idle / dragging / cabling / selecting / resizing-border / text-editing
     this.mode = "idle";
     this.dragStart = null;
     this.dragBoxPositions = null;
@@ -1124,7 +1124,7 @@ class PatchEditor {
     const box = this.boxes.get(boxId);
     if (!box) return;
     this.editingBoxId = boxId;
-    this.mode = "editing";
+    this.mode = "text-editing";
     this.input.value = box.text;
     const w = Math.max(this.boxWidth(box, boxId), 80);
     const s = this.screenFromPatch(box.x, box.y);
@@ -1604,7 +1604,7 @@ class PatchEditor {
   // --- Keyboard (called externally) ---
 
   onKeyDown(e) {
-    if (this.mode === "editing") return false;
+    if (this.mode === "text-editing") return false;
 
     if (e.key === "Backspace" || e.key === "Delete") {
       if (this.selection.size > 0 || this.cableSelection.size > 0) {

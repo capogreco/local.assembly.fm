@@ -96,7 +96,7 @@ input.addEventListener("input", () => {
 input.addEventListener("blur", () => editor.finishEditing(true));
 
 window.addEventListener("keydown", (e) => {
-  if (editor.mode === "editing") return;
+  if (editor.mode === "text-editing") return;
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); editor.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "c") {
@@ -173,7 +173,7 @@ window.addEventListener("keydown", (e) => {
     else editor.zoomToFit();
     return;
   }
-  if (e.key === " " && editor.mode !== "editing") {
+  if (e.key === " " && editor.mode !== "text-editing") {
     e.preventDefault();
     editor.spaceHeld = true;
     if (!editor.isPanning) editor.canvas.style.cursor = "grab";
