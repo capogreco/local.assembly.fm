@@ -1,0 +1,49 @@
+/* Page chrome colours for the editor pages, keyed on <html data-theme>.
+   The canvas palette lives in theme.js; keep the two in step.
+   Light values here are first guesses, to tune by eye. */
+
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1a1a;
+  --fg: #e0e0e0;
+  --tooltip-bg: #333;
+  --tooltip-fg: #ccc;
+  --tooltip-name: #e0e0e0;
+  --tooltip-type: #888;
+  --hint: #666;
+  --notice-bg: #2a1a1a;
+  --notice-fg: #e0a0a0;
+  --notice-border: #6a3a3a;
+  --popup-border: #444;
+  --popup-shadow: rgba(0, 0, 0, 0.5);
+  --titlebar-bg: #252525;
+  --titlebar-border: #333;
+  --title-fg: #aaa;
+  --close-fg: #666;
+  --close-hover: #fff;
+  --control-fg: #555;
+  --control-hover: #aaa;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f4ee;
+  --fg: #3f3e3b;
+  --tooltip-bg: #e9e6de;
+  --tooltip-fg: #5c5a55;
+  --tooltip-name: #3f3e3b;
+  --tooltip-type: #8f8d87;
+  --hint: #a8a59d;
+  --notice-bg: #f8ebe6;
+  --notice-fg: #9a3a2a;
+  --notice-border: #d9a99c;
+  --popup-border: #cfccc4;
+  --popup-shadow: rgba(63, 62, 59, 0.18);
+  --titlebar-bg: #eeece6;
+  --titlebar-border: #dcd9d1;
+  --title-fg: #5c5a55;
+  --close-fg: #a8a59d;
+  --close-hover: #3f3e3b;
+  --control-fg: #a8a59d;
+  --control-hover: #3f3e3b;
+}

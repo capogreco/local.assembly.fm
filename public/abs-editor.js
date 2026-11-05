@@ -1,5 +1,5 @@
 import { boxTypeName } from "./gpi-types.js";
-import { PatchEditor, SMALL_FONT, BOX_PAD_X, PORT_W, loadAbstractions } from "./patch-editor.js";
+import { PatchEditor, COLORS, SMALL_FONT, BOX_PAD_X, PORT_W, loadAbstractions } from "./patch-editor.js";
 
 const canvas = document.getElementById("c");
 const input = document.getElementById("box-input");
@@ -30,9 +30,9 @@ const editor = new PatchEditor(canvas, {
   renderOverlay: (ctx, w) => {
     ctx.font = SMALL_FONT;
     ctx.textBaseline = "top";
-    ctx.fillStyle = dirty ? "#658" : "#668";
+    ctx.fillStyle = dirty ? COLORS.absTitleDirty : COLORS.absTitle;
     ctx.fillText(absName + (dirty ? " *" : ""), 12, 8);
-    ctx.fillStyle = "#444";
+    ctx.fillStyle = COLORS.labelDim;
     ctx.textAlign = "right";
     ctx.fillText("Cmd+S save  |  Cmd+Z undo", w - 12, 8);
     ctx.textAlign = "left";

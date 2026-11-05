@@ -421,15 +421,15 @@ const mainEditor = new PatchEditor(canvas, {
     ctx.font = SMALL_FONT;
     ctx.textBaseline = "top";
     const status = mainEditor.dirty ? "modified" : mainEditor.applied ? "applied" : "unapplied";
-    ctx.fillStyle = mainEditor.dirty ? "#865" : mainEditor.applied ? "#686" : "#555";
+    ctx.fillStyle = mainEditor.dirty ? COLORS.statusModified : mainEditor.applied ? COLORS.statusApplied : COLORS.labelMuted;
     ctx.fillText(status, 12, 8);
     const modeX = 12 + ctx.measureText(status).width + 12;
-    ctx.fillStyle = mainEditor.editorMode === "run" ? "#aaa" : "#555";
+    ctx.fillStyle = mainEditor.editorMode === "run" ? COLORS.labelStrong : COLORS.labelMuted;
     ctx.fillText(mainEditor.editorMode, modeX, 8);
 
     // Patch name
     if (currentPatchName) {
-      ctx.fillStyle = "#555";
+      ctx.fillStyle = COLORS.labelMuted;
       ctx.textAlign = "center";
       ctx.fillText(currentPatchName, w / 2, 8);
     }
@@ -437,11 +437,11 @@ const mainEditor = new PatchEditor(canvas, {
     // Connection dot
     ctx.beginPath();
     ctx.arc(w - 16, 16, 4, 0, Math.PI * 2);
-    ctx.fillStyle = wsConnected ? "#686" : "#865";
+    ctx.fillStyle = wsConnected ? COLORS.statusApplied : COLORS.statusModified;
     ctx.fill();
 
     // MIDI/Grid devices (under connection dot)
-    ctx.fillStyle = "#444";
+    ctx.fillStyle = COLORS.labelDim;
     ctx.textAlign = "right";
     for (let i = 0; i < midiDeviceNames.length; i++) {
       ctx.fillText(midiDeviceNames[i], w - 12, 28 + i * 14);
