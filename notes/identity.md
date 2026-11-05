@@ -51,9 +51,37 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   between light and dark. There's no way back to "follow OS" from the UI, and
   that's intended.
 
+## Surfaces (agreed in outline, 2026-11-06; details to come)
+
+- **Favicon and app icons:** a small-size version of the mark (both squares at
+  the heavy weight, no ports, maybe the `T`), redrawn for small sizes rather
+  than shrunk.
+- **Avatars** (GitHub org, lines, forum, YouTube): the two-weight mark, or
+  TAM/BOU/RIN inside the square.
+- **CLI banner:** Unicode box drawing, with light and heavy lines for the two
+  weights and diagonals for the 45° strokes, then one lower-case status line
+  and the QR code.
+- **Editor welcome:** dots appear, the mark draws itself, the square turns 45°,
+  TAM/BOU/RIN resolves, then it fades into the blank canvas with "press h".
+  Skipped on the first gesture; reduced motion shows only the end state. It
+  runs only the first time.
+- **README header:** the mark with the horizontal TAMBOURIN, as SVG in light
+  and dark versions.
+- **Website hero:** the 3×3 stack in the mark, or the horizontal version.
+  Everything else is lower case.
+- **Video intros** reuse the welcome animation; thumbnails use the 3×3 stack.
+- **Top-level help patch:** draws the mark out of real boxes and cables.
+  (Thomas loves this.)
+- **Cable lockup:** footers, end cards, the forum header, the README foot,
+  venue QR posters.
+- **Phone join page:** belongs to the piece. Tambourin is quiet there: the mark
+  as the "tap to start audio" button, turning 45° when audio starts, and a
+  lower-case "tambourin" credit.
+- **Phone theme:** phones default to whatever theme the editor is set to.
+- **The visual side of the phone client needs a proper paradigm,** so that
+  performers can shape what phones show. Brainstorm with the interested
+  TouchDesigner contributor after launch.
+
 ## Open
 
-- Which surface gets which element (favicon, CLI banner, phone join page,
-  editor welcome, README, website, forum).
-- The welcome animation: dots appear, the square turns 45°, and it resolves
-  into the edit-mode canvas.
+- How "first time" is detected for the welcome animation (see below).
