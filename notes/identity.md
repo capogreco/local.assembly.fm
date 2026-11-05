@@ -18,8 +18,13 @@ type (IBM Plex Mono).
 
 ## Elements (from the sketches)
 
-- **The mark:** a square and the same square turned 45°, with optional ports
-  at the eight points and an optional `T` at the hub.
+- **The mark** (decided 2026-11-06): two *identical* squares, one turned 45°,
+  so a true eight-pointed star. The turned square's points fall between the grid
+  dots. The square is at the audio weight (2.5px): the instrument, the material
+  form. The turned square is at the control weight (1px): the dance, the
+  cultural form. A `T` sits at the hub at the light weight. Still open: the `T`'s
+  size, ports, and the small-size rule. The reference sheet is at
+  https://claude.ai/artifact/BgXAsuK92Qfugo4HoM5q7J (private).
 - **Wordmarks:** the horizontal `TAMBOURIN` in single-weight geometric letters;
   the stacked TAM / BOU / RIN on a 3×3 grid (nine letters fill it exactly); and
   `tambourin.fm` on a cable between two ports.
