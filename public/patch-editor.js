@@ -182,6 +182,7 @@ class PatchEditor {
     this._onMouseUp = this._onMouseUp.bind(this);
     this._onDblClick = this._onDblClick.bind(this);
     this._onWheel = this._onWheel.bind(this);
+    this._endKnobDrag = this._endKnobDrag.bind(this);
   }
 
   bindEvents() {
@@ -1237,6 +1238,8 @@ class PatchEditor {
       this.mode = "knob-dragging";
       this.knobDrag = { id, lastY: e.clientY, norm: this.knobNorm(id) };
       this.canvas.style.cursor = "ns-resize";
+      // The button may come up off the canvas, where the canvas never hears it.
+      globalThis.addEventListener("mouseup", this._endKnobDrag, { once: true });
     }
   }
 
@@ -1428,8 +1431,6 @@ class PatchEditor {
     this.modHeld = platformMod(e);
 
     if (this.mode === "knob-dragging") {
-      // The button came up off-canvas: end the drag rather than stick to it.
-      if (e.buttons === 0) { this._endKnobDrag(); return; }
       // Vertical drag: up raises, Shift for fine. Incremental, so pressing or
       // releasing Shift mid-drag doesn't make the value jump.
       const step = e.shiftKey ? KNOB_DRAG_STEP_FINE : KNOB_DRAG_STEP;
@@ -1697,7 +1698,10 @@ class PatchEditor {
     }
   }
 
+  // Called by both the canvas mouseup and the one-shot window mouseup, so
+  // the second call finds the drag already over.
   _endKnobDrag() {
+    if (this.mode !== "knob-dragging") return;
     this.mode = "idle";
     this.knobDrag = null;
     this.canvas.style.cursor = this.spaceHeld ? "grab" : this.hoverCursor(this.mousePos, this.modHeld);
