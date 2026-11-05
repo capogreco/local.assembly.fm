@@ -33,7 +33,7 @@ undecided.
 | Role | Light ("warm white", the notebook) | Dark (the editor) |
 |---|---|---|
 | paper / ground | `#f6f4ee` | `#1a1a1a` |
-| dots | `#bdbab2` | `#333` today: too faint, being revised |
+| dots | `#bdbab2` | `#5e5e5e` (was `#333`, too faint) |
 | graphite (text, mark) | `#3f3e3b` | `#e0e0e0` |
 | ruled line (box strokes, control cables) | `#bfbcb4` | `#666` |
 | audio | `#2f5fc4` | `#8af` |
