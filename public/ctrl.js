@@ -614,6 +614,7 @@ window.addEventListener("message", async (e) => {
 // --- Keyboard ---
 
 window.addEventListener("keydown", (e) => {
+  mainEditor.modHeld = platformMod(e);
   if (e.key === "Escape" && helpPopup) { closeHelpPopup(); return; }
   // Cmd+E (Ctrl+E off macOS): toggle edit/run. Commits a box being typed into.
   if (platformMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
@@ -622,7 +623,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (mainEditor.mode === "text-editing") return;
-  if (e.key === "Meta" || e.key === "Control") refreshHoverCursor(e);
+  if (e.key === "Meta" || e.key === "Control") refreshHoverCursor();
   const editing = mainEditor.editorMode === "edit";
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); if (editing) mainEditor.undo(); return; }
@@ -705,18 +706,22 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keyup", (e) => {
+  mainEditor.modHeld = platformMod(e);
   if (e.key === " ") {
     mainEditor.spaceHeld = false;
-    if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = mainEditor.hoverCursor(mainEditor.mousePos, platformMod(e));
+    if (!mainEditor.isPanning) mainEditor.canvas.style.cursor = mainEditor.hoverCursor(mainEditor.mousePos, mainEditor.modHeld);
   }
-  if (e.key === "Meta" || e.key === "Control") refreshHoverCursor(e);
+  if (e.key === "Meta" || e.key === "Control") refreshHoverCursor();
 });
+
+// Cmd+Tab away swallows the keyup: don't come back thinking Cmd is held.
+window.addEventListener("blur", () => { mainEditor.modHeld = false; });
 
 // Holding Cmd/Ctrl in edit mode turns a press into a run press: show it under
 // the resting pointer without waiting for the mouse to move.
-function refreshHoverCursor(e) {
+function refreshHoverCursor() {
   if (mainEditor.mode !== "idle" || mainEditor.spaceHeld || mainEditor.isPanning) return;
-  mainEditor.canvas.style.cursor = mainEditor.hoverCursor(mainEditor.mousePos, platformMod(e));
+  mainEditor.canvas.style.cursor = mainEditor.hoverCursor(mainEditor.mousePos, mainEditor.modHeld);
 }
 
 // --- WebSocket ---

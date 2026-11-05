@@ -137,6 +137,10 @@ class PatchEditor {
     this.mousePos = { x: 0, y: 0 };
     this.editingBoxId = null;
     this.knobDrag = null;
+    // Whether the run modifier (Cmd, or Ctrl off macOS) is held. Kept by the
+    // host page's keydown/keyup and by every mouse move, so cursors set
+    // outside a pointer event (mode switch, end of a knob drag) can use it.
+    this.modHeld = false;
 
     // Editor mode: "edit" (select, move, cable, type) or "run" (the pointer
     // plays interactive boxes). Local to this editor; never sent anywhere.
@@ -1154,7 +1158,7 @@ class PatchEditor {
       this.cableSelection.clear();
     }
     if (this.tooltipEl) this.tooltipEl.style.display = "none";
-    this.canvas.style.cursor = this.spaceHeld ? "grab" : this.hoverCursor(this.mousePos, false);
+    this.canvas.style.cursor = this.spaceHeld ? "grab" : this.hoverCursor(this.mousePos, this.modHeld);
     this.render();
     return true;
   }
@@ -1421,6 +1425,7 @@ class PatchEditor {
 
     const m = this.canvasCoords(e);
     this.mousePos = m;
+    this.modHeld = platformMod(e);
 
     if (this.mode === "knob-dragging") {
       // The button came up off-canvas: end the drag rather than stick to it.
@@ -1695,7 +1700,7 @@ class PatchEditor {
   _endKnobDrag() {
     this.mode = "idle";
     this.knobDrag = null;
-    this.canvas.style.cursor = this.hoverCursor(this.mousePos, false);
+    this.canvas.style.cursor = this.spaceHeld ? "grab" : this.hoverCursor(this.mousePos, this.modHeld);
   }
 
   _onDblClick(e) {
