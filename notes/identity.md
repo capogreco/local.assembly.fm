@@ -84,4 +84,5 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 
 ## Open
 
-- How "first time" is detected for the welcome animation (see below).
+- How "first time" is detected for the welcome animation. Browsers can't tell
+  a hard refresh from a normal reload.
