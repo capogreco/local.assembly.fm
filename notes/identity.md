@@ -64,7 +64,7 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 - **Editor welcome:** dots appear, the mark draws itself, the square turns 45°,
   TAM/BOU/RIN resolves, then it fades into the blank canvas with "press h".
   Skipped on the first gesture; reduced motion shows only the end state. It
-  runs only the first time.
+  runs once per browser, with a replay link in the top-level help patch.
 - **README header:** the mark with the horizontal TAMBOURIN, as SVG in light
   and dark versions.
 - **Website hero:** the 3×3 stack in the mark, or the horizontal version.
@@ -84,5 +84,3 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 
 ## Open
 
-- How "first time" is detected for the welcome animation. Browsers can't tell
-  a hard refresh from a normal reload.
