@@ -11,7 +11,7 @@ gig fallback. Don't merge into main until Thomas says so; the plan is after the
 gig.
 
 The single-evaluator step is **done**: stages A–D, plus the fixes from two
-Fable reviews. The server now evaluates the one side with the phones'
+Fable reviews. The server now evaluates the ctrl side with the phones'
 `public/graph.js` / `graph-core.js`, and routers are its sinks.
 - Laptop audio is deployed over the ctrl socket (`deploy.ts`:
   `serializeLaptopPatch`) and built from the server's expanded graph.
@@ -67,7 +67,7 @@ Patch fixes made during testing (committed):
 - **D1.** An event passes `passthrough` and `event` inlets and is dropped at
   `number` inlets. The rule reads the port type, not an exception list.
   `spigot` is retyped to passthrough and `sendup` to number.
-- **D2, reversed.** `sall` reaches phones only, not one-side `r` boxes. Feeding
+- **D2, reversed.** `sall` reaches phones only, not ctrl-side `r` boxes. Feeding
   them made a feedback loop that froze the server.
 - **D3.** Joining phones get a replay only for `all` and `sall`.
 - **D4 / D7.** The envelope flashes and ramp~ animation are drawn by the ctrl
@@ -76,7 +76,7 @@ Patch fixes made during testing (committed):
   still an open question.
 - **Phone semantics win:** `phasor once` stays finished, `delay` fires once,
   `seq` inlet 1 takes a string.
-- **Side rule.** A bound box (one/many) must sit wholly on its side, and
+- **Side rule.** A bound box (ctrl/synth) must sit wholly on its side, and
   overhanging counts as off side. Only routers (`border`) straddle the line. A
   free box is sided by its centre. The rule lives only in
   `public/gpi-types.js`, shared by the editor and `apply-check.ts`. Editor

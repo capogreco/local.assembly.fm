@@ -2,7 +2,7 @@
 
 Status: server-as-evaluator signed off by Thomas 2026-10-24, from the topology review (one Fable pass, two rounds). Sync design still open. Internal note, not public prose. File:line references are to the repo at 30a2dce plus the behaviour-interface and dead-code changes made the same day.
 
-Names: **Tambourin** is the environment (server, engines, network, tooling). **GPI** (graphical patching interface) is what you patch in (boxes, cables, rates, the border rule).
+Names: **Tambourin** is the environment (server, engines, network, tooling). **GPI** (graphical patching interface) is what you patch in (boxes, cables, rates, the border rule). The two sides of the border are **ctrl** and **synth**: ctrl is the single shared instance, run by the server and the laptop; synth is the per-phone instances. Both can make sound and send control; the names say where something runs and how many copies there are, not what it does.
 
 ## Shape today
 
@@ -10,8 +10,8 @@ Names: **Tambourin** is the environment (server, engines, network, tooling). **G
  ctrl tab                         server (one Deno process)                 phone tabs
  ────────                         ─────────────────────────                 ──────────
  patch editor                     patch-state globals                       graph-core + graph.js:
- laptop audio (engine-factory)    eval-engine.ts: evaluates every           evaluate the many-side
- MIDI, fftPeaks~ scan               one-side box, 240 Hz tick               graph per voice
+ laptop audio (engine-factory)    eval-engine.ts: evaluates every           evaluate the synth-side
+ MIDI, fftPeaks~ scan               ctrl-side box, 240 Hz tick              graph per voice
                                   routerDispatch → rv/re                    engine-factory + main.js
    ──apply / knob / midi──▶       abstraction expansion, validation         worklets
    ◀──state / values (30 fps)──   ──patch, rv, re──────────────────────▶
@@ -30,7 +30,7 @@ Problems found:
  ctrl tab                      server (Bun)                              phones
  ────────                      ────────────                              ──────
  editor                        ONE graph evaluator (graph.js made        graph-core + engine-factory
- laptop audio (thin client,      runtime-neutral) for the one-side       (unchanged role)
+ laptop audio (thin client,      runtime-neutral) for the ctrl-side      (unchanged role)
    same rv/re + deploy as a    ONE clock source (metros, ticks)
    phone)                      expand abstractions, validate,
  MIDI / grid input             build TWO deploys: laptop, phones
@@ -39,28 +39,28 @@ Problems found:
                                Monome OSC bridge (core)
 ```
 
-- **Server is the single one-side evaluator and the only clock.** The ctrl tab is not the show's brain, so a throttled or overloaded tab cannot hurt timing. Cloud mode needs no laptop.
+- **Server is the single ctrl-side evaluator and the only clock.** The ctrl tab is not the show's brain, so a throttled or overloaded tab cannot hurt timing. Cloud mode needs no laptop.
 - **One deploy shape** for laptop and phones; `buildCtrlAudioTopology` and `buildAudioTopology` merge.
 - **Side is position**, except bound boxes, which carry a constraint. `zone: "any"` goes. Bindings and enforcement: see "Side and binding" below.
-- **Metros and clock-driven boxes are one-side only.** Free-running `lfo`/`phasor` below the border become the audio-thread `lfo~`/`phasor~` worklets (principles §4 already wants this).
-- The phones keep evaluating their many-side graph. That is the border rule, not duplication.
+- **Metros and clock-driven boxes are ctrl-side only.** Free-running `lfo`/`phasor` below the border become the audio-thread `lfo~`/`phasor~` worklets (principles §4 already wants this).
+- The phones keep evaluating their synth-side graph. That is the border rule, not duplication.
 
 Sequence to Bun:
 1. Behaviour-interface (done), dead-code deletion (done), `emit()` consolidation (done, eval-engine.ts).
 2. Hostname `local.tamb.fm` and SSID `tambourin` strings (done in code defaults and notes; cert and DNS are Thomas's).
 3. Core/library sorting (done as `lib: "maker"` tags in gpi-types.js; see notes/core-and-library.md).
 4. Remove SSE (done 2026-10-26: server handler and `sseClients` deleted, `public/connection.js` is WebSocket-only).
-5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. The shared files are plain ES modules (done 2026-10-27) and the CJS shim is gone, so module loading is no longer a Bun risk; what remains is the Deno API surface. `initEvalEngine` takes only the five server callbacks and the timers start in `startEvalEngine()` (done 2026-10-27). Side as data (below) and the `ctrl`/`synth` → `one`/`many` rename are done (2026-10-30). Next: routers as sinks and one deploy shape, then the Bun swap. Phone checkpoint after each step that changes what a phone runs.
+5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. The shared files are plain ES modules (done 2026-10-27) and the CJS shim is gone, so module loading is no longer a Bun risk; what remains is the Deno API surface. `initEvalEngine` takes only the five server callbacks and the timers start in `startEvalEngine()` (done 2026-10-27). Side as data (below) is done (2026-10-30). The `ctrl`/`synth` → `one`/`many` rename made the same day was reverted on 2026-11-06: one/many read badly in prose and collided with the `one` router. Next: routers as sinks and one deploy shape, then the Bun swap. Phone checkpoint after each step that changes what a phone runs.
 
 ## Side and binding (decided 2026-10-27, built 2026-10-30)
 
 Facts from the zone review of 3e00422 (Fable, read not run).
 
-**Vocabulary.** A box is **free** (its side follows its position against the border) or **bound** (`one` or `many`, whatever its position). Routers are the **border**. In code: a type's `binding` field is `one`, `many` or `border`, and no field means free; the border is `borderY` (saved patches too). `ctrl`/`synth` survive only as client-role names (the ctrl page, synth sockets, `serializeSynthPatch`), which go with one deploy shape.
+**Vocabulary.** A box is **free** (its side follows its position against the border) or **bound** (`ctrl` or `synth`, whatever its position). Routers are the **border**. In code: a type's `binding` field is `ctrl`, `synth` or `border`, and no field means free; the border is `borderY` (saved patches too). The client roles share the names (the ctrl page, synth sockets, `serializeSynthPatch`).
 
 **Bindings.**
-- One-bound: `arc`, `breath`, `bite`, `nod`, `tilt`, `cc`, `key`, `held`, `grid-trig`, `grid-toggle`, `grid-array`, `uplink`, `clients`, `fftPeaks~`. Laptop hardware or server-only state.
-- Many-bound: `sendup`, `screen`, `text`, `touch`, `scope~`. Phone uplink queue, screen, touch, and canvas; `ctrl.js` cannot build any of them. A laptop `scope~` would be a feature of its own.
+- Ctrl-bound: `arc`, `breath`, `bite`, `nod`, `tilt`, `cc`, `key`, `held`, `grid-trig`, `grid-toggle`, `grid-array`, `uplink`, `clients`, `fftPeaks~`. Laptop hardware or server-only state.
+- Synth-bound: `sendup`, `screen`, `text`, `touch`, `scope~`. Phone uplink queue, screen, touch, and canvas; `ctrl.js` cannot build any of them. A laptop `scope~` would be a feature of its own.
 - Free: everything else, including `adc~`, `ewing~` and `frog~` (ordinary worklets; their old `synth` zone was a design choice, not a constraint). `adc~` is free for side, but only the laptop can build it today: the phone has no `adc~` handler (main.js:47 adds only `scope~` to the native set), and building one is out of scope here.
 
 **One rule, one function.** `sideOf(box, borderY, lookup)` in `gpi-types.js` is the only implementation: binding if bound, else position; bound boxes ignore `borderY`. `lookup` gives an abstraction's inner boxes; `sideOf` throws on an abstraction with an inconsistent binding (mixed, router inside, or containing itself). The server passes `msg.borderY ?? getBorderY()`, the editor passes `this.borderY`; the editor catches the throw, reports it and falls back to position, so a pointer handler never dies mid-drag (the one place a bad abstraction degrades instead of stopping; apply still rejects it). `side` is never sent to the editor or saved. The line references below are to 3e00422. The server stamps `box.side` on every box after abstraction expansion and before `initAllBoxState`, so expanded clones get one; deploy, evaluation and validation read `box.side`. Deployed phone boxes carry no `side` field: the partition is the side (the laptop deploy is a later step). The scattered zone/y tests become calls to `sideOf` or reads of `box.side`:
@@ -76,9 +76,9 @@ Facts from the zone review of 3e00422 (Fable, read not run).
 - Validation runs after abstraction expansion, so it sees the real graph. Today `findBorderViolations` runs before expansion. Apply must still never destroy the running patch: expand into local maps, stamp sides, validate, and only then `clearPatchState()` and commit (today `clearPatchState()` at server.ts:393 and `expandAbstractions` mutate the globals, so a post-expansion rejection would kill the running patch).
 - `ctrl.js:167` skips a box the laptop cannot build without a word, and `main.js:270` does the same on the phone (e.g. a phone `adc~`). Both fail loudly instead.
 
-**Abstractions.** Binding is inferred from contents, never declared: one-bound if any inner box is one-bound, many-bound if any is many-bound, free if neither. Both kinds inside is an error, and so is a router inside an abstraction: an abstraction lives on one side. These are rejected at apply and also when an abstraction is saved (PUT `/abstractions`, server.ts:953-962). The editor computes binding from `abstractionTypes.get(name).boxes` (patch-editor.js:22-46) and the server from `loadedAbstractions`, both recursing into nested abstractions with a cycle guard. The abstraction editor has no border at all: today it hides the border (`showSynthBorder: false`, abs-editor.js:17-18) but still snaps and auto-routes against an invisible one (patch-editor.js:112), so `showSynthBorder: false` also disables the text-commit snap (:1097-1100), drag auto-route (:1271) and cable-drop auto-route (:1408-1413). Both existing abstractions (`double`, `quantiser`) are free.
+**Abstractions.** Binding is inferred from contents, never declared: ctrl-bound if any inner box is ctrl-bound, synth-bound if any is synth-bound, free if neither. Both kinds inside is an error, and so is a router inside an abstraction: an abstraction lives on a single side. These are rejected at apply and also when an abstraction is saved (PUT `/abstractions`, server.ts:953-962). The editor computes binding from `abstractionTypes.get(name).boxes` (patch-editor.js:22-46) and the server from `loadedAbstractions`, both recursing into nested abstractions with a cycle guard. The abstraction editor has no border at all: today it hides the border (`showSynthBorder: false`, abs-editor.js:17-18) but still snaps and auto-routes against an invisible one (patch-editor.js:112), so `showSynthBorder: false` also disables the text-commit snap (:1097-1100), drag auto-route (:1271) and cable-drop auto-route (:1408-1413). Both existing abstractions (`double`, `quantiser`) are free.
 
-**Out of scope here.** Clock-driven boxes being one-side only (changes what patches mean; its own step), the rename, a laptop scope.
+**Out of scope here.** Clock-driven boxes being ctrl-side only (changes what patches mean; its own step), the rename, a laptop scope.
 
 **Done when.** Snapshot tests pass, plus new apply-rejection cases (bound box on the wrong side, mixed or router-containing abstraction). In a browser: dragging `key` below the border returns it; a patch with an abstraction loads. Light phone check: one patch, one phone.
 
