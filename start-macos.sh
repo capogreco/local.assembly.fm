@@ -18,8 +18,8 @@ SUBNET="192.168.178"
 STATIC_IP="192.168.178.24"  # must match FritzBox DNS server setting
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DNSMASQ_BIN="/opt/homebrew/opt/dnsmasq/sbin/dnsmasq"
-DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/tambourine.conf"
-LEGACY_DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/assembly.conf"
+DNSMASQ_CONF="/opt/homebrew/etc/dnsmasq.d/tambourin.conf"
+LEGACY_DNSMASQ_CONFS="/opt/homebrew/etc/dnsmasq.d/assembly.conf /opt/homebrew/etc/dnsmasq.d/tambourine.conf"
 
 # Cert resolution — mirrors server.ts. Prefer certbot's live paths so renewal is
 # zero-copy; fall back to a hand-copied pair in the repo root.
@@ -95,8 +95,8 @@ detect_network() {
             echo_warn "macOS will not run DHCP on it. Configured services:"
             networksetup -listnetworkserviceorder 2>/dev/null | grep -iE 'lan|ethernet|ax88' | sed 's/^/  /'
             echo_warn "Fix: find the live interface in the list above, then"
-            echo_warn "  sudo networksetup -createnetworkservice \"tambourine-eth\" <enN>"
-            echo_warn "  sudo networksetup -setdhcp \"tambourine-eth\""
+            echo_warn "  sudo networksetup -createnetworkservice \"tambourin-eth\" <enN>"
+            echo_warn "  sudo networksetup -setdhcp \"tambourin-eth\""
         else
             echo ""
             echo_error "No USB ethernet device on the bus — check the dongle and cable."
@@ -178,10 +178,12 @@ ensure_clean_dnsmasq() {
 ensure_dnsmasq_conf() {
     local needs_update=false
 
-    if [ -f "$LEGACY_DNSMASQ_CONF" ]; then
-        echo_warn "Old dnsmasq config found and no longer used: $LEGACY_DNSMASQ_CONF"
-        echo_warn "  Remove it: sudo rm $LEGACY_DNSMASQ_CONF"
-    fi
+    for legacy in $LEGACY_DNSMASQ_CONFS; do
+        if [ -f "$legacy" ]; then
+            echo_warn "Old dnsmasq config found and no longer used: $legacy"
+            echo_warn "  Remove it: sudo rm $legacy"
+        fi
+    done
 
     if [ ! -f "$DNSMASQ_CONF" ]; then
         needs_update=true
@@ -316,7 +318,7 @@ show_status() {
     echo ""
 
     # Check dnsmasq
-    if pgrep -f "dnsmasq.*tambourine.conf" > /dev/null; then
+    if pgrep -f "dnsmasq.*tambourin.conf" > /dev/null; then
         echo_info "✓ dnsmasq is running"
     else
         echo_warn "✗ dnsmasq is NOT running"
@@ -355,7 +357,7 @@ show_status() {
     echo ""
     echo_info "=== Quick Test ==="
     echo "On your phone:"
-    echo "  1. Connect to WiFi 'tambourine' (password: tambourine)"
+    echo "  1. Connect to WiFi 'tambourin' (password: tambourin)"
     echo "  2. Captive portal should auto-appear"
     echo "  3. Or visit any URL (e.g., example.com) to trigger redirect"
 }
@@ -413,7 +415,7 @@ case "$MODE_ARG" in
         echo ""
 
         # kill dnsmasq when the server exits
-        trap 'sudo pkill -f "dnsmasq.*tambourine.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
+        trap 'sudo pkill -f "dnsmasq.*tambourin.conf" 2>/dev/null; echo ""; echo_info "Stopped."' EXIT
 
         run_deno performance sudo
         ;;

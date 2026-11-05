@@ -1,4 +1,4 @@
-<!-- ARCHIVED: the pre-Tambourine README. Flagged for deletion before launch; kept only as a source of facts. -->
+<!-- ARCHIVED: the pre-Tambourin README. Flagged for deletion before launch; kept only as a source of facts. -->
 
 # local.assembly.fm
 

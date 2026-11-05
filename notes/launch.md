@@ -28,7 +28,12 @@ decisions and the to-do list.
       statement).
 - [ ] The assembly library has an AGPL-compatible licence, at least for any JS
       or worklets that load into the runtime.
-- [ ] Rename the leftover "tambourine" strings: SSID, docs, branch names. The
-      old `tambourine.fm` and `tambourine-fm` still exist; decide whether to
-      keep them as redirects.
+- [x] Rename the leftover "tambourine" strings in this repo (2026-11-05),
+      including the SSID and password defaults, the Grid/Arc OSC prefix, the
+      dnsmasq conf name and the help patch. The `docs/tambourine` branch name
+      is unchanged.
+- [ ] Reconfigure the APs/router to SSID and password `tambourin`, or the join
+      QR codes won't match.
+- [ ] The old `tambourine.fm` and `tambourine-fm` still exist; decide whether
+      to keep them as redirects.
 - [ ] Decide on a CLA. The current lean is none.

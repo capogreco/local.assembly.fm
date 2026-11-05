@@ -1,8 +1,8 @@
-# Tambourine
+# Tambourin
 node-based visual programming environment for co-located browser-based distributed synthesis
 
 ## What it is
-Tambourine coalesces audiences' devices into a conglomerated, multi-channel digital synthesiser.
+Tambourin coalesces audiences' devices into a conglomerated, multi-channel digital synthesiser.
 
 
 - One or two sentences. Struck centre, vibration out to the rim, the jangles sound (laptop at the centre, phones at the rim).

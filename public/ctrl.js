@@ -680,7 +680,7 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "h" && mainEditor.selection.size === 0 && !e.metaKey && !e.ctrlKey) {
     e.preventDefault();
-    openHelp("tambourine");
+    openHelp("tambourin");
     return;
   }
   if (e.key === " " && mainEditor.mode !== "editing") {

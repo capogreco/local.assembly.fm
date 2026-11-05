@@ -8,8 +8,8 @@ import { audienceBase, getLanIP, qrGif, qrText, wifiPayload } from "./onboarding
 
 const MODE = Deno.env.get("MODE") ?? "practice";
 const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.tamb.fm";
-const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourine";
-const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourine";
+const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourin";
+const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourin";
 const WIFI_AUTH = Deno.env.get("WIFI_AUTH") || "WPA";
 
 // Per-mode audience network (mirrors the MODES table in server.ts — kept local

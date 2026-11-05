@@ -32,8 +32,8 @@ const HOST_DOMAIN = Deno.env.get("HOST_DOMAIN") || "local.tamb.fm";
 const LE_CERT = `/etc/letsencrypt/live/${HOST_DOMAIN}/fullchain.pem`;
 const LE_KEY = `/etc/letsencrypt/live/${HOST_DOMAIN}/privkey.pem`;
 // WiFi creds for the join QR / banner (defaults match the performance rig).
-const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourine";
-const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourine";
+const WIFI_SSID = Deno.env.get("WIFI_SSID") || "tambourin";
+const WIFI_PASSWORD = Deno.env.get("WIFI_PASSWORD") ?? "tambourin";
 
 // --- Run mode ---
 // One explicit switch drives bind host, ports, cert policy, captive portal and

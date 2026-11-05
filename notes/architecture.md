@@ -2,7 +2,7 @@
 
 Status: server-as-evaluator signed off by Thomas 2026-10-24, from the topology review (one Fable pass, two rounds). Sync design still open. Internal note, not public prose. File:line references are to the repo at 30a2dce plus the behaviour-interface and dead-code changes made the same day.
 
-Names: **Tambourine** is the platform (server, engines, network, tooling). **GPI** is the patch language (boxes, cables, rates, the border rule).
+Names: **Tambourin** is the environment (server, engines, network, tooling). **GPI** (graphical patching interface) is what you patch in (boxes, cables, rates, the border rule).
 
 ## Shape today
 
@@ -47,7 +47,7 @@ Problems found:
 
 Sequence to Bun:
 1. Behaviour-interface (done), dead-code deletion (done), `emit()` consolidation (done, eval-engine.ts).
-2. Hostname `local.tamb.fm` and SSID `tambourine` strings (done in code defaults and notes; cert and DNS are Thomas's).
+2. Hostname `local.tamb.fm` and SSID `tambourin` strings (done in code defaults and notes; cert and DNS are Thomas's).
 3. Core/library sorting (done as `lib: "maker"` tags in gpi-types.js; see notes/core-and-library.md).
 4. Remove SSE (done 2026-10-26: server handler and `sseClients` deleted, `public/connection.js` is WebSocket-only).
 5. Then the port: one evaluator (graph.js made runtime-neutral), `zone: "any"` retired, one deploy shape, Bun, in the fresh repo. The shared files are plain ES modules (done 2026-10-27) and the CJS shim is gone, so module loading is no longer a Bun risk; what remains is the Deno API surface. `initEvalEngine` takes only the five server callbacks and the timers start in `startEvalEngine()` (done 2026-10-27). Side as data (below) and the `ctrl`/`synth` → `one`/`many` rename are done (2026-10-30). Next: routers as sinks and one deploy shape, then the Bun swap. Phone checkpoint after each step that changes what a phone runs.
