@@ -126,6 +126,95 @@ requirement drops out of *this* mode without touching the other two.
 
 ---
 
+## Direction for the launch (decided 2026-11-05)
+
+Launch means open-sourcing Tambourin and inviting other people to use it and
+contribute. Cloud mode is out of scope for now. The aim is to automate
+everything that can be done without taking sides, and to put the opinionated
+parts on the router rather than on the laptop's OS. Where this conflicts with
+the sections above, this section wins; the code doesn't do it yet.
+
+### Accounts and certificates
+
+- tambourin.fm gets sign-in accounts. `tamb login` opens a browser tab and
+  receives a token on a localhost redirect, as `gh auth login` does.
+- There are three ways to get a certificate, all through the same CLI command:
+  1. **A free subdomain** (`<name>.tamb.fm`). The CLI generates the private key
+     on the laptop and sends only a CSR. tambourin.fm answers the DNS-01
+     challenge and returns the certificate. **The server never holds a private
+     key.**
+  2. **Your own domain, through tambourin.fm.** You add one CNAME for
+     `_acme-challenge`, pointing at tambourin.fm's challenge zone (the acme-dns
+     pattern). After that it works like a free subdomain.
+  3. **Your own domain, through your registrar's API**, run locally. No
+     tambourin.fm involved.
+- Accounts hold the minimum: a sign-in (email or GitHub) and the subdomain
+  name.
+- **Rate limit:** Let's Encrypt allows about 50 certificates per registered
+  domain per week, and every user under `tamb.fm` counts against it. Apply to
+  add `tamb.fm` to the Public Suffix List early, since that takes time.
+- Getting and renewing a certificate needs internet. Certificates last 90 days
+  now, and 45 days is announced for 2028. The show itself can be offline.
+
+### Workshop mode
+
+- The default stays self-signed, by IP, on port 8443, with a warning to tap
+  through.
+- **Upgrade:** if the user has a name and the network has internet, the CLI
+  points the name's public DNS at the laptop's current LAN IP and uses a real
+  certificate. If the router blocks DNS rebinding (OpenWrt does by default), it
+  falls back to self-signed by IP, with no extra steps for the user.
+
+### Performance mode: everything OS-specific moves to the router
+
+- The laptop runs Bun on a high port (8443) in every mode, the same on every
+  OS. No `sudo`, no laptop dnsmasq, and `start-macos.sh` retires.
+- `tamb router setup` configures an OpenWrt router over SSH with `uci`:
+  - DNS for the user's name, and the hijack for the captive portal;
+  - a DHCP reservation for the laptop;
+  - forwarding 443 and 80 to the laptop's 8443;
+  - an exception to the router's DNS rebinding protection.
+- GL.iNet is the recommended hardware. The target is OpenWrt, so any OpenWrt
+  router works.
+
+### What a router has to do: the general principles
+
+For routers that aren't OpenWrt. Proprietary firmware may make some of these
+hard or impossible; the user is taught what to look for, not given per-brand
+instructions.
+
+| The router must | What it gets you | Typical proprietary router |
+|---|---|---|
+| 1. Let Wi-Fi clients reach each other (no client isolation) | Anything works at all | Usually fine on the main network, often blocked on guest networks |
+| 2. Keep the laptop at a fixed address (DHCP reservation) | The address doesn't move | Almost always available |
+| 3. Point your name at the laptop | A real certificate and a clean URL | Local DNS overrides are rare. The public-DNS route often works instead, since many such routers don't block rebinding, but it needs internet |
+| 4. Answer every name with the laptop (DNS hijack) | The captive portal pops up on its own | Rarely possible |
+| 5. Forward 443 and 80 to the laptop's 8443 | A URL with no port number | Hardly ever: consumer port forwarding only works from the internet side |
+
+Items 1–3 are the minimum: `https://<name>.tamb.fm:8443` with a real
+certificate works. Items 4–5 come with OpenWrt.
+
+This changes the network contract above, which assumed no uplink. A sealed
+network is still the right shape for performance on your own router. The
+public-DNS route through a proprietary router needs an uplink, and that also
+makes the captive portal pointless.
+
+### Pedagogy follows the modes
+
+Each mode introduces the concepts it needs and gives a working result:
+
+- **Practice:** what a server and a browser client are.
+- **Workshop:** local networks, IP addresses, client isolation, and trust (why
+  the browser shows a warning, and what a certificate is). The warning is the
+  first time a newcomer meets the trust problem.
+- **Performance:** DNS, real certificates, the router as the room's
+  infrastructure, and capacity (phones per access point).
+
+The router table above doubles as the teaching material: each row is one
+concept.
+
+---
+
 ## Onboarding (QR)
 
 Audience onboarding has two friction hops — **join the WiFi**, then **reach the

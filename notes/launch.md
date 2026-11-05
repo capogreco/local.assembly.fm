@@ -1,7 +1,10 @@
-# Public launch: identity and repo checklist
+# Public launch
 
 Internal notes. Thomas writes all public-facing prose; this file records only
 decisions and the to-do list.
+
+**Launch** means open-sourcing Tambourin and inviting other people to use it
+and contribute to it. Cloud mode is out of scope for now.
 
 ## Decisions (2026-11-05)
 
@@ -34,4 +37,31 @@ decisions and the to-do list.
       is unchanged.
 - [ ] The old `tambourine.fm` and `tambourine-fm` still exist; decide whether
       to keep them as redirects.
-- [ ] Decide on a CLA. The current lean is none.
+- [ ] Decide on a CLA. The current lean is none, with a DCO (`Signed-off-by:`)
+      optional.
+
+## Getting a stranger running (2026-11-05)
+
+The plan for accounts, certificates, modes and routers is in
+`network-and-modes.md`, under "Direction for the launch". In short:
+
+- Automate everything that doesn't take sides, in Bun, the same on every OS.
+- Put the opinionated parts on the router: OpenWrt, with GL.iNet recommended.
+- For other routers, teach the general principles.
+- The modes are also the syllabus.
+
+## Other areas
+
+- **Hardware and support:** stay within the GL.iNet ecosystem for
+  recommendations. A list of known-good phones and browsers is still to do.
+- **First contact:** help patches are the canonical reference. A YouTube
+  tutorial series teaches the modes ladder.
+- **Core scope:** the monome OSC ecosystem (Grid, Arc via serialosc) stays in
+  core. Scripts are OS-agnostic as far as possible. The ES-8 needs nothing
+  specific: core needs multichannel output, with DC passed through (no DC
+  blocker on ctrl).
+- **Contributing:** many decisions still to make: tests, a guide to the code
+  layout, which contributions are wanted, and how decisions are made.
+- **Community:** medium term, a Discourse forum (`forum.tambourin.fm` or
+  similar). Check whether Discourse still offers free hosting to open-source
+  projects.
