@@ -8,12 +8,23 @@
 
 import { boxTypeName, getBoxPorts } from "./gpi-types.js";
 import { PatchEditor, platformMod, COLORS, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
+import { currentTheme, toggleTheme, onThemeChange } from "./theme.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
 
 // DOM elements
 const canvas = document.getElementById("c");
 const input = document.getElementById("box-input");
 const tooltipEl = document.getElementById("tooltip");
+const themeToggle = document.getElementById("theme-toggle");
+
+// Theme control: a small half-filled dot after the mode label; t does the same.
+function labelThemeToggle() {
+  themeToggle.title = `switch to ${currentTheme() === "dark" ? "light" : "dark"} theme (t)`;
+}
+themeToggle.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus off it, so Space/Enter stay the editor's
+themeToggle.addEventListener("click", () => toggleTheme());
+onThemeChange(labelThemeToggle);
+labelThemeToggle();
 
 // --- global state ---
 
@@ -426,6 +437,7 @@ const mainEditor = new PatchEditor(canvas, {
     const modeX = 12 + ctx.measureText(status).width + 12;
     ctx.fillStyle = mainEditor.editorMode === "run" ? COLORS.labelStrong : COLORS.labelMuted;
     ctx.fillText(mainEditor.editorMode, modeX, 8);
+    themeToggle.style.left = (modeX + ctx.measureText(mainEditor.editorMode).width + 12) + "px";
 
     // Patch name
     if (currentPatchName) {
@@ -624,6 +636,8 @@ window.addEventListener("keydown", (e) => {
   }
   if (mainEditor.mode === "text-editing") return;
   if (e.key === "Meta" || e.key === "Control") refreshHoverCursor();
+  // t: toggle light/dark theme, in both editor modes.
+  if (e.key === "t" && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleTheme(); return; }
   const editing = mainEditor.editorMode === "edit";
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); applyToServer(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); if (editing) mainEditor.undo(); return; }

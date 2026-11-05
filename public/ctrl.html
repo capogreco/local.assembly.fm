@@ -83,6 +83,14 @@
       padding: 0 4px;
     }
     .help-close:hover { color: var(--close-hover); }
+    #theme-toggle {
+      position: fixed; top: 8px; left: 120px; z-index: 15;
+      width: 10px; height: 10px; padding: 0;
+      color: var(--control-fg); border: 1px solid currentColor; border-radius: 50%;
+      background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+      cursor: pointer;
+    }
+    #theme-toggle:hover { color: var(--control-hover); }
     #help-canvas {
       flex: 1;
       display: block;
@@ -93,6 +101,7 @@
   <canvas id="c"></canvas>
   <input id="box-input" type="text" autocomplete="off" spellcheck="false">
   <div id="tooltip"></div>
+  <button id="theme-toggle" type="button" tabindex="-1" aria-label="toggle theme"></button>
   <div id="hint">press h for help</div>
   <div id="notice" title="click to dismiss"></div>
   <script type="module" src="ctrl.js"></script>

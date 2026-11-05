@@ -1,4 +1,5 @@
 import { boxTypeName } from "./gpi-types.js";
+import { toggleTheme } from "./theme.js";
 import { PatchEditor, COLORS, SMALL_FONT, BOX_PAD_X, PORT_W, loadAbstractions } from "./patch-editor.js";
 
 const canvas = document.getElementById("c");
@@ -97,6 +98,7 @@ input.addEventListener("blur", () => editor.finishEditing(true));
 
 window.addEventListener("keydown", (e) => {
   if (editor.mode === "text-editing") return;
+  if (e.key === "t" && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleTheme(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); editor.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "c") {
