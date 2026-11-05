@@ -22,8 +22,11 @@ type (IBM Plex Mono).
   so a true eight-pointed star. The turned square's points fall between the grid
   dots. The square is at the audio weight (2.5px): the instrument, the material
   form. The turned square is at the control weight (1px): the dance, the
-  cultural form. A `T` sits at the hub at the light weight. Still open: the `T`'s
-  size, ports, and the small-size rule. The reference sheet is at
+  cultural form. A `T` sits at the hub at the light weight, its crossbar 2 grid
+  units wide. **Geometry:** square side 4 units (80px), on a native canvas of
+  120px. **Ports** sit on the square's four corners, only at 96px and up.
+  **Small sizes:** strokes scale with the mark but never go below 1px, so the
+  weights converge when small. No retina-specific variants. The reference sheet is at
   https://claude.ai/artifact/BgXAsuK92Qfugo4HoM5q7J (private).
 - **Wordmarks:** the horizontal `TAMBOURIN` in single-weight geometric letters;
   the stacked TAM / BOU / RIN on a 3×3 grid (nine letters fill it exactly); and
