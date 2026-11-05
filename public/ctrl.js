@@ -682,7 +682,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.key === "s" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); savePatch(); return; }
-  if (e.key === "N" && !e.metaKey && !e.ctrlKey && e.shiftKey) { e.preventDefault(); newAbstraction(); return; }
+  if (e.key === "N" && !e.metaKey && !e.ctrlKey && e.shiftKey) { e.preventDefault(); if (editing) newAbstraction(); return; }
   if (e.key === "o" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); loadPatch(); return; }
   if (e.key === "p" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); fetch("/patches/reveal", { method: "POST" }); return; }
   if (e.key === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); if (!editing) return; mainEditor.pushUndo(); mainEditor.boxes.clear(); mainEditor.cables.clear(); mainEditor.selection.clear(); mainEditor.cableSelection.clear(); mainEditor.nextId = 1; mainEditor.dirty = true; mainEditor.onDirty(); mainEditor.resetView(); currentPatchName = null; mainEditor.render(); return; }
