@@ -290,12 +290,12 @@ class PatchEditor {
       parentsOf.get(cable.dstBox)?.push(cable.srcBox);
     }
 
-    // Partition into one / many / router
-    const oneBoxes = [], manyBoxes = [], routerBoxes = [];
+    // Partition into ctrl / synth / router
+    const ctrlBoxes = [], synthBoxes = [], routerBoxes = [];
     for (const [id, box] of this.boxes) {
       if (this.isRouterType(box.text)) routerBoxes.push(id);
-      else if (this.sideOfBox(box) === "one") oneBoxes.push(id);
-      else manyBoxes.push(id);
+      else if (this.sideOfBox(box) === "ctrl") ctrlBoxes.push(id);
+      else synthBoxes.push(id);
     }
 
     // Find connected components within a set of box ids
@@ -506,9 +506,9 @@ class PatchEditor {
       return startY + maxHeight;
     };
 
-    const oneEnd = layoutRegion(oneBoxes, TOP_MARGIN);
-    if (oneEnd + BORDER_PAD > this.borderY && oneBoxes.length > 0) {
-      this.borderY = oneEnd + BORDER_PAD;
+    const ctrlEnd = layoutRegion(ctrlBoxes, TOP_MARGIN);
+    if (ctrlEnd + BORDER_PAD > this.borderY && ctrlBoxes.length > 0) {
+      this.borderY = ctrlEnd + BORDER_PAD;
     }
 
     // Place routers on border, x-aligned to connected boxes
@@ -524,7 +524,7 @@ class PatchEditor {
       }
     }
 
-    layoutRegion(manyBoxes, this.borderY + BORDER_PAD);
+    layoutRegion(synthBoxes, this.borderY + BORDER_PAD);
     this.zoomToFit();
     this.dirty = true;
     this.onDirty();
@@ -543,8 +543,8 @@ class PatchEditor {
 
   // Piston cascade: after a membrane displacement, resolve any remaining
   // box overlaps by pushing in the sweep direction until settled.
-  // `direction` is "down" (many side was squeezed — push lower boxes further
-  // down) or "up" (one side was squeezed — push upper boxes further up).
+  // `direction` is "down" (synth side was squeezed — push lower boxes further
+  // down) or "up" (ctrl side was squeezed — push upper boxes further up).
   // Routers are anchored to the border and skipped.
   cascadeOverlaps(direction, PAD) {
     const ids = [];
@@ -748,9 +748,9 @@ class PatchEditor {
     try { return sideOf(box, borderY, absLookup); } catch { return positionSide(box, borderY); } // reported by sideOfBox
   }
 
-  isManySide(boxId) {
+  isSynthSide(boxId) {
     const box = this.boxes.get(boxId);
-    return box ? this.sideOfBox(box) === "many" : false;
+    return box ? this.sideOfBox(box) === "synth" : false;
   }
 
   // A bound box the move just took off side (isOffSide: on the other side, or
@@ -782,7 +782,7 @@ class PatchEditor {
     let offSide;
     try { offSide = isOffSide(box, this.borderY, absLookup); } catch { return; } // reported by sideOfBox
     if (!offSide) return;
-    box.y = this.sideOfBox(box) === "many" ? this.borderY + 20 : this.borderY - BOX_HEIGHT - 20;
+    box.y = this.sideOfBox(box) === "synth" ? this.borderY + 20 : this.borderY - BOX_HEIGHT - 20;
   }
 
   isRouterType(text) { return boxBinding(text).binding === "border"; }
@@ -889,7 +889,7 @@ class PatchEditor {
           }
           if (!inCable || !outCable) continue;
           if (inCable.srcBox !== draggedId && outCable.dstBox !== draggedId) continue;
-          if (this.isManySide(inCable.srcBox) === this.isManySide(outCable.dstBox)) {
+          if (this.isSynthSide(inCable.srcBox) === this.isSynthSide(outCable.dstBox)) {
             this.cables.delete(inCableId);
             this.cables.delete(outCableId);
             this.cables.set(this.nextId++, { srcBox: inCable.srcBox, srcOutlet: inCable.srcOutlet, dstBox: outCable.dstBox, dstInlet: outCable.dstInlet });
@@ -906,7 +906,7 @@ class PatchEditor {
       if (!srcBox || !dstBox) continue;
       if (this.isRouterType(srcBox.text) || this.isRouterType(dstBox.text)) continue;
       if (this.isAudioCable(c)) continue; // audio is never routed; the drop is rejected on release
-      if (this.isManySide(c.srcBox) !== this.isManySide(c.dstBox)) {
+      if (this.isSynthSide(c.srcBox) !== this.isSynthSide(c.dstBox)) {
         toReroute.push({ cableId, srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
       }
     }
@@ -964,9 +964,9 @@ class PatchEditor {
       this.ctx.font = SMALL_FONT;
       this.ctx.fillStyle = COLORS.borderLabel;
       this.ctx.textBaseline = "bottom";
-      this.ctx.fillText("one", labelX, this.borderY - 6 / this.zoom);
+      this.ctx.fillText("ctrl", labelX, this.borderY - 6 / this.zoom);
       this.ctx.textBaseline = "top";
-      this.ctx.fillText("many", labelX, this.borderY + 6 / this.zoom);
+      this.ctx.fillText("synth", labelX, this.borderY + 6 / this.zoom);
     }
 
     // Cables
@@ -1451,8 +1451,8 @@ class PatchEditor {
           continue;
         }
         const side = this.sideOf(box, oldY);
-        if (newY > oldY && side === "many" && box.y < newY) box.y = newY + PAD;
-        else if (newY < oldY && side === "one" && box.y + BOX_HEIGHT > newY) box.y = newY - BOX_HEIGHT - PAD;
+        if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
+        else if (newY < oldY && side === "ctrl" && box.y + BOX_HEIGHT > newY) box.y = newY - BOX_HEIGHT - PAD;
       }
       if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
@@ -1634,11 +1634,11 @@ class PatchEditor {
           return;
         }
         this.pushUndo();
-        const srcMany = this.isManySide(this.cableFrom.boxId);
-        const dstMany = this.isManySide(inlet.boxId);
+        const srcSynth = this.isSynthSide(this.cableFrom.boxId);
+        const dstSynth = this.isSynthSide(inlet.boxId);
         const srcBox = this.boxes.get(this.cableFrom.boxId);
         const dstBox = this.boxes.get(inlet.boxId);
-        if (this.showBorder && srcMany !== dstMany && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
+        if (this.showBorder && srcSynth !== dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
           this.autoRoute(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId, inlet.index);
         } else {
           this.cables.set(this.nextId++, { srcBox: this.cableFrom.boxId, srcOutlet: this.cableFrom.index, dstBox: inlet.boxId, dstInlet: inlet.index });

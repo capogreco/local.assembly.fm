@@ -1,4 +1,4 @@
-// eval-engine.ts — one-side evaluation (graph.js), routing, and tick loop
+// eval-engine.ts — ctrl-side evaluation (graph.js), routing, and tick loop
 
 import {
   type Box, type BoxValue,
@@ -31,7 +31,7 @@ let _sendCtrl: (msg: Record<string, unknown>) => void;
 let _event: (msg: string) => void;
 
 // Every router message (rv/re) leaves the server through emit(): `to` is a client
-// id, "laptop" (the ctrl sockets, for one-side audio), or omitted to broadcast
+// id, "laptop" (the ctrl sockets, for ctrl-side audio), or omitted to broadcast
 // to phones. This is the one place a message could be stamped (an optional `t`,
 // see notes/architecture.md) or logged. A replay (opts.replay) is logged as
 // dst=replay:<to>: it repeats a value, it is not an onset.
@@ -176,7 +176,7 @@ function handleRouterInlet(routerBoxId: number, inlet: number, value: BoxValue, 
   }
 
   // sall — wireless send to the phones' receives of that name (broadcast).
-  // It reaches phones only, not the one side's receives.
+  // It reaches phones only, not the ctrl side's receives.
   if (routerType === "sall") {
     const names = box.text.split(/\s+/).slice(1);
     const name = names[inlet];
@@ -261,10 +261,10 @@ function flushValueUpdates(): void {
   _sendCtrl({ type: "values", updates });
 }
 
-// --- The one-side graph ---
+// --- The ctrl-side graph ---
 //
-// The server evaluates the one side with the phones' graph.js. Its graph holds
-// the one-side boxes and the routers; routers and one-side audio boxes are
+// The server evaluates the ctrl side with the phones' graph.js. Its graph holds
+// the ctrl-side boxes and the routers; routers and ctrl-side audio boxes are
 // sinks (graph.sinks), the way engines are on a phone: delivery at them is
 // handed back here instead of evaluated.
 
@@ -359,7 +359,7 @@ function routerSink(id: number) {
   };
 }
 
-// One-side audio runs on the laptop: the ctrl page builds it from the laptop
+// Ctrl-side audio runs on the laptop: the ctrl page builds it from the laptop
 // deploy (deploy.ts) and its control arrives as rv/re addressed to the box
 // itself (r = box id, ch = inlet). The latest value per inlet is kept so a
 // ctrl page that (re)connects after the build can have them again. It is
@@ -406,14 +406,14 @@ function onOutput(boxId: number, outlet: number, kind: string, value?: BoxValue)
 
 // Side is stamped at apply (sideOf in gpi-types.js). An unstamped box means
 // a path skipped the stamp pass: fail loudly rather than guess.
-export function sideStamped(box: Box): "one" | "many" | "border" {
+export function sideStamped(box: Box): "ctrl" | "synth" | "border" {
   if (box.side === undefined) throw new Error(`box "${box.text}" has no side: apply must stamp sides before evaluation`);
   return box.side;
 }
 
 let metroIds: number[] = [];
 
-// Build the one-side graph from the applied patch. Initial values (const,
+// Build the ctrl-side graph from the applied patch. Initial values (const,
 // toggle and every other box with a state value, as on a phone) reach the
 // sinks; then the sources with no graph state get theirs.
 // Returns false if the build threw (reported): there is then no graph.
@@ -431,7 +431,7 @@ export function buildServerGraph(): boolean {
     const sinks = new Map<number, (inlet: number, kind: string, value?: BoxValue) => void>();
     for (const [id, box] of boxes) {
       const side = sideStamped(box);
-      if (side === "many") continue;
+      if (side === "synth") continue;
       ids.add(id);
       graphBoxes.push({ id, type: boxTypeName(box.text), args: box.text.split(/\s+/).slice(1).join(" "), inletDefs: deployInletDefs(box.text) });
       if (side === "border") sinks.set(id, routerSink(id));
@@ -452,7 +452,7 @@ function graphHas(boxId: number): boolean {
   if (!graph) return false;
   if (graph.boxes.has(boxId)) return true;
   const box = boxes.get(boxId);
-  if (box) console.log(`\x1b[31m✗ input to "${box.text}" (box ${boxId}) dropped: not a one-side box\x1b[0m`);
+  if (box) console.log(`\x1b[31m✗ input to "${box.text}" (box ${boxId}) dropped: not a ctrl-side box\x1b[0m`);
   return false;
 }
 

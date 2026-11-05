@@ -2,29 +2,29 @@
  * GPI Box Type Registry
  * Defines all operator types with their ports, bindings, and documentation.
  * Port types: number, event, symbol, array, passthrough
- * Bindings: one, many, border (routers); no binding = free
+ * Bindings: ctrl, synth, border (routers); no binding = free
  */
 
 const BOX_TYPES = {
-  // --- sources (one-bound) ---
-  arc:            { binding: "one", description: "Monome Arc encoder. Mode 0: continuous rotation (0-1). Optional init value.", args: "i m [init]", example: "arc 0 0 0.5",
+  // --- sources (ctrl-bound) ---
+  arc:            { binding: "ctrl", description: "Monome Arc encoder. Mode 0: continuous rotation (0-1). Optional init value.", args: "i m [init]", example: "arc 0 0 0.5",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Encoder position (0-1)" }] },
-  breath:         { binding: "one", lib: "maker", description: "BBC2 breath pressure. CC#2. Optional init value.", args: "[init]",
+  breath:         { binding: "ctrl", lib: "maker", description: "BBC2 breath pressure. CC#2. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
                       { name: "gate", type: "number", description: "1 above threshold, 0 below (changes on crossing)" }] },
-  bite:           { binding: "one", lib: "maker", description: "BBC2 bite pressure. CC#1. Optional init value.", args: "[init]",
+  bite:           { binding: "ctrl", lib: "maker", description: "BBC2 bite pressure. CC#1. Optional init value.", args: "[init]",
                     inlets: [], outlets: [
                       { name: "value", type: "number", description: "Pressure (0-1)" },
                       { name: "gate", type: "number", description: "1 above threshold, 0 below (changes on crossing)" }] },
-  nod:            { binding: "one", lib: "maker", description: "BBC2 head nod. CC#12. Optional init value.", args: "[init]",
+  nod:            { binding: "ctrl", lib: "maker", description: "BBC2 head nod. CC#12. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
-  tilt:           { binding: "one", lib: "maker", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
+  tilt:           { binding: "ctrl", lib: "maker", description: "BBC2 head tilt. CC#13. Optional init value.", args: "[init]",
                     inlets: [], outlets: [{ name: "value", type: "number", description: "Tilt (0-1)" }] },
-  cc:             { binding: "one", description: "MIDI CC input. Pass one or more CC numbers as args; each gets its own outlet. No args = monitor mode (displays last cc:value, does not propagate).", args: "[n ...]", example: "cc 1 7 11",
+  cc:             { binding: "ctrl", description: "MIDI CC input. Pass one or more CC numbers as args; each gets its own outlet. No args = monitor mode (displays last cc:value, does not propagate).", args: "[n ...]", example: "cc 1 7 11",
                     dynamic: true,
                     inlets: [], outlets: [{ name: "value", type: "number", description: "CC value (0-1)" }] },
-  key:            { binding: "one", description: "MIDI note input. No arg: any channel. Arg N: only channel N (1-16). Arg `?`: passive monitor, displays latest pitch/velocity/channel.",
+  key:            { binding: "ctrl", description: "MIDI note input. No arg: any channel. Arg N: only channel N (1-16). Arg `?`: passive monitor, displays latest pitch/velocity/channel.",
                     args: "[channel | ?]", example: "key 10",
                     inlets: [], outlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
@@ -35,7 +35,7 @@ const BOX_TYPES = {
                     inlets: [{ name: "pitch", type: "number", description: "Note number" },
                              { name: "velocity", type: "number", firesEvent: true, description: ">0 fires, 0 blocked" }],
                     outlets: [{ name: "out", type: "passthrough", description: "Pitch/velocity on press (no-arg) or per-pitch null event (with args)" }] },
-  held:           { binding: "one", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity). Optional release window (s): released notes stay in the array for the window, and if all keys are up before it elapses the array keeps the last chord (count still drops immediately).", args: "[window]", example: "held 0.15",
+  held:           { binding: "ctrl", description: "Accumulate pressed MIDI notes in press order; remove on release. Drive by key outlets (pitch, velocity). Optional release window (s): released notes stay in the array for the window, and if all keys are up before it elapses the array keeps the last chord (count still drops immediately).", args: "[window]", example: "held 0.15",
                     inlets: [
                       { name: "pitch", type: "number", description: "Note number (0-127)" },
                       { name: "velocity", type: "number", firesEvent: true, description: ">0 adds pitch to set; 0 removes" }],
@@ -44,16 +44,16 @@ const BOX_TYPES = {
                       { name: "added", type: "event", description: "Null event when a pitch was newly added" },
                       { name: "removed", type: "event", description: "Null event when a pitch was removed" },
                       { name: "count", type: "number", description: "|held|" }] },
-  "grid-trig":    { binding: "one", description: "Monome Grid trigger button (1×1). Outputs 1 on press, 0 on release.", args: "x y", example: "grid-trig 0 0",
+  "grid-trig":    { binding: "ctrl", description: "Monome Grid trigger button (1×1). Outputs 1 on press, 0 on release.", args: "x y", example: "grid-trig 0 0",
                     inlets: [], outlets: [{ name: "trig", type: "number", description: "1 when pressed, 0 when released" }] },
-  "grid-toggle":  { binding: "one", description: "Monome Grid toggle button (1×1). Press to flip between 0 and 1.", args: "x y", example: "grid-toggle 1 0",
+  "grid-toggle":  { binding: "ctrl", description: "Monome Grid toggle button (1×1). Press to flip between 0 and 1.", args: "x y", example: "grid-toggle 1 0",
                     inlets: [], outlets: [{ name: "state", type: "number", description: "Toggle state (0 or 1)" }] },
-  "grid-array":   { binding: "one", description: "Monome Grid integer array. Press to toggle values, hold+press for range fill/clear.", args: "x y w h", example: "grid-array 0 2 12 1",
+  "grid-array":   { binding: "ctrl", description: "Monome Grid integer array. Press to toggle values, hold+press for range fill/clear.", args: "x y w h", example: "grid-array 0 2 12 1",
                     inlets: [], outlets: [{ name: "array", type: "array", description: "Array of 1-indexed integers" }] },
-  uplink:         { binding: "one", description: "Receive values from synth clients on named channels.", args: "name1 [name2 ...]", example: "uplink tx ty tg",
+  uplink:         { binding: "ctrl", description: "Receive values from synth clients on named channels.", args: "name1 [name2 ...]", example: "uplink tx ty tg",
                     dynamic: true,
                     inlets: [], outlets: [{ name: "out", type: "number", description: "Value from synth" }] },
-  clients:        { binding: "one", description: "Live count of connected synth clients (phones). Updates on connect/disconnect.",
+  clients:        { binding: "ctrl", description: "Live count of connected synth clients (phones). Updates on connect/disconnect.",
                     inlets: [], outlets: [{ name: "count", type: "number", description: "Connected client count" }] },
 
   // --- abstraction interface ---
@@ -395,25 +395,25 @@ const BOX_TYPES = {
   catch:          { description: "Wireless catch. Sums all matching throws.", args: "name", example: "catch mix",
                     inlets: [], outlets: [{ name: "out", type: "number", description: "Summed value" }] },
 
-  // --- many-bound uplink ---
-  sendup:         { binding: "many", description: "Send value from phone back to server on named channels.", args: "name1 [name2 ...]", example: "sendup tx ty tg",
+  // --- synth-bound uplink ---
+  sendup:         { binding: "synth", description: "Send value from phone back to server on named channels.", args: "name1 [name2 ...]", example: "sendup tx ty tg",
                     dynamic: true,
                     inlets: [{ name: "in", type: "number", description: "Value to send up" }], outlets: [] },
 
-  // --- many-bound display (gel stack) ---
-  screen:         { binding: "many", description: "Full-screen color layer. Args: z-index (default 1).", args: "[z]", example: "screen 2",
+  // --- synth-bound display (gel stack) ---
+  screen:         { binding: "synth", description: "Full-screen color layer. Args: z-index (default 1).", args: "[z]", example: "screen 2",
                     inlets: [
                       { name: "r", type: "number", description: "Red (0-1)" },
                       { name: "g", type: "number", description: "Green (0-1)" },
                       { name: "b", type: "number", description: "Blue (0-1)" },
                       { name: "a", type: "number", description: "Alpha (0-1, default 0)" }],
                     outlets: [] },
-  text:           { binding: "many", description: "Full-screen centered text. First arg is z-index if numeric, rest is display text.", args: "[z] content...", example: "text 3 drag here",
+  text:           { binding: "synth", description: "Full-screen centered text. First arg is z-index if numeric, rest is display text.", args: "[z] content...", example: "text 3 drag here",
                     inlets: [
                       { name: "size", type: "number", description: "Font size (0-1, default 0.5)" },
                       { name: "a", type: "number", description: "Alpha (0-1, default 0)" }],
                     outlets: [] },
-  touch:          { binding: "many", description: "Full-screen pointer capture. Pure sensor, no visuals.", args: "",
+  touch:          { binding: "synth", description: "Full-screen pointer capture. Pure sensor, no visuals.", args: "",
                     inlets: [{ name: "gate", type: "number", description: "1=enable capture, 0=disable. No cable=always active" }],
                     outlets: [
                       { name: "x", type: "number", description: "Normalized X position (0-1)" },
@@ -435,7 +435,7 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "audio", description: "Summed audio" }] },
 
   // --- audio-rate objects (~) — any box with audio ports ---
-  "scope~":       { binding: "many", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z. Knot colour via audio-rate HSB.", args: "[z]", example: "scope~ 5",
+  "scope~":       { binding: "synth", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z. Knot colour via audio-rate HSB.", args: "[z]", example: "scope~ 5",
                     inlets: [
                       { name: "x", type: "audio", description: "X axis signal" },
                       { name: "y", type: "audio", description: "Y axis signal" },
@@ -452,14 +452,14 @@ const BOX_TYPES = {
   "adc~":         { description: "Audio input. Channel arg selects input channel from audio interface.", args: "[channel]", example: "adc~ 1",
                     inlets: [],
                     outlets: [{ name: "out", type: "audio", description: "Audio input signal" }] },
-  "fftPeaks~":    { binding: "one", description: "Spectral peak analyser (a→k). On a trigger, finds the N loudest spectral peaks of the input audio and outputs them as two parallel arrays, sorted loudest-first. Pairs with `assign` for distributed resynthesis.", args: "[maxPeaks] [minHz]", example: "fftPeaks~ 33 100",
+  "fftPeaks~":    { binding: "ctrl", description: "Spectral peak analyser (a→k). On a trigger, finds the N loudest spectral peaks of the input audio and outputs them as two parallel arrays, sorted loudest-first. Pairs with `assign` for distributed resynthesis.", args: "[maxPeaks] [minHz]", example: "fftPeaks~ 33 100",
                     inlets: [{ name: "in", type: "audio", description: "Audio to analyse (e.g. from adc~)" },
                              { name: "trigger", type: "event", description: "Scan now (e.g. from metro)" },
                              { name: "max", type: "number", description: "Live cap on peaks emitted (e.g. from `clients` — keep ≤ phone count); overrides the arg" },
                              { name: "minHz", type: "number", description: "Ignore peaks below this frequency (Hz) — filters DC/hum/room rumble; 0 = off. Overrides the arg" }],
                     outlets: [{ name: "freqs", type: "array", description: "Peak frequencies (Hz), loudest first" },
                               { name: "amps", type: "array", description: "Peak amplitudes (linear), index-aligned to freqs" }] },
-  "dac~":         { description: "Audio output. Many side: mono to speaker. One side: channel arg routes to interface.", args: "[channels...]", example: "dac~ 1 2",
+  "dac~":         { description: "Audio output. Synth side: mono to speaker. Ctrl side: channel arg routes to interface.", args: "[channels...]", example: "dac~ 1 2",
                     inlets: [{ name: "in", type: "audio", description: "Audio signal" }],
                     outlets: [] },
   "const~":       { description: "Constant audio signal.", args: "value", example: "const~ 440",
@@ -755,14 +755,14 @@ function getBoxDef(text) {
 
 // --- Side and binding ---
 // A box is free (its side follows its position against the border) or bound
-// to one side whatever its position; routers are the border. A type's
-// `binding` field is "one", "many" or "border"; no field means free.
+// to a single side whatever its position; routers are the border. A type's
+// `binding` field is "ctrl", "synth" or "border"; no field means free.
 // `lookup(name)` returns an abstraction's inner boxes (anything iterable of
 // {text}) or null; without it, unknown types count as free.
 
-// Binding of a box: { binding: "one" | "many" | "border" | "free", error }.
+// Binding of a box: { binding: "ctrl" | "synth" | "border" | "free", error }.
 // An abstraction's binding is inferred from its contents (nested ones too):
-// one-bound if any inner box is one-bound, many-bound if any is many-bound.
+// ctrl-bound if any inner box is ctrl-bound, synth-bound if any is synth-bound.
 // Both kinds, or a router, inside is an error (`error` is set), and so is an
 // abstraction that contains itself, at any depth.
 function boxBinding(text, lookup, seen = new Set()) {
@@ -773,16 +773,16 @@ function boxBinding(text, lookup, seen = new Set()) {
   if (!inner) return { binding: "free", error: null };
   if (seen.has(name)) return { binding: "free", error: `abstraction "${name}" contains itself` };
   const path = new Set(seen).add(name);
-  let one = null, many = null;
+  let ctrl = null, synth = null;
   for (const innerBox of inner) {
     const b = boxBinding(innerBox.text, lookup, path);
     if (b.error) return b;
-    if (b.binding === "border") return { binding: "free", error: `abstraction "${name}" contains router "${innerBox.text}": an abstraction lives on one side` };
-    if (b.binding === "one") one ??= innerBox.text;
-    if (b.binding === "many") many ??= innerBox.text;
+    if (b.binding === "border") return { binding: "free", error: `abstraction "${name}" contains router "${innerBox.text}": an abstraction lives on a single side` };
+    if (b.binding === "ctrl") ctrl ??= innerBox.text;
+    if (b.binding === "synth") synth ??= innerBox.text;
   }
-  if (one && many) return { binding: "free", error: `abstraction "${name}" mixes one-bound "${one}" and many-bound "${many}": an abstraction lives on one side` };
-  return { binding: one ? "one" : many ? "many" : "free", error: null };
+  if (ctrl && synth) return { binding: "free", error: `abstraction "${name}" mixes ctrl-bound "${ctrl}" and synth-bound "${synth}": an abstraction lives on a single side` };
+  return { binding: ctrl ? "ctrl" : synth ? "synth" : "free", error: null };
 }
 
 // Height of a box in patch units. The side rule needs it, so it lives here
@@ -790,20 +790,20 @@ function boxBinding(text, lookup, seen = new Set()) {
 const BOX_HEIGHT = 22;
 
 // Side a free box takes from its position: its centre against the border
-// (a centre exactly on the line counts as many).
+// (a centre exactly on the line counts as synth).
 function positionSide(box, borderY) {
-  return box.y + BOX_HEIGHT / 2 >= borderY ? "many" : "one";
+  return box.y + BOX_HEIGHT / 2 >= borderY ? "synth" : "ctrl";
 }
 
 // The side a box lies wholly on, or null if it straddles the border. A
-// bottom edge on the line is wholly one; a top edge on the line, wholly many.
+// bottom edge on the line is wholly ctrl; a top edge on the line, wholly synth.
 function wholeSide(box, borderY) {
-  if (box.y + BOX_HEIGHT <= borderY) return "one";
-  if (box.y >= borderY) return "many";
+  if (box.y + BOX_HEIGHT <= borderY) return "ctrl";
+  if (box.y >= borderY) return "synth";
   return null;
 }
 
-// The one place a box's side is decided: "one" | "many" | "border".
+// The one place a box's side is decided: "ctrl" | "synth" | "border".
 // Bound boxes ignore borderY. Throws on an abstraction with an inconsistent binding.
 function sideOf(box, borderY, lookup) {
   const { binding, error } = boxBinding(box.text, lookup);
@@ -816,7 +816,7 @@ function sideOf(box, borderY, lookup) {
 function isOffSide(box, borderY, lookup) {
   const { binding, error } = boxBinding(box.text, lookup);
   if (error) throw new Error(error);
-  return (binding === "one" || binding === "many") && binding !== wholeSide(box, borderY);
+  return (binding === "ctrl" || binding === "synth") && binding !== wholeSide(box, borderY);
 }
 
 // Does a move take a bound box off side? A move is judged by where it ends:

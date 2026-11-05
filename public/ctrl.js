@@ -1,9 +1,9 @@
 /**
- * Ctrl — Graphical Patching Interface + one-side engine host
+ * Ctrl — Graphical Patching Interface + ctrl-side engine host
  * Canvas-based PD-style patch editor.
  * All edits are local. Cmd+Enter applies the full state to the server.
  * Cmd+Z undoes. Server sends value updates for display.
- * Also hosts one-side engines (above the border) with audio output to laptop speakers.
+ * Also hosts ctrl-side engines (above the border) with audio output to laptop speakers.
  */
 
 import { boxTypeName, getBoxPorts } from "./gpi-types.js";
@@ -33,7 +33,7 @@ let connectedClients = 0;
 let midiDeviceNames = [];
 let currentPatchName = null;
 
-// --- one-side audio engine ---
+// --- ctrl-side audio engine ---
 
 let ctrlAudioCtx = null;
 let ctrlChannelMerger = null;
@@ -44,7 +44,7 @@ let ctrlInputSource = null;   // MediaStreamSourceNode (shared)
 let ctrlInputSplitter = null; // ChannelSplitterNode for adc~
 const ctrlEngines = new Map();
 const ctrlWorkletModulesLoaded = new Set();
-// The laptop deploy (server.ts, deploy.ts): one-side audio boxes by id. Its
+// The laptop deploy (server.ts, deploy.ts): ctrl-side audio boxes by id. Its
 // control arrives as rv/re with r = box id, ch = inlet; while a deploy builds,
 // they wait in laptopPending. Builds run one after another (laptopBuild).
 const laptopBoxes = new Map();
@@ -139,7 +139,7 @@ async function buildLaptopAudio(patch) {
     ctrlInputSource = null;
   }
 
-  // The deploy is post-expansion: one-side audio inside an abstraction is in it.
+  // The deploy is post-expansion: ctrl-side audio inside an abstraction is in it.
   laptopBoxes.clear();
   laptopInlets.clear();
   for (const b of patch.boxes) laptopBoxes.set(b.id, b);
@@ -353,7 +353,7 @@ function laptopEvent(boxId, inlet) {
   showEnvelope(boxId, b);
 }
 
-// Envelope display for one-side audio boxes, drawn as the box's value bar:
+// Envelope display for ctrl-side audio boxes, drawn as the box's value bar:
 // a short flash for the triggers, ramp~'s shaped curve over its duration.
 // The rAF loop runs only while a ramp~ is animating.
 const FLASH_TYPES = new Set(["trig~", "ar~", "sigmoid~", "cosine~", "step~"]);

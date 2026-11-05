@@ -215,11 +215,11 @@ function handleApply(msg: any): void {
     sendCtrl({ type: "errors", errors: warnings });
   }
 
-  // Phones and the laptop get the new deploys first, so the one side's
+  // Phones and the laptop get the new deploys first, so the ctrl side's
   // initial values (sent as the server graph builds) land on them.
   deployPatch();
   // A build that throws has been reported (eval-engine.ts) and left no graph:
-  // nothing evaluates the one side, so the patch is not "applied".
+  // nothing evaluates the ctrl side, so the patch is not "applied".
   if (!buildServerGraph()) {
     status.applied = false;
     event("patch deployed, but the server graph failed to build");
@@ -250,7 +250,7 @@ function deployPatch(): void {
   broadcastSynth(getDeployedPatch()!);
   event("patch deployed to " + totalSynthClients() + " clients");
   sendCtrl({ type: "deployed" });
-  // The ctrl page builds one-side audio from this.
+  // The ctrl page builds ctrl-side audio from this.
   setLaptopPatch(serializeLaptopPatch());
   sendCtrl(getLaptopPatch()!);
 }

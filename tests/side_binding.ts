@@ -11,7 +11,7 @@ import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-chec
 import { movesOffSide } from "../public/gpi-types.js";
 
 const BORDER = 400;
-const ONE_Y = 100, MANY_Y = 600;
+const CTRL_Y = 100, SYNTH_Y = 600;
 
 let pass = 0, fail = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -36,12 +36,12 @@ function absDef(texts: string[]): AbstractionDef {
 }
 const loaded = new Map<string, AbstractionDef>([
   ["free-abs", absDef(["inlet 0", "+ 1", "outlet 0"])],
-  ["one-abs", absDef(["inlet 0", "key", "outlet 0"])],
-  ["many-abs", absDef(["inlet 0", "touch", "outlet 0"])],
+  ["ctrl-abs", absDef(["inlet 0", "key", "outlet 0"])],
+  ["synth-abs", absDef(["inlet 0", "touch", "outlet 0"])],
   ["mixed-abs", absDef(["key", "touch"])],
   ["router-abs", absDef(["inlet 0", "all 1"])],
-  ["nested-mixed", absDef(["one-abs", "many-abs"])],
-  ["nested-one", absDef(["free-abs", "one-abs"])],
+  ["nested-mixed", absDef(["ctrl-abs", "synth-abs"])],
+  ["nested-ctrl", absDef(["free-abs", "ctrl-abs"])],
   ["typo-abs", absDef(["inlet 0", "no-such-box", "outlet 0"])],
   ["self-abs", absDef(["inlet 0", "self-abs", "self-abs", "outlet 0"])],
   ["ping", absDef(["inlet 0", "pong", "outlet 0"])],
@@ -53,42 +53,42 @@ function reset(): void {
   setBorderY(400);
 }
 
-console.log("one-bound box placed many-side");
+console.log("ctrl-bound box placed synth-side");
 {
   reset();
-  const r = applyPatch(msg([box(1, "key", MANY_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "key", SYNTH_Y)]), loaded);
   check("rejected", r.errors.length === 1, JSON.stringify(r.errors));
-  check("names the box and side", /"key".*one.*many/.test(r.errors[0] ?? ""), r.errors[0]);
+  check("names the box and side", /"key".*ctrl.*synth/.test(r.errors[0] ?? ""), r.errors[0]);
 }
 
-console.log("many-bound box placed one-side");
+console.log("synth-bound box placed ctrl-side");
 {
   reset();
-  const r = applyPatch(msg([box(1, "touch", ONE_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "touch", CTRL_Y)]), loaded);
   check("rejected", r.errors.length === 1, JSON.stringify(r.errors));
-  check("names the box and side", /"touch".*many.*one/.test(r.errors[0] ?? ""), r.errors[0]);
+  check("names the box and side", /"touch".*synth.*ctrl/.test(r.errors[0] ?? ""), r.errors[0]);
 }
 
 console.log("abstraction containing a router");
 {
   reset();
-  const r = applyPatch(msg([box(1, "router-abs", ONE_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "router-abs", CTRL_Y)]), loaded);
   check("rejected", r.errors.some((e) => /contains router/.test(e)), JSON.stringify(r.errors));
 }
 
-console.log("abstraction mixing one- and many-bound boxes");
+console.log("abstraction mixing ctrl- and synth-bound boxes");
 {
   reset();
-  const r = applyPatch(msg([box(1, "mixed-abs", ONE_Y)]), loaded);
-  check("rejected", r.errors.some((e) => /mixes one-bound "key" and many-bound "touch"/.test(e)), JSON.stringify(r.errors));
-  const n = applyPatch(msg([box(1, "nested-mixed", ONE_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "mixed-abs", CTRL_Y)]), loaded);
+  check("rejected", r.errors.some((e) => /mixes ctrl-bound "key" and synth-bound "touch"/.test(e)), JSON.stringify(r.errors));
+  const n = applyPatch(msg([box(1, "nested-mixed", CTRL_Y)]), loaded);
   check("nested mix rejected", n.errors.some((e) => /mixes/.test(e)), JSON.stringify(n.errors));
 }
 
 console.log("bound abstraction placed on the wrong side");
 {
   reset();
-  const r = applyPatch(msg([box(1, "one-abs", MANY_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "ctrl-abs", SYNTH_Y)]), loaded);
   check("rejected", r.errors.length > 0 && /"key"/.test(r.errors[0]), JSON.stringify(r.errors));
 }
 
@@ -96,31 +96,31 @@ console.log("valid patch accepted");
 {
   reset();
   const r = applyPatch(msg(
-    [box(1, "key", ONE_Y), box(2, "all 1", BORDER), box(3, "touch", MANY_Y), box(4, "free-abs", ONE_Y), box(5, "ewing~", MANY_Y), box(6, "nested-one", ONE_Y)],
+    [box(1, "key", CTRL_Y), box(2, "all 1", BORDER), box(3, "touch", SYNTH_Y), box(4, "free-abs", CTRL_Y), box(5, "ewing~", SYNTH_Y), box(6, "nested-ctrl", CTRL_Y)],
     [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)],
   ), loaded);
   check("no errors", r.errors.length === 0, JSON.stringify(r.errors));
   check("committed to the live patch", boxes.has(1) && boxes.has(3) && getPatchNextId() === 1000);
-  check("abstractions expanded away", ![...boxes.values()].some((b) => b.text === "free-abs" || b.text === "nested-one"));
+  check("abstractions expanded away", ![...boxes.values()].some((b) => b.text === "free-abs" || b.text === "nested-ctrl"));
   const sides = Object.fromEntries([...boxes].filter(([id]) => id <= 6).map(([id, b]) => [id, b.side]));
-  check("sides stamped", JSON.stringify(sides) === JSON.stringify({ 1: "one", 2: "border", 3: "many", 5: "many" }), JSON.stringify(sides));
+  check("sides stamped", JSON.stringify(sides) === JSON.stringify({ 1: "ctrl", 2: "border", 3: "synth", 5: "synth" }), JSON.stringify(sides));
   check("every box has a side", [...boxes.values()].every((b) => b.side !== undefined));
   check("router snapped to border", boxes.get(2)!.y === BORDER - 11);
-  check("free box follows position (ewing~ many-side)", boxes.get(5)!.side === "many");
-  check("clone of one-bound inner box is one", [...boxes.values()].some((b) => b.text === "key" && b.side === "one" && b !== boxes.get(1)));
+  check("free box follows position (ewing~ synth-side)", boxes.get(5)!.side === "synth");
+  check("clone of ctrl-bound inner box is ctrl", [...boxes.values()].some((b) => b.text === "key" && b.side === "ctrl" && b !== boxes.get(1)));
 }
 
 console.log("rejected apply leaves the previous patch in place");
 {
   reset();
-  const good = applyPatch(msg([box(1, "key", ONE_Y), box(2, "touch", MANY_Y)]), loaded);
+  const good = applyPatch(msg([box(1, "key", CTRL_Y), box(2, "touch", SYNTH_Y)]), loaded);
   check("first apply accepted", good.errors.length === 0, JSON.stringify(good.errors));
   const before = JSON.stringify({ b: [...boxes], c: [...cables], n: getPatchNextId(), y: getBorderY() });
   const bad = [
-    msg([box(7, "key", MANY_Y)]),
-    msg([box(7, "mixed-abs", ONE_Y)]),
-    msg([box(7, "no-such-box", ONE_Y)]),
-    { ...msg([box(7, "free-abs", ONE_Y), box(8, "key", MANY_Y)]), borderY: 250, nextId: 5 },
+    msg([box(7, "key", SYNTH_Y)]),
+    msg([box(7, "mixed-abs", CTRL_Y)]),
+    msg([box(7, "no-such-box", CTRL_Y)]),
+    { ...msg([box(7, "free-abs", CTRL_Y), box(8, "key", SYNTH_Y)]), borderY: 250, nextId: 5 },
   ];
   for (const m of bad) {
     const snapshot = JSON.stringify(m);
@@ -135,17 +135,17 @@ console.log("rejected apply leaves the previous patch in place");
 console.log("abstraction that contains itself");
 {
   reset();
-  const r = applyPatch(msg([box(1, "self-abs", ONE_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "self-abs", CTRL_Y)]), loaded);
   check("direct cycle rejected", r.errors.some((e) => /"self-abs" contains itself/.test(e)), JSON.stringify(r.errors));
   check("nothing committed", boxes.size === 0);
-  const m = applyPatch(msg([box(1, "ping", ONE_Y)]), loaded);
+  const m = applyPatch(msg([box(1, "ping", CTRL_Y)]), loaded);
   check("mutual cycle rejected", m.errors.some((e) => /contains itself/.test(e)), JSON.stringify(m.errors));
 }
 
 console.log("unknown box type inside an abstraction");
 {
   reset();
-  const r = applyPatch(msg([box(1, "typo-abs", ONE_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "typo-abs", CTRL_Y)]), loaded);
   check("rejected", r.errors.some((e) => /unknown box type "no-such-box"/.test(e)), JSON.stringify(r.errors));
   check("nothing committed", boxes.size === 0);
 }
@@ -153,7 +153,7 @@ console.log("unknown box type inside an abstraction");
 console.log("border crossings are still caught after expansion");
 {
   reset();
-  const r = applyPatch(msg([box(1, "cc", ONE_Y), box(2, "free-abs", MANY_Y)], [cable(1, 1, 0, 2, 0)]), loaded);
+  const r = applyPatch(msg([box(1, "cc", CTRL_Y), box(2, "free-abs", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]), loaded);
   check("bare event cable across border rejected", r.errors.some((e) => /crosses the border without a router/.test(e)), JSON.stringify(r.errors));
 }
 
@@ -162,30 +162,30 @@ console.log("bound box overhanging the border");
   // H = BOX_HEIGHT = 22. A key with its bottom 1 below the line, a touch with its top 1 above.
   reset();
   const r = applyPatch(msg([box(1, "key", BORDER - 21)]), loaded);
-  check("one-bound overhang rejected", r.errors.length === 1 && /"key".*one.*overhangs/.test(r.errors[0] ?? ""), JSON.stringify(r.errors));
+  check("ctrl-bound overhang rejected", r.errors.length === 1 && /"key".*ctrl.*overhangs/.test(r.errors[0] ?? ""), JSON.stringify(r.errors));
   reset();
   const m = applyPatch(msg([box(1, "touch", BORDER - 1)]), loaded);
-  check("many-bound overhang rejected", m.errors.length === 1 && /"touch".*many.*overhangs/.test(m.errors[0] ?? ""), JSON.stringify(m.errors));
+  check("synth-bound overhang rejected", m.errors.length === 1 && /"touch".*synth.*overhangs/.test(m.errors[0] ?? ""), JSON.stringify(m.errors));
   reset();
   const edge = applyPatch(msg([box(1, "key", BORDER - 22), box(2, "touch", BORDER)]), loaded);
-  check("bottom on the line is one, top on the line is many", edge.errors.length === 0, JSON.stringify(edge.errors));
+  check("bottom on the line is ctrl, top on the line is synth", edge.errors.length === 0, JSON.stringify(edge.errors));
 }
 
 console.log("free box sided by its centre");
 {
   reset();
-  // Top above the line but centre below: many. Top above, centre above: one.
+  // Top above the line but centre below: synth. Top above, centre above: ctrl.
   const r = applyPatch(msg([box(1, "+ 1", BORDER - 10), box(2, "+ 2", BORDER - 12), box(3, "+ 3", BORDER - 11)]), loaded);
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
-  check("centre below → many", boxes.get(1)!.side === "many");
-  check("centre above → one", boxes.get(2)!.side === "one");
-  check("centre on the line → many", boxes.get(3)!.side === "many");
+  check("centre below → synth", boxes.get(1)!.side === "synth");
+  check("centre above → ctrl", boxes.get(2)!.side === "ctrl");
+  check("centre on the line → synth", boxes.get(3)!.side === "synth");
 }
 
 console.log("router unchanged");
 {
   reset();
-  const r = applyPatch(msg([box(1, "all 1", MANY_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "all 1", SYNTH_Y)]), loaded);
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
   check("side is border", boxes.get(1)!.side === "border");
   check("snapped to borderY - BOX_HEIGHT/2", boxes.get(1)!.y === BORDER - 11, String(boxes.get(1)!.y));
@@ -204,14 +204,14 @@ console.log("abstraction save check");
 console.log("editor move judged by where it ends (movesOffSide)");
 {
   const at = (text: string, y: number) => ({ x: 0, y, text });
-  check("on side to on side accepted", !movesOffSide(at("key", ONE_Y), BORDER, at("key", ONE_Y + 50), BORDER));
-  check("on side to off side refused", movesOffSide(at("key", ONE_Y), BORDER, at("key", MANY_Y), BORDER));
-  check("on side to overhang refused", movesOffSide(at("key", ONE_Y), BORDER, at("key", BORDER - 21), BORDER));
-  check("off side back on side accepted", !movesOffSide(at("key", MANY_Y), BORDER, at("key", ONE_Y), BORDER));
-  check("off side moves freely while off side", !movesOffSide(at("key", MANY_Y), BORDER, at("key", MANY_Y + 30), BORDER));
-  check("border moved onto a bound box refused", movesOffSide(at("touch", MANY_Y), BORDER, at("touch", MANY_Y), MANY_Y + 1));
-  check("new box judged by where it lands", movesOffSide(null, BORDER, at("touch", ONE_Y), BORDER) && !movesOffSide(null, BORDER, at("touch", MANY_Y), BORDER));
-  check("free box never off side", !movesOffSide(at("+ 1", ONE_Y), BORDER, at("+ 1", MANY_Y), BORDER));
+  check("on side to on side accepted", !movesOffSide(at("key", CTRL_Y), BORDER, at("key", CTRL_Y + 50), BORDER));
+  check("on side to off side refused", movesOffSide(at("key", CTRL_Y), BORDER, at("key", SYNTH_Y), BORDER));
+  check("on side to overhang refused", movesOffSide(at("key", CTRL_Y), BORDER, at("key", BORDER - 21), BORDER));
+  check("off side back on side accepted", !movesOffSide(at("key", SYNTH_Y), BORDER, at("key", CTRL_Y), BORDER));
+  check("off side moves freely while off side", !movesOffSide(at("key", SYNTH_Y), BORDER, at("key", SYNTH_Y + 30), BORDER));
+  check("border moved onto a bound box refused", movesOffSide(at("touch", SYNTH_Y), BORDER, at("touch", SYNTH_Y), SYNTH_Y + 1));
+  check("new box judged by where it lands", movesOffSide(null, BORDER, at("touch", CTRL_Y), BORDER) && !movesOffSide(null, BORDER, at("touch", SYNTH_Y), BORDER));
+  check("free box never off side", !movesOffSide(at("+ 1", CTRL_Y), BORDER, at("+ 1", SYNTH_Y), BORDER));
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

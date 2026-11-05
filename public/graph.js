@@ -1,5 +1,5 @@
 /**
- * Graph Evaluator — runs the many-side logic graph on each phone
+ * Graph Evaluator — runs the synth-side logic graph on each phone
  *
  * Receives a patch definition (boxes + cables + entries),
  * builds a local evaluation graph, and processes incoming

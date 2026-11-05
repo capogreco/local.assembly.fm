@@ -187,7 +187,7 @@ function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>,
   const problems = new Set<string>();
   for (const [, box] of boxes) {
     if (isOffSide(box, borderY, innerBoxes(loaded))) {
-      const where = positionSide(box, borderY) === box.side ? "overhangs the border" : `is placed on the ${box.side === "one" ? "many" : "one"} side`;
+      const where = positionSide(box, borderY) === box.side ? "overhangs the border" : `is placed on the ${box.side === "ctrl" ? "synth" : "ctrl"} side`;
       problems.add(`"${box.text}" is bound to the ${box.side} side but ${where}`);
     }
   }

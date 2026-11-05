@@ -1,7 +1,7 @@
 /**
  * Snapshot of what the server deploys, per saved patch: the phone deploy
  * (serializeSynthPatch) byte for byte, as phones receive it, and the laptop
- * deploy (serializeLaptopPatch) the ctrl page builds one-side audio from.
+ * deploy (serializeLaptopPatch) the ctrl page builds ctrl-side audio from.
  *
  * Usage:
  *   deno run --allow-read --allow-write tests/deploy_snapshot.ts capture
@@ -11,7 +11,7 @@
 import { applyPatch, type AbstractionDef } from "../apply-check.ts";
 import { serializeLaptopPatch, serializeSynthPatch } from "../deploy.ts";
 
-// Tomorrow's four, plus the one-side audio and sall cases.
+// Tomorrow's four, plus the ctrl-side audio and sall cases.
 const PATCHES = ["ks_arp", "frogs", "panharmonium", "epimetheus", "fftPeak_test", "cute-sine_keys", "archive/sall_test", "archive/symbiogenesis"];
 
 const loaded = new Map<string, AbstractionDef>();

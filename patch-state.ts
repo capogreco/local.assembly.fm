@@ -7,7 +7,7 @@
 export interface Box {
   x: number; y: number; text: string; inlets: number; outlets: number;
   // Stamped at apply (sideOf in gpi-types.js); never sent to phones.
-  side?: "one" | "many" | "border";
+  side?: "ctrl" | "synth" | "border";
 }
 
 export interface Cable {
@@ -42,7 +42,7 @@ export function getDeployedPatch(): Record<string, any> | null { return _deploye
 // deno-lint-ignore no-explicit-any
 export function setDeployedPatch(v: Record<string, any> | null): void { _deployedPatch = v; }
 
-// The laptop deploy (one-side audio, deploy.ts), sent to every ctrl socket.
+// The laptop deploy (ctrl-side audio, deploy.ts), sent to every ctrl socket.
 // deno-lint-ignore no-explicit-any
 let _laptopPatch: Record<string, any> | null = null;
 // deno-lint-ignore no-explicit-any

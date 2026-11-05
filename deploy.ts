@@ -1,5 +1,5 @@
 // deploy.ts — what the server sends a client to build: the phone deploy (the
-// many side) and the laptop deploy (one-side audio, built by the ctrl page).
+// synth side) and the laptop deploy (ctrl-side audio, built by the ctrl page).
 // Both have the same shape. Reads the applied patch (patch-state.ts) after
 // sides are stamped.
 
@@ -59,12 +59,12 @@ function deployPartition(inPartition: (box: Box) => boolean) {
 export function serializeSynthPatch(): Record<string, unknown> {
   // deno-lint-ignore no-explicit-any
   const entries: any[] = [];
-  const { ids: synthIds, patchBoxes, patchCables, audioCables } = deployPartition((box) => sideStamped(box) === "many");
+  const { ids: synthIds, patchBoxes, patchCables, audioCables } = deployPartition((box) => sideStamped(box) === "synth");
 
   for (const [id, box] of boxes) {
     if (sideStamped(box) !== "border") continue;
     if (boxTypeName(box.text) === "sall") {
-      // sall: match many-side r/receive boxes by name (multi-name: each name maps to a channel)
+      // sall: match synth-side r/receive boxes by name (multi-name: each name maps to a channel)
       const names = box.text.split(/\s+/).slice(1);
       for (let ch = 0; ch < names.length; ch++) {
         const name = names[ch];
@@ -90,13 +90,13 @@ export function serializeSynthPatch(): Record<string, unknown> {
   return { type: "patch", boxes: patchBoxes, cables: patchCables, audioCables, entries };
 }
 
-// The laptop deploy: one-side audio boxes and the audio cables among them.
-// The server evaluates one-side control, so there are no control cables; it
+// The laptop deploy: ctrl-side audio boxes and the audio cables among them.
+// The server evaluates ctrl-side control, so there are no control cables; it
 // reaches each box as rv/re addressed to the box itself (r = box id, ch =
 // inlet), which the entries spell out: one per non-audio inlet. Sent even when
 // empty, so the ctrl page tears down the previous laptop audio.
 export function serializeLaptopPatch(): Record<string, unknown> {
-  const { patchBoxes, audioCables } = deployPartition((box) => sideStamped(box) === "one" && isAudioBox(box.text));
+  const { patchBoxes, audioCables } = deployPartition((box) => sideStamped(box) === "ctrl" && isAudioBox(box.text));
   // deno-lint-ignore no-explicit-any
   const entries: any[] = [];
   for (const b of patchBoxes) {
