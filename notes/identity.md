@@ -42,10 +42,17 @@ undecided.
 The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 (private).
 
+## Decided (2026-11-06)
+
+- **Both line weights appear in the logo** (1px and 2.5px, as on the cables).
+- **Case:** the geometric upper-case letters are for hero moments and the logo.
+  Lower case is for prosaic surfaces.
+- **Editor theme:** follows the OS by default, then `t` (or the dot) toggles
+  between light and dark. There's no way back to "follow OS" from the UI, and
+  that's intended.
+
 ## Open
 
-- Whether the two line weights carry meaning in the logo.
-- Upper or lower case.
 - Which surface gets which element (favicon, CLI banner, phone join page,
   editor welcome, README, website, forum).
 - The welcome animation: dots appear, the square turns 45°, and it resolves
