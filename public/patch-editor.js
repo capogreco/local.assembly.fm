@@ -1,17 +1,9 @@
 import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, positionSide, sideOf } from "./gpi-types.js";
+import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
 
-const COLORS = {
-  bg: "#1a1a1a", boxFill: "#2a2a2a", boxStroke: "#666",
-  boxSelectedFill: "#333", boxSelectedStroke: "#e0e0e0",
-  text: "#e0e0e0", port: "#e0e0e0", cable: "#666", cableInProgress: "#999",
-  border: "#555", borderLabel: "#555", borderHandle: "#666",
-  routerFill: "#2a2a2a", routerStroke: "#555",
-  abstractionFill: "#2a2a3a", abstractionStroke: "#668",
-  commentText: "#888",
-  cableAudio: "#8af", portAudio: "#8af", portEvent: "#fa4",
-};
+// Colours come from the active theme (theme.js); COLORS is that live palette.
 // BOX_HEIGHT comes from gpi-types.js: the side rule needs it.
 const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -186,6 +178,7 @@ class PatchEditor {
   }
 
   bindEvents() {
+    this._offTheme = onThemeChange(() => this.render());
     this.canvas.addEventListener("mousedown", this._onMouseDown);
     this.canvas.addEventListener("mousemove", this._onMouseMove);
     this.canvas.addEventListener("mouseup", this._onMouseUp);
@@ -194,6 +187,8 @@ class PatchEditor {
   }
 
   unbindEvents() {
+    this._offTheme?.();
+    this._offTheme = null;
     this.canvas.removeEventListener("mousedown", this._onMouseDown);
     this.canvas.removeEventListener("mousemove", this._onMouseMove);
     this.canvas.removeEventListener("mouseup", this._onMouseUp);
@@ -943,7 +938,7 @@ class PatchEditor {
     if (this.editorMode === "edit") {
       const gridStartX = Math.floor(this.panX / 20) * 20;
       const gridStartY = Math.floor(this.panY / 20) * 20;
-      this.ctx.fillStyle = "#333";
+      this.ctx.fillStyle = COLORS.grid;
       for (let x = gridStartX; x < this.panX + visW; x += 20) {
         for (let y = gridStartY; y < this.panY + visH; y += 20) {
           this.ctx.fillRect(x, y, 1, 1);
@@ -1010,7 +1005,7 @@ class PatchEditor {
       const y0 = Math.min(this.dragStart.y, this.mousePos.y);
       const sw = Math.abs(this.mousePos.x - this.dragStart.x);
       const sh = Math.abs(this.mousePos.y - this.dragStart.y);
-      this.ctx.strokeStyle = "#555";
+      this.ctx.strokeStyle = COLORS.marquee;
       this.ctx.setLineDash([3, 3]);
       this.ctx.strokeRect(x0, y0, sw, sh);
       this.ctx.setLineDash([]);
@@ -1081,7 +1076,7 @@ class PatchEditor {
           barVal = kMax !== kMin ? Math.pow(Math.max(0, Math.min(1, (val - kMin) / (kMax - kMin))), 1 / kCurve) : 0;
         }
         if (typeof barVal === "number" && barVal >= 0 && barVal <= 1) {
-          this.ctx.fillStyle = "#4a4a4a";
+          this.ctx.fillStyle = COLORS.valueBar;
           this.ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * barVal, BOX_HEIGHT - 2);
         }
       }
@@ -1130,7 +1125,7 @@ class PatchEditor {
       const v = this.boxValues.get(id);
       const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
       this.ctx.font = SMALL_FONT;
-      this.ctx.fillStyle = "#888";
+      this.ctx.fillStyle = COLORS.valueText;
       this.ctx.textBaseline = "top";
       this.ctx.fillText(display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT + 2);
     }
