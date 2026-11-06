@@ -107,7 +107,10 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   strokes are cut flat at the cap height and baseline. Light and dark SVGs are
   in `assets/`, drawn by `deno task icons`. Candidates sheet:
   https://claude.ai/artifact/JMeHrLHCZQUnGA5a3TAw9E (private).
-- **Website hero:** the 3×3 stack in the mark, or the horizontal version.
+- **Website hero** (decided 2026-11-06): the TAM / BOU / RIN stack, letters
+  4 units, gaps 2 units (a 16 × 16 unit square), with the O as the mark (ports
+  on) in the centre cell. Native cable weights, 2.5 / 1. Works with and
+  without the dot grid; we may use both on purpose (see Open).
   Everything else is lower case.
 - **Video intros** reuse the welcome animation; thumbnails use the 3×3 stack.
 - **Top-level help patch:** draws the mark out of real boxes and cables.
@@ -124,3 +127,7 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 
 ## Open
 
+- **Dots and no dots on the website.** Both grounds suit the hero. In Pd the
+  dots meant edit mode, and in our editor they still do, so the site could
+  use dots where people build (docs, help) and plain paper where things
+  play. Undecided.
