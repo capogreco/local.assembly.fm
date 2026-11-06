@@ -50,6 +50,26 @@ The plan for accounts, certificates, modes and routers is in
 - For other routers, teach the general principles.
 - The modes are also the syllabus.
 
+## Website and hosting (decided 2026-11-06)
+
+- **Cloudflare** for DNS on all three domains (tambourin.fm, tamb.fm,
+  tambourine.fm; registered at Namecheap, nameservers moved to Cloudflare).
+  Its DNS API is what lets certificates for `<name>.tamb.fm` be issued
+  automatically later. No Namecheap email forwarding was in use.
+- **The site** is static files in its own repo (`~/Documents/tambourin.fm`,
+  to become `tambourin-fm/tambourin.fm`), served by Cloudflare Pages.
+- **Address layout, kept from now on:** the site at `tambourin.fm`; docs at
+  `/docs`; accounts and API at `/account` and `/api` (same address as the
+  site, so sign-in cookies just work); the forum at `forum.tambourin.fm`;
+  `tamb.fm` only for members' subdomains. `tambourine.fm` redirect: Thomas's
+  call (recommended).
+- **Later, not for launch:** member accounts (certificates, user libraries),
+  likely Workers + D1 + R2 beside Pages, written as a web-standard `fetch`
+  handler so it could move to a Bun server. The forum is undecided: Discourse's
+  free hosting for open-source projects (check eligibility), or its own server.
+  Sign-in idea: GitHub first, email links later. A live editor on the site is
+  also later.
+
 ## Other areas
 
 - **Hardware and support:** stay within the GL.iNet ecosystem for
