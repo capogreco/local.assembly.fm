@@ -58,6 +58,14 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 - **Editor theme:** follows the OS by default, then `t` (or the dot) toggles
   between light and dark. There's no way back to "follow OS" from the UI, and
   that's intended.
+- **Dots mean building, plain paper means playing** (2026-11-06), as in the
+  editor, where dots show in edit mode only (Pd's convention). On the website:
+  plain paper where Tambourin is played (the hero, videos, performances, the
+  front page); dots where it is built (docs, help, tutorials, contributing).
+- **Cable lockup** (2026-11-06): an audio cable (2.5px, audio blue) between
+  an outlet port and an inlet port, both centred on grid points;
+  `tambourin.fm` below it in IBM Plex Mono, lower case, left-aligned and
+  starting just inside the first cell.
 
 ## Surfaces (agreed in outline, 2026-11-06; details to come)
 
@@ -110,7 +118,7 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 - **Website hero** (decided 2026-11-06): the TAM / BOU / RIN stack, letters
   4 units, gaps 2 units (a 16 × 16 unit square), with the O as the mark (ports
   on) in the centre cell. Native cable weights, 2.5 / 1. Works with and
-  without the dot grid; we may use both on purpose (see Open).
+  without the dot grid (see below).
   Everything else is lower case.
 - **Video intros** reuse the welcome animation; thumbnails use the 3×3 stack.
 - **Top-level help patch:** draws the mark out of real boxes and cables.
@@ -126,8 +134,3 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   TouchDesigner contributor after launch.
 
 ## Open
-
-- **Dots and no dots on the website.** Both grounds suit the hero. In Pd the
-  dots meant edit mode, and in our editor they still do, so the site could
-  use dots where people build (docs, help) and plain paper where things
-  play. Undecided.
