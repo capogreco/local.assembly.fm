@@ -94,8 +94,16 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   TAM/BOU/RIN resolves, then it fades into the blank canvas with "press h".
   Skipped on the first gesture; reduced motion shows only the end state. It
   runs once per browser, with a replay link in the top-level help patch.
-- **README header:** the mark with the horizontal TAMBOURIN, as SVG in light
-  and dark versions.
+- **README header** (decided 2026-11-06): the horizontal `TAMBOURIN` with no
+  separate mark; the O *is* the mark. Letters are 4 grid units tall, so the O
+  is exactly the mark's square. The turned square sits on the O's centre, its
+  points breaking the letter line, and there's no `T` at the hub, since the
+  word already starts with one. No ports. Transparent ground. Weights are
+  nudged up 1px for the README (letters and O at 3.5px, turned square at 2px),
+  so the turned square survives GitHub shrinking the image on phones. Diagonal
+  strokes are cut flat at the cap height and baseline. Light and dark SVGs are
+  in `assets/`, drawn by `deno task icons`. Candidates sheet:
+  https://claude.ai/artifact/JMeHrLHCZQUnGA5a3TAw9E (private).
 - **Website hero:** the 3×3 stack in the mark, or the horizontal version.
   Everything else is lower case.
 - **Video intros** reuse the welcome animation; thumbnails use the 3×3 stack.

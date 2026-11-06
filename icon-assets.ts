@@ -1,6 +1,7 @@
-// Draw the Tambourin icons — run via `deno task icons`.
-// Writes ./public/favicon.ico (16, 32, 48), ./public/apple-touch-icon.png (180)
-// and ./public/icons/favicon-{16,32,48}.png. Browsers fetch /favicon.ico and
+// Draw the Tambourin icons and README header — run via `deno task icons`.
+// Writes ./public/favicon.ico (16, 32, 48), ./public/apple-touch-icon.png (180),
+// ./public/icons/favicon-{16,32,48}.png and ./assets/readme-{light,dark}.svg.
+// Browsers fetch /favicon.ico and
 // /apple-touch-icon.png from the root by default, so no <link> tags are needed.
 //
 // Spec: notes/identity.md (the mark; favicon and app icons).
@@ -145,6 +146,85 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+// --- README header: TAMBOURIN, where the O is the mark --------------------------
+// Letters from the p5 sketch, on a 3x3 lattice (0..2). Letters are 4 grid units
+// tall, so the O is exactly the mark's square. Weights are nudged up 1px from the
+// cables (3.5 and 2) so the turned square survives GitHub shrinking it on phones.
+const LETTERS: Record<string, number[][]> = {
+  T: [[0, 0, 2, 0], [1, 0, 1, 2]],
+  A: [[0, 2, 1, 0], [2, 2, 1, 0]],
+  M: [[0, 0, 2, 0], [0, 0, 0, 2], [1, 0, 1, 1], [2, 0, 2, 2]],
+  B: [[0, 0, 0, 2], [0, 1, 2, 1], [0, 2, 2, 2], [2, 1, 2, 2]],
+  U: [[0, 2, 2, 2], [0, 0, 0, 2], [2, 0, 2, 2]],
+  R: [[0, 0, 0, 2], [0, 0, 2, 0], [0, 1, 2, 1], [2, 0, 2, 1], [1, 1, 2, 2]],
+  I: [[1, 0, 1, 2]],
+  N: [[0, 0, 0, 2], [2, 0, 2, 2], [0, 0, 2, 2]],
+};
+
+// join segments that share endpoints into polylines, so corners are mitred
+function chains(segs: number[][]): number[][][] {
+  const left = segs.map((s) => [[s[0], s[1]], [s[2], s[3]]]);
+  const eq = (a: number[], b: number[]) => a[0] === b[0] && a[1] === b[1];
+  const out: number[][][] = [];
+  while (left.length) {
+    const line = left.shift()!;
+    for (let grew = true; grew;) {
+      grew = false;
+      for (let i = 0; i < left.length; i++) {
+        const [a, b] = left[i], head = line[0], tail = line[line.length - 1];
+        if (eq(tail, a)) line.push(b);
+        else if (eq(tail, b)) line.push(a);
+        else if (eq(head, b)) line.unshift(a);
+        else if (eq(head, a)) line.unshift(b);
+        else continue;
+        left.splice(i, 1);
+        grew = true;
+        break;
+      }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function readmeHeader(ink: string): string {
+  const U = 20, k = 2 * U, gap = 2 * U, pad = U, heavy = 3.5, light = 2;
+  const wordW = 9 * 2 * k + 8 * gap;
+  const poke = k * Math.SQRT2 - k; // turned square's points beyond the letter line
+  const w = wordW + 2 * pad;
+  const h = Math.ceil((2 * k + 2 * poke + 2 * pad) / U) * U;
+  const x0 = pad, y0 = (h - 2 * k) / 2;
+  const f = (n: number) => +n.toFixed(2);
+  let g = "";
+  [..."TAMBOURIN"].forEach((ch, i) => {
+    const ox = x0 + i * (2 * k + gap);
+    if (ch === "O") {
+      const cx = ox + k, cy = y0 + k, d = k * Math.SQRT2;
+      g += `  <polygon points="${cx},${f(cy - d)} ${f(cx + d)},${cy} ${cx},${f(cy + d)} ${f(cx - d)},${cy}" stroke-width="${light}"/>\n`;
+      g += `  <rect x="${ox}" y="${y0}" width="${2 * k}" height="${2 * k}" stroke-width="${heavy}"/>\n`;
+      return;
+    }
+    for (const line of chains(LETTERS[ch])) {
+      const pts = line.map(([x, y]) => [ox + x * k, y0 + y * k]);
+      // a diagonal stroke ending free on the top or bottom line is extended,
+      // then clipped flat, so it meets the line square rather than slanted
+      for (const [end, prev] of [[0, 1], [pts.length - 1, pts.length - 2]]) {
+        const [x, y] = pts[end], [px, py] = pts[prev];
+        if (x !== px && y !== py && (y === y0 || y === y0 + 2 * k)) {
+          const len = Math.hypot(x - px, y - py);
+          pts[end] = [f(x + (x - px) / len * heavy), f(y + (y - py) / len * heavy)];
+        }
+      }
+      g += `  <polyline points="${pts.map((p) => p.join(",")).join(" ")}" stroke-width="${heavy}" clip-path="url(#line)"/>\n`;
+    }
+  });
+  // the clip band is the letters' cap height to baseline, outer stroke edges
+  const clip = `<clipPath id="line"><rect x="0" y="${y0 - heavy / 2}" width="${w}" height="${2 * k + heavy}"/></clipPath>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Tambourin">\n` +
+    `<defs>${clip}</defs>\n` +
+    `<g fill="none" stroke="${ink}" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10">\n${g}</g>\n</svg>\n`;
+}
+
 // --- write ---------------------------------------------------------------------
 const smalls = [
   { size: 16, png: await png(small(16, false)) },
@@ -155,4 +235,8 @@ await Deno.mkdir("./public/icons", { recursive: true });
 for (const e of smalls) await Deno.writeFile(`./public/icons/favicon-${e.size}.png`, e.png);
 await Deno.writeFile("./public/favicon.ico", ico(smalls));
 await Deno.writeFile("./public/apple-touch-icon.png", await png(full(180)));
+await Deno.mkdir("./assets", { recursive: true });
+await Deno.writeTextFile("./assets/readme-light.svg", readmeHeader("#3f3e3b"));
+await Deno.writeTextFile("./assets/readme-dark.svg", readmeHeader("#e0e0e0"));
 console.log("✓ public/favicon.ico, public/apple-touch-icon.png, public/icons/favicon-{16,32,48}.png");
+console.log("✓ assets/readme-{light,dark}.svg");
