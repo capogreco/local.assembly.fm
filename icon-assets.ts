@@ -216,14 +216,19 @@ function readmeHeader(ink: string): string {
       const pts = line.map(([x, y]) => [ox + x * k, y0 + y * k]);
       // a diagonal stroke ending free on the top or bottom line is extended,
       // then clipped flat, so it meets the line square rather than slanted
+      let trimmed = false;
       for (const [end, prev] of [[0, 1], [pts.length - 1, pts.length - 2]]) {
         const [x, y] = pts[end], [px, py] = pts[prev];
         if (x !== px && y !== py && (y === y0 || y === y0 + 2 * k)) {
           const len = Math.hypot(x - px, y - py);
           pts[end] = [f(x + (x - px) / len * heavy), f(y + (y - py) / len * heavy)];
+          trimmed = true;
         }
       }
-      g += `  <polyline points="${pts.map((p) => p.join(",")).join(" ")}" stroke-width="${heavy}" clip-path="url(#line)"/>\n`;
+      // clip only strokes that need trimming: WebKit drops a clipped straight
+      // line, since its bounding box has zero width or height
+      const clip = trimmed ? ` clip-path="url(#line)"` : "";
+      g += `  <polyline points="${pts.map((p) => p.join(",")).join(" ")}" stroke-width="${heavy}"${clip}/>\n`;
     }
   });
   // the clip band is the letters' cap height to baseline, outer stroke edges
