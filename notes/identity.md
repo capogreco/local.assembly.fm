@@ -69,8 +69,18 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 - **CLI banner** (decided 2026-11-06, after a terminal test): the horizontal
   `TAMBOURIN` alone, in light Unicode box drawing at 2 columns × 1 row per grid
   unit (3 rows tall), with no mark. Then a blank line, one lower-case status
-  line, and the QR code. The A apex (`╳` → `╱╲`) and the N diagonal still need
-  hand tuning. Tested and set aside: the mark in braille (it reads, at 6 dots
+  line, and the QR code. Current version (hand-tuned 2026-11-06; for now):
+
+  ```
+  ╶─┬─╴ ┌───┐ ┌─┬─┐ ╷     ┌───┐ ╷   ╷ ┌───┐  ╷  ╷╲  ╷
+    │   ├───┤ │ ╵ │ ├───┐ │   │ │   │ ├─┬─┘  │  │ ╲ │
+    ╵   ╵   ╵ ╵   ╵ └───┘ └───┘ └───┘ ╵  ╲   ╵  ╵  ╲╵
+  ```
+
+  The A has a flat top here (the p5 letter is pointed), so all but R and N are
+  right angles. The lower-case-looking B is intentional. I and N sit tighter
+  than the even spacing, for optical balance. Diagonals use `╲`, never ASCII
+  `\`. Tested and set aside: the mark in braille (it reads, at 6 dots
   per unit, but sits awkwardly next to the word) and a braille wordmark (too
   faint). Box drawing can't do the mark: its diagonals are light only and
   don't join.
