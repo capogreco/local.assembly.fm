@@ -61,9 +61,13 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 
 ## Surfaces (agreed in outline, 2026-11-06; details to come)
 
-- **Favicon and app icons:** a small-size version of the mark (both squares at
-  the heavy weight, no ports, maybe the `T`), redrawn for small sizes rather
-  than shrunk.
+- **Favicon and app icons** (decided 2026-11-06): both squares at 1px, no `T`,
+  no ports. Drawn pixel by pixel at each size rather than shrunk. The mark is
+  centred between the two middle pixels, so it sits symmetrically in
+  even-sized squares and the turned square has 2px flat tips. The turned square
+  steps one pixel per row. On the paper tile (PNG fallbacks, Apple touch icon)
+  the mark is inset 1px. The candidates sheet is at
+  https://claude.ai/artifact/G6m5LLKgAbxGVZcxsqoz6i (private).
 - **Avatars** (GitHub org, lines, forum, YouTube): the two-weight mark, or
   TAM/BOU/RIN inside the square.
 - **CLI banner** (decided 2026-11-06, after a terminal test): the horizontal
