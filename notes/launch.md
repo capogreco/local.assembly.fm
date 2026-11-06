@@ -56,8 +56,12 @@ The plan for accounts, certificates, modes and routers is in
   tambourine.fm; registered at Namecheap, nameservers moved to Cloudflare).
   Its DNS API is what lets certificates for `<name>.tamb.fm` be issued
   automatically later. No Namecheap email forwarding was in use.
-- **The site** is static files in its own repo (`~/Documents/tambourin.fm`,
-  to become `tambourin-fm/tambourin.fm`), served by Cloudflare Pages.
+- **The site** is static files in its own repo, `tambourin-fm/tambourin.fm`
+  (local: `~/Documents/tambourin.fm`), in `public/`, served by a Cloudflare
+  Worker with static assets (`wrangler.jsonc`, Worker name `tambourin-fm`),
+  not Pages, so the same Worker can take `/account` and `/api` later. Every
+  push to `main` redeploys. **Live at https://tambourin.fm since 2026-11-06**
+  (hero only, github and licence links).
 - **Address layout, kept from now on:** the site at `tambourin.fm`; docs at
   `/docs`; accounts and API at `/account` and `/api` (same address as the
   site, so sign-in cookies just work); the forum at `forum.tambourin.fm`;
