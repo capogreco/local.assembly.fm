@@ -64,8 +64,8 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   front page); dots where it is built (docs, help, tutorials, contributing).
 - **Cable lockup** (2026-11-06): an audio cable (2.5px, audio blue) between
   an outlet port and an inlet port, both centred on grid points;
-  `tambourin.fm` below it in IBM Plex Mono, lower case, left-aligned and
-  starting just inside the first cell.
+  `tambourin.fm` in IBM Plex Mono, lower case, in the row of cells directly
+  under the cable, left-aligned and starting just inside the first cell.
 
 ## Surfaces (agreed in outline, 2026-11-06; details to come)
 
