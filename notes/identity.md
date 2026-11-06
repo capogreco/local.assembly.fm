@@ -61,8 +61,10 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
 
 ## Surfaces (agreed in outline, 2026-11-06; details to come)
 
-- **Favicon and app icons** (decided 2026-11-06): both squares at 1px, no `T`,
-  no ports. Drawn pixel by pixel at each size rather than shrunk. The mark is
+- **Favicon and app icons** (decided 2026-11-06): both squares at 1px, no
+  ports; no `T` at 16px, with the `T` at 32 and 48px. The 180px Apple touch
+  icon is the full mark (two weights, corner ports). All are on the paper
+  tile. `deno task icons` (`icon-assets.ts`) draws them into `public/`. Drawn pixel by pixel at each size rather than shrunk. The mark is
   centred between the two middle pixels, so it sits symmetrically in
   even-sized squares and the turned square has 2px flat tips. The turned square
   steps one pixel per row. On the paper tile (PNG fallbacks, Apple touch icon)
