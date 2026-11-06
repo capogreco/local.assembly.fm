@@ -8,6 +8,7 @@
   "tasks": {
     "setup": "deno install",
     "qr": "deno run -A qr-assets.ts",
+    "icons": "deno run --allow-write icon-assets.ts",
     "practice": "deno run -A --unstable-net server.ts",
     "practice:watch": "deno run -A --unstable-net --watch server.ts",
     "workshop": "MODE=workshop deno run -A --unstable-net server.ts",
