@@ -195,13 +195,21 @@ function readmeHeader(ink: string): string {
   const h = Math.ceil((2 * k + 2 * poke + 2 * pad) / U) * U;
   const x0 = pad, y0 = (h - 2 * k) / 2;
   const f = (n: number) => +n.toFixed(2);
-  let g = "";
+  const port = 5; // half-side: a 10px square port
+  let g = "", holes = "";
   [..."TAMBOURIN"].forEach((ch, i) => {
     const ox = x0 + i * (2 * k + gap);
     if (ch === "O") {
       const cx = ox + k, cy = y0 + k, d = k * Math.SQRT2;
       g += `  <polygon points="${cx},${f(cy - d)} ${f(cx + d)},${cy} ${cx},${f(cy + d)} ${f(cx - d)},${cy}" stroke-width="${light}"/>\n`;
-      g += `  <rect x="${ox}" y="${y0}" width="${2 * k}" height="${2 * k}" stroke-width="${heavy}"/>\n`;
+      g += `  <rect x="${ox}" y="${y0}" width="${2 * k}" height="${2 * k}" stroke-width="${heavy}" mask="url(#ports)"/>\n`;
+      // square ports on the O's corners, outlined at the light weight; their
+      // interiors are cut out of the O (a mask), so the ground shows through
+      const corners = [[ox, y0], [ox + 2 * k, y0], [ox + 2 * k, y0 + 2 * k], [ox, y0 + 2 * k]];
+      for (const [x, y] of corners) {
+        g += `  <rect x="${x - port}" y="${y - port}" width="${2 * port}" height="${2 * port}" stroke-width="${light}"/>\n`;
+        holes += `<rect x="${x - port}" y="${y - port}" width="${2 * port}" height="${2 * port}" fill="black"/>`;
+      }
       return;
     }
     for (const line of chains(LETTERS[ch])) {
@@ -221,7 +229,7 @@ function readmeHeader(ink: string): string {
   // the clip band is the letters' cap height to baseline, outer stroke edges
   const clip = `<clipPath id="line"><rect x="0" y="${y0 - heavy / 2}" width="${w}" height="${2 * k + heavy}"/></clipPath>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Tambourin">\n` +
-    `<defs>${clip}</defs>\n` +
+    `<defs>${clip}<mask id="ports"><rect width="${w}" height="${h}" fill="white"/>${holes}</mask></defs>\n` +
     `<g fill="none" stroke="${ink}" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10">\n${g}</g>\n</svg>\n`;
 }
 

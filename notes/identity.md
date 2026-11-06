@@ -98,7 +98,10 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   separate mark; the O *is* the mark. Letters are 4 grid units tall, so the O
   is exactly the mark's square. The turned square sits on the O's centre, its
   points breaking the letter line, and there's no `T` at the hub, since the
-  word already starts with one. No ports. Transparent ground. Weights are
+  word already starts with one. Square ports on the O's corners (10px,
+  outlined at the light weight, interiors cut out of the O so the ground shows
+  through), an exception to the 96px rule for this hero moment. Transparent
+  ground. Weights are
   nudged up 1px for the README (letters and O at 3.5px, turned square at 2px),
   so the turned square survives GitHub shrinking the image on phones. Diagonal
   strokes are cut flat at the cap height and baseline. Light and dark SVGs are

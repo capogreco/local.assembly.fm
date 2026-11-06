@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="160" viewBox="0 0 1080 160" role="img" aria-label="Tambourin">
-<defs><clipPath id="line"><rect x="0" y="38.25" width="1080" height="83.5"/></clipPath></defs>
+<defs><clipPath id="line"><rect x="0" y="38.25" width="1080" height="83.5"/></clipPath><mask id="ports"><rect width="1080" height="160" fill="white"/><rect x="495" y="35" width="10" height="10" fill="black"/><rect x="575" y="35" width="10" height="10" fill="black"/><rect x="575" y="115" width="10" height="10" fill="black"/><rect x="495" y="115" width="10" height="10" fill="black"/></mask></defs>
 <g fill="none" stroke="#e0e0e0" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10">
   <polyline points="20,40 100,40" stroke-width="3.5" clip-path="url(#line)"/>
   <polyline points="60,40 60,120" stroke-width="3.5" clip-path="url(#line)"/>
@@ -8,7 +8,11 @@
   <polyline points="300,40 300,80" stroke-width="3.5" clip-path="url(#line)"/>
   <polyline points="380,40 380,120 460,120 460,80 380,80" stroke-width="3.5" clip-path="url(#line)"/>
   <polygon points="540,23.43 596.57,80 540,136.57 483.43,80" stroke-width="2"/>
-  <rect x="500" y="40" width="80" height="80" stroke-width="3.5"/>
+  <rect x="500" y="40" width="80" height="80" stroke-width="3.5" mask="url(#ports)"/>
+  <rect x="495" y="35" width="10" height="10" stroke-width="2"/>
+  <rect x="575" y="35" width="10" height="10" stroke-width="2"/>
+  <rect x="575" y="115" width="10" height="10" stroke-width="2"/>
+  <rect x="495" y="115" width="10" height="10" stroke-width="2"/>
   <polyline points="620,40 620,120 700,120 700,40" stroke-width="3.5" clip-path="url(#line)"/>
   <polyline points="740,80 820,80 820,40 740,40 740,120" stroke-width="3.5" clip-path="url(#line)"/>
   <polyline points="780,80 822.47,122.47" stroke-width="3.5" clip-path="url(#line)"/>
