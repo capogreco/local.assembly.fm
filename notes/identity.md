@@ -66,13 +66,14 @@ The swatch page is at https://claude.ai/artifact/G4emoCwn5sB8PnhEy1jfVc
   than shrunk.
 - **Avatars** (GitHub org, lines, forum, YouTube): the two-weight mark, or
   TAM/BOU/RIN inside the square.
-- **CLI banner** (terminal test 2026-11-06, `scratchpad/banner_test.py`): the
-  mark in **braille** at 6 dots per unit (thickness stands in for the two
-  weights; true 45° lines). The wordmark is either **1a** (light box drawing,
-  2 columns × 1 row per unit, which has command-line chic) or **5a** (light
-  braille, 4 dots per unit). Box drawing can't do the mark: its diagonals are
-  light only and don't join. The A apex and the N diagonal in 1a need hand
-  tuning. Then one lower-case status line and the QR code.
+- **CLI banner** (decided 2026-11-06, after a terminal test): the horizontal
+  `TAMBOURIN` alone, in light Unicode box drawing at 2 columns × 1 row per grid
+  unit (3 rows tall), with no mark. Then a blank line, one lower-case status
+  line, and the QR code. The A apex (`╳` → `╱╲`) and the N diagonal still need
+  hand tuning. Tested and set aside: the mark in braille (it reads, at 6 dots
+  per unit, but sits awkwardly next to the word) and a braille wordmark (too
+  faint). Box drawing can't do the mark: its diagonals are light only and
+  don't join.
 - **Editor welcome:** dots appear, the mark draws itself, the square turns 45°,
   TAM/BOU/RIN resolves, then it fades into the blank canvas with "press h".
   Skipped on the first gesture; reduced motion shows only the end state. It
