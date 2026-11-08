@@ -94,6 +94,10 @@ class PatchEditor {
 
     // Runtime values
     this.boxValues = new Map();
+    // The running patch's abstraction instances (the server's `instances`):
+    // id → { text, ids: local id → live id }. A face finds the live box
+    // behind each of its boxes here; nested instances are keys too.
+    this.instances = new Map();
 
     // Interaction state: idle / dragging / cabling / selecting / resizing-border / text-editing
     this.mode = "idle";
@@ -221,6 +225,11 @@ class PatchEditor {
     }
 
     return { minX, minY, maxX, maxY };
+  }
+
+  // Take the server's instance maps (JSON: string keys).
+  setInstances(record) {
+    this.instances = new Map(Object.entries(record ?? {}).map(([id, m]) => [Number(id), m]));
   }
 
   // --- Undo ---

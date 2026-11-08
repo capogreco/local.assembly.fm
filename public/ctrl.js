@@ -758,6 +758,7 @@ function connectWS() {
       const msg = JSON.parse(e.data);
       if (msg.type === "state") {
         mainEditor.load(msg);
+        mainEditor.setInstances(msg.instances);
         if (msg.boxValues) {
           for (const [id, v] of Object.entries(msg.boxValues)) mainEditor.boxValues.set(Number(id), v);
         }
@@ -769,6 +770,7 @@ function connectWS() {
         for (const u of msg.updates) mainEditor.boxValues.set(u.id, u.value);
         mainEditor.render();
       } else if (msg.type === "applied") {
+        mainEditor.setInstances(msg.instances);
         mainEditor.applied = true;
         mainEditor.dirty = false;
         mainEditor.render();
@@ -851,6 +853,7 @@ async function loadPatch() {
   if (!patchRes.ok) { console.error("Not found:", resolved); return; }
   mainEditor.pushUndo();
   mainEditor.load(await patchRes.text());
+  mainEditor.setInstances({});  // its instances aren't the running patch's
   mainEditor.setEditorMode("edit");  // a loaded patch opens in edit mode
   currentPatchName = resolved;
   mainEditor.dirty = true;

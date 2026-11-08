@@ -221,7 +221,8 @@ function handleApply(msg: any): void {
   }
   rebuildGridRegions();
 
-  sendCtrl({ type: "applied" });
+  // The instance maps: ctrl finds the live box behind each box on a face.
+  sendCtrl({ type: "applied", instances: ctrlState().instances });
   status.applied = true;
   event("patch applied");
 }

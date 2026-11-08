@@ -53,8 +53,17 @@ export function setLaptopPatch(v: Record<string, any> | null): void { _laptopPat
 // The patch as authored, from the last successful apply: abstraction
 // instances unexpanded, as the ctrl page sent it. `boxes`/`cables` above are
 // the expanded graph; a reconnecting ctrl page gets this instead (ctrlState).
+// `instances` maps each abstraction instance's id to its text and its
+// local→global id map (InstanceMap); with it ctrl finds the expanded box
+// behind each box on a face.
 // deno-lint-ignore no-explicit-any
-export interface AuthoredPatch { boxes: [number, any][]; cables: [number, any][]; nextId: number; borderY: number }
+export interface AuthoredPatch { boxes: [number, any][]; cables: [number, any][]; nextId: number; borderY: number; instances: Record<number, InstanceMap> }
+
+// One abstraction instance after expansion: `text` as it was expanded (args
+// filled in, for a nested one), and `ids`, each inner box's local id → its
+// id in the live graph. A nested instance's global id is itself a key of
+// the instances record, so the maps chain.
+export interface InstanceMap { text: string; ids: Record<number, number> }
 let _authoredPatch: AuthoredPatch | null = null;
 export function getAuthoredPatch(): AuthoredPatch | null { return _authoredPatch; }
 export function setAuthoredPatch(v: AuthoredPatch | null): void { _authoredPatch = v; }
@@ -102,6 +111,7 @@ export function ctrlState(): Record<string, unknown> {
     cables: authored?.cables ?? [],
     nextId: authored?.nextId ?? _patchNextId,
     borderY: authored?.borderY ?? _borderY,
+    instances: authored?.instances ?? {},
     boxValues: bv,
   };
 }

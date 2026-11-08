@@ -11,6 +11,7 @@
 import {
   type Box, type Cable,
   boxes as liveBoxes, cables as liveCables,
+  type InstanceMap,
   clearPatchState, getBorderY, setAuthoredPatch, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import {
@@ -289,10 +290,12 @@ function argProblems(text: string, def: AbstractionDef): string[] {
 // running patch) into its contents, checking each instance's boundary as it
 // goes: its args, and each cable on it against the header's port count and
 // types. Instances nested inside are expanded (and checked, with their args
-// filled in) on the next pass. Every problem is an error.
+// filled in) on the next pass. Every problem is an error. Each instance's
+// local→global id map goes into `instances`, nested ones under their own
+// (global) id, so the maps chain.
 export function expandAbstractions(
   boxes: Map<number, Box>, cables: Map<number, Cable>, nextId: number,
-  loaded: Map<string, AbstractionDef>,
+  loaded: Map<string, AbstractionDef>, instances: Map<number, InstanceMap> = new Map(),
 ): string[] {
   const errors: string[] = [];
   const MAX_DEPTH = 16;
@@ -344,6 +347,8 @@ export function expandAbstractions(
         clonedBox.outlets = p.outlets;
         boxes.set(globalId, clonedBox);
       }
+
+      instances.set(boxId, { text: box.text, ids: Object.fromEntries(localToGlobal) });
 
       // Clone internal cables (skip those touching inlet/outlet)
       for (const [, cable] of absDef.cables) {
@@ -440,6 +445,7 @@ export interface ApplyResult {
   cables: Map<number, Cable>;
   borderY: number;
   abstractions: Set<string>; // every abstraction the patch uses, nested ones too
+  instances: Map<number, InstanceMap>; // instance id → its local→global id map
 }
 
 // Box types that are neither built in nor a known abstraction. Empty boxes are
@@ -525,7 +531,8 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   for (const [id, cable] of msg.cables as [number, any][]) cables.set(id, cable);
 
   const used = usedAbstractions([...boxes.values()].map((b) => b.text), loaded);
-  const result = (errors: string[]): ApplyResult => ({ errors, boxes, cables, borderY, abstractions: used });
+  const instances = new Map<number, InstanceMap>();
+  const result = (errors: string[]): ApplyResult => ({ errors, boxes, cables, borderY, abstractions: used, instances });
 
   // Files can be edited by hand, so the abstractions are checked again here.
   const errors: string[] = [];
@@ -540,7 +547,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   }
   if (errors.length > 0) return result(errors);
 
-  errors.push(...expandAbstractions(boxes, cables, msg.nextId || 1, loaded));
+  errors.push(...expandAbstractions(boxes, cables, msg.nextId || 1, loaded, instances));
   errors.push(...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`), ...findBadArgs(boxes));
   if (errors.length > 0) return result(errors);
   for (const [, box] of boxes) box.side = sideOf(box, borderY);
@@ -560,6 +567,9 @@ export function applyPatch(msg: any, loaded: Map<string, AbstractionDef>): Apply
   setPatchNextId(msg.nextId || 1);
   setBorderY(result.borderY);
   // A copy: the caller's message must not change what a reconnecting ctrl sees.
-  setAuthoredPatch(structuredClone({ boxes: msg.boxes, cables: msg.cables, nextId: msg.nextId || 1, borderY: result.borderY }));
+  setAuthoredPatch(structuredClone({
+    boxes: msg.boxes, cables: msg.cables, nextId: msg.nextId || 1, borderY: result.borderY,
+    instances: Object.fromEntries(result.instances),
+  }));
   return result;
 }

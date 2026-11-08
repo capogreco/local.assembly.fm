@@ -7,7 +7,7 @@
  * Usage: deno run --allow-read tests/abstractions.ts
  */
 
-import { boxes, cables, clearPatchState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
+import { boxes, cables, clearPatchState, ctrlState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
 import { getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
 
@@ -183,6 +183,25 @@ console.log("apply: a good instance");
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
   check("arg filled in", [...boxes.values()].some((b) => b.text === "*~ 0.5"));
   check("wired through", [...cables.values()].length === 2);
+}
+
+console.log("apply: instance maps, chained through nesting");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "osc~ 440", SYNTH_Y), box(2, "t/outer 0.5", SYNTH_Y), box(3, "dac~", SYNTH_Y)],
+    [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]), loaded);
+  check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
+  const top = r.instances.get(2);
+  check("top-level instance mapped, with its text", top?.text === "t/outer 0.5", JSON.stringify(top));
+  const g = top?.ids[2];
+  const inner = g === undefined ? undefined : r.instances.get(g);
+  check("nested instance mapped under its global id, args filled in", inner?.text === "t/gain~ 0.5", JSON.stringify([...r.instances]));
+  const leaf = inner?.ids[2];
+  check("the chain ends at the live box", leaf !== undefined && boxes.get(leaf)?.text === "*~ 0.5");
+  check("inlet/outlet boxes aren't mapped", top !== undefined && !(1 in top.ids) && !(3 in top.ids));
+  // deno-lint-ignore no-explicit-any
+  const st = ctrlState() as any;
+  check("ctrl state carries the maps", JSON.stringify(st.instances) === JSON.stringify(Object.fromEntries(r.instances)), JSON.stringify(st.instances));
 }
 
 console.log("apply: boundary errors");
