@@ -1,6 +1,6 @@
-import { boxTypeName } from "./gpi-types.js";
+import { GRID, boxTypeName, snapToGrid } from "./gpi-types.js";
 import { toggleTheme } from "./theme.js";
-import { PatchEditor, COLORS, SMALL_FONT, BOX_PAD_X, PORT_W, loadAbstractions } from "./patch-editor.js";
+import { PatchEditor, COLORS, SMALL_FONT, loadAbstractions } from "./patch-editor.js";
 
 const canvas = document.getElementById("c");
 const input = document.getElementById("box-input");
@@ -89,8 +89,7 @@ input.addEventListener("input", () => {
   if (editor.editingBoxId === null) return;
   const box = editor.boxes.get(editor.editingBoxId);
   if (!box) return;
-  const w = Math.max(editor.measureText(input.value || " ") + BOX_PAD_X * 2,
-    (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 80);
+  const w = Math.max(editor.boxWidth(box, editor.editingBoxId), 80);
   input.style.width = (w * editor.zoom) + "px";
   editor.render();
 });
@@ -129,7 +128,7 @@ window.addEventListener("keydown", (e) => {
     for (const [oldId, box] of data.boxes) {
       const newId = editor.nextId++;
       idMap.set(oldId, newId);
-      editor.boxes.set(newId, { ...box, x: box.x + 20, y: box.y + 20 });
+      editor.boxes.set(newId, { ...box, x: snapToGrid(box.x) + GRID, y: snapToGrid(box.y) + GRID });
       newSel.push(newId);
     }
     for (const [, c] of data.cables) {

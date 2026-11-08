@@ -49,10 +49,27 @@ gives them Pd's look.
 - **Ports as in Pd:** inlet 0 and outlet 0 sit flush with the left edge, the
   last port flush with the right edge, and any others spread evenly between.
   A box placed directly under another gets a vertical cable from left outlet
-  to left inlet. (Today, ports are spread evenly inside the box,
-  `patch-editor.js:622`.)
+  to left inlet.
 - **The border sits on a row of dots.**
+- **Routers sit in the row just above the border**, their bottom edge (and
+  outlets) on the line: `routerY(borderY) = borderY - BOX_HEIGHT` in
+  `gpi-types.js`, used by the editor and by apply. At height 22 a router
+  straddled the line (`borderY - 11`); with one-unit boxes and the border on
+  a dot row, straddling would put its top half a unit off the grid, so it
+  takes the last ctrl row instead. Routers are bound `border`, so their
+  position never decides their side. A box in the row just below the line
+  (top on the line) is wholly synth; a box in the row above (bottom on the
+  line) is wholly ctrl.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
+
+Built 2026-11-08 (`feat/grid`): `GRID`, `BOX_HEIGHT = GRID`, `snapToGrid` and
+`routerY` live in `gpi-types.js`. The editor snaps on load (x, y and
+`borderY`), live while dragging, on create (the cell under the pointer),
+paste, duplicate, Tab-create (one empty row below), tidy, and border drags
+(the border moves in whole rows, at least two rows down, and pushed boxes
+land touching it). Arrow keys nudge one unit per press, Shift or not.
+Apply doesn't refuse off-grid positions: the grid is the editor's job, and
+the side rules (`positionSide`, `wholeSide`) still work for any position.
 
 ## Parked
 

@@ -7,7 +7,7 @@ import {
   boxes as liveBoxes, cables as liveCables,
   clearPatchState, getBorderY, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
-import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, groupArgs, isOffSide, positionSide, sideOf } from "./public/gpi-types.js";
+import { boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, groupArgs, isOffSide, positionSide, routerY, sideOf } from "./public/gpi-types.js";
 
 export interface AbstractionDef {
   // deno-lint-ignore no-explicit-any
@@ -233,7 +233,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
     const p = getBoxPorts(box.text);
     const copy: Box = { ...box, inlets: p.inlets, outlets: p.outlets };
     // snap routers to border
-    if (boxBinding(copy.text).binding === "border") copy.y = borderY - BOX_HEIGHT / 2;
+    if (boxBinding(copy.text).binding === "border") copy.y = routerY(borderY);
     boxes.set(id, copy);
   }
   // deno-lint-ignore no-explicit-any

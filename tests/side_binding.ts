@@ -8,7 +8,7 @@
 
 import { boxes, cables, clearPatchState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { movesOffSide } from "../public/gpi-types.js";
+import { BOX_HEIGHT as H, GRID, movesOffSide } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const CTRL_Y = 100, SYNTH_Y = 600;
@@ -105,7 +105,7 @@ console.log("valid patch accepted");
   const sides = Object.fromEntries([...boxes].filter(([id]) => id <= 6).map(([id, b]) => [id, b.side]));
   check("sides stamped", JSON.stringify(sides) === JSON.stringify({ 1: "ctrl", 2: "border", 3: "synth", 5: "synth" }), JSON.stringify(sides));
   check("every box has a side", [...boxes.values()].every((b) => b.side !== undefined));
-  check("router snapped to border", boxes.get(2)!.y === BORDER - 11);
+  check("router snapped to the row above the border", boxes.get(2)!.y === BORDER - H);
   check("free box follows position (ewing~ synth-side)", boxes.get(5)!.side === "synth");
   check("clone of ctrl-bound inner box is ctrl", [...boxes.values()].some((b) => b.text === "key" && b.side === "ctrl" && b !== boxes.get(1)));
 }
@@ -174,15 +174,15 @@ console.log("border crossings are still caught after expansion");
 
 console.log("bound box overhanging the border");
 {
-  // H = BOX_HEIGHT = 22. A key with its bottom 1 below the line, a touch with its top 1 above.
+  // H = BOX_HEIGHT. A key with its bottom 1 below the line, a touch with its top 1 above.
   reset();
-  const r = applyPatch(msg([box(1, "key", BORDER - 21)]), loaded);
+  const r = applyPatch(msg([box(1, "key", BORDER - H + 1)]), loaded);
   check("ctrl-bound overhang rejected", r.errors.length === 1 && /"key".*ctrl.*overhangs/.test(r.errors[0] ?? ""), JSON.stringify(r.errors));
   reset();
   const m = applyPatch(msg([box(1, "touch", BORDER - 1)]), loaded);
   check("synth-bound overhang rejected", m.errors.length === 1 && /"touch".*synth.*overhangs/.test(m.errors[0] ?? ""), JSON.stringify(m.errors));
   reset();
-  const edge = applyPatch(msg([box(1, "key", BORDER - 22), box(2, "touch", BORDER)]), loaded);
+  const edge = applyPatch(msg([box(1, "key", BORDER - H), box(2, "touch", BORDER)]), loaded);
   check("bottom on the line is ctrl, top on the line is synth", edge.errors.length === 0, JSON.stringify(edge.errors));
 }
 
@@ -190,11 +190,17 @@ console.log("free box sided by its centre");
 {
   reset();
   // Top above the line but centre below: synth. Top above, centre above: ctrl.
-  const r = applyPatch(msg([box(1, "+ 1", BORDER - 10), box(2, "+ 2", BORDER - 12), box(3, "+ 3", BORDER - 11)]), loaded);
+  // Off-grid positions: the editor never makes them, but apply doesn't refuse them.
+  const r = applyPatch(msg([box(1, "+ 1", BORDER - H / 2 + 1), box(2, "+ 2", BORDER - H / 2 - 1), box(3, "+ 3", BORDER - H / 2)]), loaded);
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
   check("centre below → synth", boxes.get(1)!.side === "synth");
   check("centre above → ctrl", boxes.get(2)!.side === "ctrl");
   check("centre on the line → synth", boxes.get(3)!.side === "synth");
+  // On the grid (the border on a dot row): the row above the line is ctrl, the row on it synth.
+  reset();
+  const g = applyPatch(msg([box(1, "+ 1", BORDER - GRID), box(2, "+ 2", BORDER)]), loaded);
+  check("grid row above the line → ctrl", g.errors.length === 0 && boxes.get(1)!.side === "ctrl");
+  check("grid row on the line → synth", boxes.get(2)!.side === "synth");
 }
 
 console.log("router unchanged");
@@ -203,7 +209,7 @@ console.log("router unchanged");
   const r = applyPatch(msg([box(1, "all 1", SYNTH_Y)]), loaded);
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
   check("side is border", boxes.get(1)!.side === "border");
-  check("snapped to borderY - BOX_HEIGHT/2", boxes.get(1)!.y === BORDER - 11, String(boxes.get(1)!.y));
+  check("snapped to borderY - BOX_HEIGHT (routerY)", boxes.get(1)!.y === BORDER - H, String(boxes.get(1)!.y));
 }
 
 console.log("abstraction save check");
@@ -221,7 +227,7 @@ console.log("editor move judged by where it ends (movesOffSide)");
   const at = (text: string, y: number) => ({ x: 0, y, text });
   check("on side to on side accepted", !movesOffSide(at("key", CTRL_Y), BORDER, at("key", CTRL_Y + 50), BORDER));
   check("on side to off side refused", movesOffSide(at("key", CTRL_Y), BORDER, at("key", SYNTH_Y), BORDER));
-  check("on side to overhang refused", movesOffSide(at("key", CTRL_Y), BORDER, at("key", BORDER - 21), BORDER));
+  check("on side to overhang refused", movesOffSide(at("key", CTRL_Y), BORDER, at("key", BORDER - H + 1), BORDER));
   check("off side back on side accepted", !movesOffSide(at("key", SYNTH_Y), BORDER, at("key", CTRL_Y), BORDER));
   check("off side moves freely while off side", !movesOffSide(at("key", SYNTH_Y), BORDER, at("key", SYNTH_Y + 30), BORDER));
   check("border moved onto a bound box refused", movesOffSide(at("touch", SYNTH_Y), BORDER, at("touch", SYNTH_Y), SYNTH_Y + 1));

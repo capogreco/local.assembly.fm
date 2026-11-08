@@ -801,9 +801,26 @@ function boxBinding(text, lookup, seen = new Set()) {
   return { binding: ctrl ? "ctrl" : synth ? "synth" : "free", error: null };
 }
 
-// Height of a box in patch units. The side rule needs it, so it lives here
-// (the editor draws with it, apply snaps routers with it).
-const BOX_HEIGHT = 22;
+// The editor's grid, in patch units. It is binding: every box's top-left
+// corner sits on a grid dot, and the border sits on a row of dots.
+const GRID = 20;
+
+// Height of a box in patch units: one grid unit. The side rule needs it, so
+// it lives here (the editor draws with it, apply snaps routers with it).
+const BOX_HEIGHT = GRID;
+
+// Nearest grid dot coordinate.
+function snapToGrid(v) {
+  return Math.round(v / GRID) * GRID;
+}
+
+// Where a router sits: in the row just above the border, its bottom edge
+// (and so its outlets) on the border line. A router can't straddle the line
+// as it did at height 22: with the border on a dot row and boxes one unit
+// tall, straddling would put its top half a unit off the grid.
+function routerY(borderY) {
+  return borderY - BOX_HEIGHT;
+}
 
 // Side a free box takes from its position: its centre against the border
 // (a centre exactly on the line counts as synth).
@@ -948,5 +965,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, getBoxPorts, groupArgs, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

@@ -6,8 +6,8 @@
  * Also hosts ctrl-side engines (above the border) with audio output to laptop speakers.
  */
 
-import { boxTypeName, getBoxPorts } from "./gpi-types.js";
-import { PatchEditor, platformMod, COLORS, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
+import { GRID, boxTypeName, getBoxPorts, snapToGrid } from "./gpi-types.js";
+import { PatchEditor, platformMod, COLORS, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
 import { currentTheme, toggleTheme, onThemeChange } from "./theme.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
 
@@ -477,8 +477,7 @@ input.addEventListener("input", () => {
   if (mainEditor.editingBoxId === null) return;
   const box = mainEditor.boxes.get(mainEditor.editingBoxId);
   if (!box) return;
-  const w = Math.max(mainEditor.measureText(input.value || " ") + BOX_PAD_X * 2,
-    (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 80);
+  const w = Math.max(mainEditor.boxWidth(box, mainEditor.editingBoxId), 80);
   input.style.width = (w * mainEditor.zoom) + "px";
   mainEditor.render();
 });
@@ -668,11 +667,11 @@ window.addEventListener("keydown", (e) => {
     mainEditor.pushUndo();
     const idMap = new Map();
     const newSel = new Set();
-    const offset = 30;
+    const offset = GRID;
     for (const [oldId, box] of clipData.boxes) {
       const newId = mainEditor.nextId++;
       idMap.set(oldId, newId);
-      const pasted = { x: box.x + offset, y: box.y + offset, text: box.text, inlets: box.inlets, outlets: box.outlets };
+      const pasted = { x: snapToGrid(box.x) + offset, y: snapToGrid(box.y) + offset, text: box.text, inlets: box.inlets, outlets: box.outlets };
       mainEditor.placeOnSide(pasted);  // a paste has no drag to refuse, so bound boxes snap to their side
       mainEditor.boxes.set(newId, pasted);
       newSel.add(newId);

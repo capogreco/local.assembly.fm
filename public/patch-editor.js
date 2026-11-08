@@ -1,11 +1,11 @@
-import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, positionSide, sideOf } from "./gpi-types.js";
+import { GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, positionSide, sideOf } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
 
 // Colours come from the active theme (theme.js); COLORS is that live palette.
-// BOX_HEIGHT comes from gpi-types.js: the side rule needs it.
-const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
+// GRID and BOX_HEIGHT come from gpi-types.js: the side rule needs them.
+const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_GAP = 4, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -139,7 +139,7 @@ class PatchEditor {
     this.editorMode = "edit";
 
     // Layout
-    this.borderY = options.borderY ?? canvas.height * 0.55;
+    this.borderY = snapToGrid(options.borderY ?? canvas.height * 0.55);
     this.showBorder = options.showBorder ?? true;
 
     // Pan & zoom (view transform only — never mutates patch coordinates)
@@ -219,12 +219,12 @@ class PatchEditor {
     }
     for (const [id, cable] of data.cables) this.cables.set(id, cable);
     this.nextId = data.nextId || 1;
-    if (data.borderY !== undefined) this.borderY = data.borderY;
-    // Fix router Y positions to always be at border
+    if (data.borderY !== undefined) this.borderY = snapToGrid(data.borderY);
+    // The grid is binding: patches saved before it snap as they load, and
+    // routers sit on the border.
     for (const [, box] of this.boxes) {
-      if (this.isRouterType(box.text)) {
-        box.y = this.borderY - BOX_HEIGHT / 2;
-      }
+      box.x = snapToGrid(box.x);
+      box.y = this.isRouterType(box.text) ? routerY(this.borderY) : snapToGrid(box.y);
     }
     this.selection.clear();
     this.cableSelection.clear();
@@ -275,11 +275,12 @@ class PatchEditor {
     if (this.boxes.size === 0) return;
     this.pushUndo();
 
-    const LAYER_Y_SPACING = 60;
-    const H_GAP = 24;
-    const SUBGRAPH_GAP = 50;
-    const TOP_MARGIN = 30;
-    const BORDER_PAD = 30;
+    // Whole grid units, so a final snap (below) can't make boxes overlap.
+    const LAYER_Y_SPACING = 3 * GRID;
+    const H_GAP = GRID;
+    const SUBGRAPH_GAP = 3 * GRID;
+    const TOP_MARGIN = 2 * GRID;
+    const BORDER_PAD = 2 * GRID;
 
     // Build adjacency
     const childrenOf = new Map();
@@ -508,13 +509,13 @@ class PatchEditor {
 
     const ctrlEnd = layoutRegion(ctrlBoxes, TOP_MARGIN);
     if (ctrlEnd + BORDER_PAD > this.borderY && ctrlBoxes.length > 0) {
-      this.borderY = ctrlEnd + BORDER_PAD;
+      this.borderY = snapToGrid(ctrlEnd + BORDER_PAD);
     }
 
     // Place routers on border, x-aligned to connected boxes
     for (const id of routerBoxes) {
       const box = this.boxes.get(id);
-      box.y = this.borderY - BOX_HEIGHT / 2;
+      box.y = routerY(this.borderY);
       const connected = [
         ...(parentsOf.get(id) || []),
         ...(childrenOf.get(id) || [])
@@ -525,6 +526,9 @@ class PatchEditor {
     }
 
     layoutRegion(synthBoxes, this.borderY + BORDER_PAD);
+    // Snap to the grid. Widths and gaps are whole units, so rounding each x
+    // moves neighbours at most a unit closer and never into each other.
+    for (const [, box] of this.boxes) { box.x = snapToGrid(box.x); box.y = snapToGrid(box.y); }
     this.zoomToFit();
     this.dirty = true;
     this.onDirty();
@@ -583,6 +587,12 @@ class PatchEditor {
     };
   }
 
+  // The grid cell under patch point m: its top-left dot, where a box made
+  // there goes.
+  gridCell(m) {
+    return { x: Math.floor(m.x / GRID) * GRID, y: Math.floor(m.y / GRID) * GRID };
+  }
+
   screenFromPatch(px, py) {
     return {
       x: (px - this.panX) * this.zoom,
@@ -616,17 +626,28 @@ class PatchEditor {
       const v = this.boxValues.get(id);
       text = _type + " " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
-    return Math.ceil(Math.max(this.measureText(text) + BOX_PAD_X * 2, (Math.max(box.inlets, box.outlets) + 1) * (PORT_W + 4), 30));
+    // Room for the ports with a gap between each, and at least two units.
+    // Rounded up to whole units, so the right edge is on the grid too.
+    const ports = Math.max(box.inlets, box.outlets);
+    const w = Math.max(this.measureText(text) + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
+    return Math.ceil(w / GRID) * GRID;
+  }
+
+  // Port centre x, as in Pd: port 0 flush with the left edge, the last port
+  // flush with the right, the others evenly spaced between. A single port
+  // sits flush left.
+  portX(box, i, n, id) {
+    if (n <= 1) return box.x + PORT_W / 2;
+    const w = this.boxWidth(box, id);
+    return box.x + PORT_W / 2 + i * (w - PORT_W) / (n - 1);
   }
 
   inletPos(box, i, id) {
-    const w = this.boxWidth(box, id), s = w / (box.inlets + 1);
-    return { x: box.x + s * (i + 1), y: box.y };
+    return { x: this.portX(box, i, box.inlets, id), y: box.y };
   }
 
   outletPos(box, i, id) {
-    const w = this.boxWidth(box, id), s = w / (box.outlets + 1);
-    return { x: box.x + s * (i + 1), y: box.y + BOX_HEIGHT };
+    return { x: this.portX(box, i, box.outlets, id), y: box.y + BOX_HEIGHT };
   }
 
   // --- Hit Testing ---
@@ -778,11 +799,11 @@ class PatchEditor {
   // refuse (text commit, paste).
   placeOnSide(box) {
     if (!this.showBorder) return;
-    if (this.isRouterType(box.text)) { box.y = this.borderY - BOX_HEIGHT / 2; return; }
+    if (this.isRouterType(box.text)) { box.y = routerY(this.borderY); return; }
     let offSide;
     try { offSide = isOffSide(box, this.borderY, absLookup); } catch { return; } // reported by sideOfBox
     if (!offSide) return;
-    box.y = this.sideOfBox(box) === "synth" ? this.borderY + 20 : this.borderY - BOX_HEIGHT - 20;
+    box.y = this.sideOfBox(box) === "synth" ? this.borderY + GRID : this.borderY - BOX_HEIGHT - GRID;
   }
 
   isRouterType(text) { return boxBinding(text).binding === "border"; }
@@ -816,7 +837,7 @@ class PatchEditor {
     } else {
       routerId = this.nextId++;
       const ports = getPorts("all 1");
-      this.boxes.set(routerId, { x: midX - 20, y: this.borderY - BOX_HEIGHT / 2, text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
+      this.boxes.set(routerId, { x: snapToGrid(midX - GRID), y: routerY(this.borderY), text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
       this.cables.set(this.nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
       this.cables.set(this.nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet });
     }
@@ -936,11 +957,11 @@ class PatchEditor {
     // Dot grid (cover visible area in patch space), edit mode only
     const visW = w / this.zoom, visH = h / this.zoom;
     if (this.editorMode === "edit") {
-      const gridStartX = Math.floor(this.panX / 20) * 20;
-      const gridStartY = Math.floor(this.panY / 20) * 20;
+      const gridStartX = Math.floor(this.panX / GRID) * GRID;
+      const gridStartY = Math.floor(this.panY / GRID) * GRID;
       this.ctx.fillStyle = COLORS.grid;
-      for (let x = gridStartX; x < this.panX + visW; x += 20) {
-        for (let y = gridStartY; y < this.panY + visH; y += 20) {
+      for (let x = gridStartX; x < this.panX + visW; x += GRID) {
+        for (let y = gridStartY; y < this.panY + visH; y += GRID) {
           this.ctx.fillRect(x, y, 1, 1);
         }
       }
@@ -1437,24 +1458,27 @@ class PatchEditor {
     }
 
     if (this.mode === "resizing-border") {
-      const newY = Math.max(30, m.y);
+      // The border sits on a row of dots, low enough to leave a row for routers.
+      const newY = Math.max(2 * GRID, snapToGrid(m.y));
       const oldY = this.borderY;
+      if (newY === oldY) return;
       this.borderY = newY;
-      const PAD = 4;
+      // Pushed boxes stay on the grid, touching the line.
+      const PAD = 0;
       // Piston: a box on the side the membrane moves into, which the new line
       // touches, is pushed wholly clear of it, keeping its side (taken against
       // the old line). Then cascade-resolve overlaps in the sweep direction so
       // the push propagates through stacked boxes instead of squashing them.
       for (const [, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
-          box.y = newY - BOX_HEIGHT / 2;
+          box.y = routerY(newY);
           continue;
         }
         const side = this.sideOf(box, oldY);
         if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
         else if (newY < oldY && side === "ctrl" && box.y + BOX_HEIGHT > newY) box.y = newY - BOX_HEIGHT - PAD;
       }
-      if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
+      this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
       return;
     }
@@ -1467,17 +1491,13 @@ class PatchEditor {
       for (const [id, b] of this.dragSnapshot.boxes) this.boxes.set(id, { ...b });
       this.nextId = this.dragSnapshot.nextId;
 
-      const dx = m.x - this.dragStart.x, dy = m.y - this.dragStart.y;
+      // Live snap: the drag moves in whole units, so boxes stay on the grid.
+      const dx = snapToGrid(m.x - this.dragStart.x), dy = snapToGrid(m.y - this.dragStart.y);
       for (const [id, orig] of this.dragBoxPositions) {
         const box = this.boxes.get(id);
         if (!box) continue;
-        if (this.isRouterType(box.text)) {
-          box.x = orig.x + dx;
-          box.y = this.borderY - BOX_HEIGHT / 2;
-        } else {
-          box.x = orig.x + dx;
-          box.y = orig.y + dy;
-        }
+        box.x = orig.x + dx;
+        box.y = this.isRouterType(box.text) ? routerY(this.borderY) : orig.y + dy;
       }
       if (this.showBorder) this.autoRouteBorderCrossings(this.selection);
       this.render();
@@ -1724,7 +1744,7 @@ class PatchEditor {
       const cable = this.cables.get(cableId);
       this.cables.delete(cableId);
       const id = this.nextId++;
-      this.boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
+      this.boxes.set(id, { ...this.gridCell(m), text: "", inlets: 1, outlets: 1 });
       this.cables.set(this.nextId++, { srcBox: cable.srcBox, srcOutlet: cable.srcOutlet, dstBox: id, dstInlet: 0 });
       this.cables.set(this.nextId++, { srcBox: id, srcOutlet: 0, dstBox: cable.dstBox, dstInlet: cable.dstInlet });
       this.selection.clear();
@@ -1734,7 +1754,7 @@ class PatchEditor {
     }
     this.pushUndo();
     const id = this.nextId++;
-    this.boxes.set(id, { x: m.x - 15, y: m.y - BOX_HEIGHT / 2, text: "", inlets: 1, outlets: 1 });
+    this.boxes.set(id, { ...this.gridCell(m), text: "", inlets: 1, outlets: 1 });
     this.selection.clear();
     this.selection.add(id);
     this.startEditing(id);
@@ -1768,7 +1788,7 @@ class PatchEditor {
     // Arrow key nudging
     if (this.selection.size > 0 && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault();
-      const step = e.shiftKey ? 20 : 1;
+      const step = GRID; // one unit per press: the grid is binding
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
       const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
       const before = new Map([...this.boxes].map(([id, b]) => [id, { x: b.x, y: b.y }]));
@@ -1805,7 +1825,7 @@ class PatchEditor {
       if (!srcBox) return true;
       this.pushUndo();
       const id = this.nextId++;
-      this.boxes.set(id, { x: srcBox.x, y: srcBox.y + BOX_HEIGHT + 30, text: "", inlets: 1, outlets: 1 });
+      this.boxes.set(id, { x: srcBox.x, y: srcBox.y + BOX_HEIGHT + GRID, text: "", inlets: 1, outlets: 1 });
       this.cables.set(this.nextId++, { srcBox: srcId, srcOutlet: 0, dstBox: id, dstInlet: 0 });
       this.selection.clear();
       this.selection.add(id);
@@ -1912,4 +1932,4 @@ class PatchEditor {
   }
 }
 
-export { PatchEditor, platformMod, COLORS, BOX_HEIGHT, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };
+export { PatchEditor, platformMod, COLORS, GRID, BOX_HEIGHT, snapToGrid, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };
