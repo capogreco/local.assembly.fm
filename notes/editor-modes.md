@@ -84,25 +84,39 @@ gives them Pd's look.
   router crossing the line, naming it: a backstop for patches that didn't
   come through the editor.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
-- **`l` neatens in place** (decided 2026-11-08, replacing the Sugiyama
-  auto-layout, which threw the arrangement away). As Pd's Tidy Up: the
-  selection, or the whole patch if nothing is selected, in the ctrl
-  editor's edit mode, one undo step. Positions snap to half units (a no-op on any loaded patch, which
-  load already snapped); a box fed
-  from above straightens under its source, top-down so chains straighten:
-  outlet 0 to inlet 0 with left edges within two units takes the source's
-  left edge (the nearest source wins); failing that, another port pair
-  within a unit lines up when it can on half units (in practice right outlet
-  over right inlet). Only x moves, so no box changes side and routers stay
-  on the border row. A move that would land a box on another is skipped, not
-  pushed. Repeated to a standstill, so a second press changes nothing. Boxes
-  sharing a row are left as they are.
+- **`l` rebuilds the layout** (decided 2026-11-08, second round, replacing
+  the in-place neaten, which did too little). From a Fable survey of Pd's
+  Tidy Up (`canvas_tidy`), Max, vvvv, Unreal, ELK and Sugiyama layouts, and
+  measurements of the patches. With a selection, `l` rebuilds that
+  selection's flow where it is; with none, the whole patch. Ctrl editor,
+  edit mode, one undo step.
+  - **Flows, not components.** Routers are the spine: one graph including
+    routers, which stay on the border row (x may move, y never). Ctrl boxes
+    layer upward from the router inlets they feed, synth boxes downward from
+    router outlets. Columns are ordered by the router port they feed or hang
+    from, ties broken by current x, so the arrangement's order survives.
+    The old auto-layout cut the graph at the border and laid every piece
+    (each comment included) side by side in one row.
+  - **Both axes move.** Rows level, columns are evenly spaced.
+  - **Vertical cables preferred:** an outlet 0 → inlet 0 chain becomes one
+    straight vertical line; other boxes sit at their sources' barycentre,
+    then are pushed apart.
+  - **Spacing:** the vertical gap is read from the patch (its most common
+    gap), defaulting to half a unit; flush-stacked boxes stay flush. At
+    least a unit between boxes in a row.
+  - **Comments ride with the box they sit over** (nearest box within three
+    units, same side, keeping their offset); otherwise they stay.
+  - **Unconnected boxes stay where they are.**
+  - **Width:** separate pieces are packed into rows that fit the window's
+    width at the current zoom, never strung out in one row.
+  - **The border** may move down to make room above, never up.
+  - **View:** afterwards, pan and zoom to fit the result in the window.
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
 units: positions) and `routerY` live in `gpi-types.js`. The editor snaps on
 load (x, y and `borderY`), live while dragging, on create (the cell under the pointer),
-paste, duplicate, Tab-create (one empty row below, kept on the source's side), neaten (`l`, below), and border drags
+paste, duplicate, Tab-create (one empty row below, kept on the source's side), rebuild (`l`, above), and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
 land snug against the line; each step is worked out from the drag's start,
 so pushed boxes spring back as the border retreats, never past where they
