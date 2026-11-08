@@ -500,7 +500,7 @@ const BOX_TYPES = {
                       { name: "in", type: "audio", description: "Signal to sample" },
                       { name: "trig", type: "audio", description: "Control signal (samples on a decrease)" }],
                     outlets: [{ name: "out", type: "audio", description: "Held value" }] },
-  "buffer~":      { description: "Named mono sample buffer, loaded from /media/<file> (stereo is mixed down) or silent for a length in seconds. Phones load it before the patch starts. play~ reads it by name.", args: "name file | name seconds", example: "buffer~ voice voice.wav",
+  "buffer~":      { description: "Named mono sample buffer, loaded from /media/<file> (wav, mp3, m4a or aiff; stereo is mixed down) or silent for a length in seconds. Phones load it before the patch starts. play~ reads it by name.", args: "name file | name seconds", example: "buffer~ voice voice.wav",
                     inlets: [],
                     outlets: [{ name: "length", type: "number", description: "Length in seconds, once loaded" }] },
   "play~":        { description: "Reads a named buffer~ at a position signal (0-1 of the buffer, wrapping), 4-point interpolation. Silent until the buffer is loaded.", args: "name", example: "play~ voice",
