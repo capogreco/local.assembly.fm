@@ -47,6 +47,29 @@ SharedArrayBuffer and no COOP/COEP headers.
   starting-phase argument. `phasor~ … once` into `play~` is then also the
   one-shot sampler.
 
+## Built (2026-11-08, feat/samples)
+
+`buffer~` (file or seconds), `play~`, `hann~`, `samphold~`, and `phasor~`'s
+reset inlet (appended after period) and starting phase (`phasor~ period
+[phase] [once]`; reset returns to it). Not `record~`.
+
+- All are free (ordinary worklets). Buffer names are per side: each side's
+  AudioContext has its own map. Apply rejects a name defined twice on one
+  side, a `play~` with no `buffer~` of its name on its side, and a file that
+  is not in `public/media/`.
+- The deploy carries `buffers: [{ id, name, file | seconds }]` when there are
+  any. Phones load them inside `loadPatchForVoice` (messages queue meanwhile),
+  then each `buffer~` outlet emits its length. Ctrl shows "N of M loaded"
+  under the client count. The laptop loads ctrl-side buffers and sends each
+  length back as `buffer-length`.
+- A re-deploy fetches only buffers whose name or file changed; a file edited
+  on disk under the same name is not refetched until the name or file changes
+  or the page reloads.
+- `samphold~` also samples on its first frame (Pd starts at 0), so a stream
+  that starts mid-cycle has a position at once.
+- Test sample: `public/media/test-phrase.wav` from `deno task media`.
+  Example: `patches/granular_example.json`.
+
 ## Open
 
 - Live granulation (`record~`): from ctrl (the recording must then be sent

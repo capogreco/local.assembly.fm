@@ -256,9 +256,15 @@ async function loadBuffers(voice, list) {
   if (list.length === 0) return new Map();
   const report = (loaded, total, errors) =>
     voice.conn?.send({ type: "media", loaded, total, failed: errors?.length ?? 0, ...(errors?.length && voice.index === 0 && { errors }) });
-  const { lengths, errors } = await syncBuffers(audioCtx, workletModulesLoaded, list, (loaded, total) => {
-    if (loaded < total) report(loaded, total);
-  });
+  let lengths = new Map(), errors;
+  try {
+    ({ lengths, errors } = await syncBuffers(audioCtx, workletModulesLoaded, list, (loaded, total) => {
+      if (loaded < total) report(loaded, total);
+    }));
+  } catch (err) {
+    // e.g. buffer-processor.js failed to load: no buffer is usable.
+    errors = [`buffers failed to load: ${err?.message ?? err}`];
+  }
   for (const e of errors) console.error(e);
   report(list.length, list.length, errors);
   return lengths;
