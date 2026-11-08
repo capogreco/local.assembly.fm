@@ -21,10 +21,10 @@ class BufferRegistryProcessor extends AudioWorkletProcessor {
     };
   }
 
-  // No audio work: false lets the renderer skip it. The main thread keeps the
-  // node referenced, so the processor and its port stay alive.
+  // No audio work, but return true: false lets the browser end the processor,
+  // and a buffer set or deleted after that would never arrive.
   process() {
-    return false;
+    return true;
   }
 }
 
