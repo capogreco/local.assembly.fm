@@ -194,6 +194,11 @@ Display values come through the existing `values` messages.
    re-apply to hush a patch in performance. Initial values come explicitly
    from `const`, so `knob` (and any other box that holds a value) needs a
    "set" inlet, as `toggle` has. Drop "Saving values" from the order.
+   (Built 2026-11-08: `knob` inlet 0 sets, clamps to min..max and outputs;
+   the knob holds its value as graph state, so a `const` feeding it at build
+   gives the starting value. `toggle` already had one; `event` and `fan`
+   hold nothing the UI sets. Hardware sources (`arc`, `grid-toggle`) also
+   reset on apply and have no set inlet yet.)
 5. `hideName` hides the name and arguments together.
 6. Grid snapping applies to every box, not only faced instances.
 

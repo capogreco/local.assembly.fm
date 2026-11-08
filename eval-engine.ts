@@ -534,6 +534,12 @@ export function setSourceValue(boxId: number, value: BoxValue): void {
     else if (p >= ONSET_THRESHOLD && v < ONSET_THRESHOLD) injectValue(boxId, 1, 0);
     return;
   }
+  // A knob holds its value (graph state), so a later `set` and the knob's
+  // own drag agree.
+  if (name === "knob") {
+    const node = graph?.boxes.get(boxId);
+    if (node?.state) node.state.value = value;
+  }
   injectValue(boxId, 0, value);
 }
 
@@ -562,15 +568,13 @@ function getDeviceInitValue(name: string, text: string): number {
   return DEVICE_DEFAULTS[name] ?? 0;
 }
 
-// Knobs and devices start at their arg (or default); `clients` at the count.
+// Devices start at their arg (or default); `clients` at the count. Knobs hold
+// graph state, so their initial value goes out with the build's.
 function initSources(): void {
   for (const [id, box] of boxes) {
     if (!graph.boxes.has(id)) continue;
     const name = boxTypeName(box.text);
-    if (name === "knob") {
-      const init = box.text.split(/\s+/).slice(1).map(Number)[0];
-      setSourceValue(id, init !== undefined ? init : 0.5);
-    } else if (name in DEVICE_DEFAULTS) {
+    if (name in DEVICE_DEFAULTS) {
       const init = getDeviceInitValue(name, box.text);
       setSourceValue(id, init);
       if (name === "arc") arcValues.set(id, init);

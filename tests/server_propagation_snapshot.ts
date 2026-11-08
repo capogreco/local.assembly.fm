@@ -207,6 +207,40 @@ const cases: Case[] = [
     },
   },
   {
+    name: "knob set inlet: a const gives the starting value, clamped to the range",
+    run: () => {
+      reset();
+      addBox(1, "const 5");
+      addBox(2, "knob 0.5 0 1");
+      addBox(3, "print");
+      addBox(4, "const 50");
+      addBox(5, "knob 0 10 -10"); // range given high to low: still clamps to -10..10
+      addBox(6, "const -0.25");
+      addBox(7, "knob 0.5 -1 1");
+      addCable(1, 1, 0, 2, 0);
+      addCable(2, 2, 0, 3, 0);
+      addCable(3, 4, 0, 5, 0);
+      addCable(4, 6, 0, 7, 0);
+      buildServerGraph();
+    },
+  },
+  {
+    name: "knob set inlet and the knob's own drag agree",
+    run: () => {
+      reset();
+      addBox(1, "event");
+      addBox(2, "const 0.2");
+      addBox(3, "knob 0.5 0 1");
+      addBox(4, "print");
+      addCable(1, 1, 0, 2, 0);
+      addCable(2, 2, 0, 3, 0);
+      addCable(3, 3, 0, 4, 0);
+      buildServerGraph();
+      setSourceValue(3, 0.7); // the editor's drag: held as the knob's state
+      injectEvent(1, 0); // the const fires again: set back to 0.2
+    },
+  },
+  {
     name: "toggle inlet 1 flips on rising edge",
     run: () => {
       reset();

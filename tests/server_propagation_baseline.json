@@ -43,7 +43,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 0.5,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -81,7 +85,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 3,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -119,7 +127,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 5,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -152,7 +164,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 5,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -178,6 +194,126 @@
     "groupState": {},
     "latestValues": {}
   },
+  "knob set inlet: a const gives the starting value, clamped to the range": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 5,
+      "2": 1,
+      "3": 1,
+      "4": 50,
+      "5": 10,
+      "6": -0.25,
+      "7": -0.25
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "value": 5
+        }
+      },
+      "2": {
+        "inletValues": [
+          5
+        ],
+        "state": {
+          "value": 1,
+          "min": 0,
+          "max": 1
+        }
+      },
+      "3": {
+        "inletValues": [
+          1
+        ],
+        "state": null
+      },
+      "4": {
+        "inletValues": [],
+        "state": {
+          "value": 50
+        }
+      },
+      "5": {
+        "inletValues": [
+          50
+        ],
+        "state": {
+          "value": 10,
+          "min": 10,
+          "max": -10
+        }
+      },
+      "6": {
+        "inletValues": [],
+        "state": {
+          "value": -0.25
+        }
+      },
+      "7": {
+        "inletValues": [
+          -0.25
+        ],
+        "state": {
+          "value": -0.25,
+          "min": -1,
+          "max": 1
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
+  "knob set inlet and the knob's own drag agree": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "2": 0.2,
+      "3": 0.2,
+      "4": 0.2
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {}
+      },
+      "2": {
+        "inletValues": [],
+        "state": {
+          "value": 0.2
+        }
+      },
+      "3": {
+        "inletValues": [
+          0.2
+        ],
+        "state": {
+          "value": 0.2,
+          "min": 0,
+          "max": 1
+        }
+      },
+      "4": {
+        "inletValues": [
+          0.2
+        ],
+        "state": null
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
   "toggle inlet 1 flips on rising edge": {
     "capture": {
       "ctrlSends": [],
@@ -193,7 +329,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 1,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -230,7 +370,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 7,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -291,7 +435,11 @@
       },
       "3": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 1,
+          "min": 0,
+          "max": 1
+        }
       }
     },
     "routerState": {},
@@ -485,7 +633,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 5,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -517,7 +669,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 3,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -560,7 +716,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 99,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -623,7 +783,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 7,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -669,7 +833,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 3,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -816,7 +984,11 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 0.5,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [
@@ -1342,15 +1514,27 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 10,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 20,
+          "min": 0,
+          "max": 1
+        }
       },
       "3": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 30,
+          "min": 0,
+          "max": 1
+        }
       },
       "4": {
         "inletValues": [],
@@ -1419,15 +1603,27 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 10,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 20,
+          "min": 0,
+          "max": 1
+        }
       },
       "3": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 30,
+          "min": 0,
+          "max": 1
+        }
       },
       "4": {
         "inletValues": [],
@@ -1512,15 +1708,27 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 10,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 21,
+          "min": 0,
+          "max": 1
+        }
       },
       "3": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 30,
+          "min": 0,
+          "max": 1
+        }
       },
       "4": {
         "inletValues": [],
@@ -1643,15 +1851,27 @@
     "graph": {
       "1": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 10,
+          "min": 0,
+          "max": 1
+        }
       },
       "2": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 20,
+          "min": 0,
+          "max": 1
+        }
       },
       "3": {
         "inletValues": [],
-        "state": null
+        "state": {
+          "value": 30,
+          "min": 0,
+          "max": 1
+        }
       },
       "4": {
         "inletValues": [],

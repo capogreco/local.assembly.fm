@@ -162,6 +162,14 @@ function createBoxState(type, args, instanceIndex, instanceCount) {
       return { prev: undefined };
     case "toggle":
       return { value: parseFloat(args) > 0 ? 1 : 0 };
+    case "knob": {
+      // init [min] [max] [curve], as the editor reads them. The init value is
+      // not clamped (the arg is the author's word); the set inlet is.
+      const parts = (args || "").split(/\s+/).filter(Boolean).map(Number);
+      const min = parts[1] !== undefined && !isNaN(parts[1]) ? parts[1] : 0;
+      const max = parts[2] !== undefined && !isNaN(parts[2]) ? parts[2] : 1;
+      return { value: parts[0] !== undefined && !isNaN(parts[0]) ? parts[0] : 0.5, min, max };
+    }
     case "counter": {
       const parts = (args || "0 7").split(/\s+/).map(Number);
       return { count: parts[0] || 0, min: parts[0] || 0, max: parts[1] || 7 };
@@ -990,6 +998,17 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
 
   // Data-driven inlet map (adsr/ar/ramp/sigmoid/cosine/lfo/metro/slew/lag/inertia/follow/counter/step).
   if (node.state && applyInletToState(node.type, node.state, inlet, value)) {
+    return { updates, deferEvent: false };
+  }
+
+  // Knob inlet 0 (set): clamp to the knob's range, hold, and output, so a
+  // `const` can give a knob its starting value on every apply.
+  if (node.type === "knob" && inlet === 0) {
+    if (node.state && typeof value === "number" && Number.isFinite(value)) {
+      const lo = Math.min(node.state.min, node.state.max), hi = Math.max(node.state.min, node.state.max);
+      node.state.value = Math.max(lo, Math.min(hi, value));
+      mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, node.state.value));
+    }
     return { updates, deferEvent: false };
   }
 
