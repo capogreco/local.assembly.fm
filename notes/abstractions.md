@@ -96,8 +96,21 @@ rows, `CC_SOURCE` and `findBoxByText` go.
   `library/name`, in boxes and in saved patches. There's no short form and
   no search order. Names may be longer; it keeps things simple. (Built-in
   boxes keep their bare names.)
-- **A GUI workflow for abstractions, as in Pd,** rather than typing names.
-  To be designed.
+- **Abstractions are not core.** `core` is built-in boxes only. Every
+  abstraction lives in a library, written `library/name`. Tambourin ships with
+  a few ready-to-go libraries of common abstractions, in the same
+  `libs/<lib>/` format as user libraries: bundled but not privileged.
+  `double` and `quantiser` move there. Their names and contents are to come.
+- **A face for each abstraction, like Pd's graph-on-parent.** Pd lets an
+  abstraction's author set a rectangle inside it: on the parent, the instance
+  becomes a box of that size showing the GUI objects inside the rectangle
+  (sliders, toggles, number boxes, arrays). Object boxes, message boxes and
+  cables stay hidden, and the name and arguments can be hidden too. Max does
+  the same with `bpatcher`. For Tambourin, the header declares the face: a
+  rectangle and the GUI boxes in it (knobs, number displays, scopes). The
+  instance draws at that size, with ports on its edges. On the synth side the
+  face shows in the editor only; what phones display is the separate visual
+  paradigm question (see `identity.md`).
 - **A port mismatch at apply is an error.** The running patch keeps running,
   and only the change is held back.
 - **Libraries live in `libs/<lib>/`**: worklets, abstractions and help
@@ -108,7 +121,7 @@ rows, `CC_SOURCE` and `findBoxByText` go.
 
 ## Open
 
-- The GUI workflow: creating, opening, saving and placing abstractions from
-  the editor, modelled on Pd.
-- Whether `core` abstractions are written `core/name` too. This follows from
-  explicit naming.
+- The face: header format, which boxes count as GUI, hiding the name, and
+  how the face is edited in the abstraction editor.
+- The bundled libraries: names (one general library, or themed ones such
+  as `granular/` and `midi/`) and contents.
