@@ -328,7 +328,9 @@ class PatchEditor {
     this.pushUndo();
 
     // Whole grid units, so a final snap (below) can't make boxes overlap.
-    const LAYER_Y_SPACING = 3 * GRID;
+    // A layer is as tall as its tallest box (a face is several units), then
+    // this gap before the next.
+    const LAYER_GAP = 2 * GRID;
     const H_GAP = GRID;
     const SUBGRAPH_GAP = 3 * GRID;
     const TOP_MARGIN = 2 * GRID;
@@ -439,7 +441,7 @@ class PatchEditor {
     // Layout a single connected component, returning metadata
     const layoutComponent = (boxIds) => {
       const layers = assignLayers(boxIds);
-      if (layers.length === 0) return { layers: [], width: 0, height: 0, minX: 0 };
+      if (layers.length === 0) return { layers: [], tops: [], width: 0, height: 0, minX: 0 };
 
       // Initial ordering: sort each layer by original x
       for (const l of layers) {
@@ -524,7 +526,14 @@ class PatchEditor {
         }
       }
 
-      return { layers, width: maxBX - minBX, height: layers.length * LAYER_Y_SPACING, minX: minBX };
+      // Each layer's top, accumulated from the tallest box in the layers above.
+      const tops = [];
+      let y = 0;
+      for (const l of layers) {
+        tops.push(y);
+        y += Math.max(BOX_HEIGHT, ...l.map((id) => this.boxHeight(this.boxes.get(id), id))) + LAYER_GAP;
+      }
+      return { layers, tops, width: maxBX - minBX, height: y, minX: minBX };
     };
 
     // Layout a region: find components, lay each out, pack side by side
@@ -548,7 +557,7 @@ class PatchEditor {
           for (const id of r.layers[li]) {
             const box = this.boxes.get(id);
             box.x += offsetX;
-            box.y = startY + li * LAYER_Y_SPACING;
+            box.y = startY + r.tops[li];
           }
         }
 
