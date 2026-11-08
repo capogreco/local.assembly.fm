@@ -96,21 +96,40 @@ gives them Pd's look.
     router outlets. Columns are ordered by the router port they feed or hang
     from, ties broken by current x, so the arrangement's order survives.
     The old auto-layout cut the graph at the border and laid every piece
-    (each comment included) side by side in one row.
-  - **Both axes move.** Rows level, columns are evenly spaced.
+    (each comment included) side by side in one row. Built: a box no router
+    reaches sits just above (synth: below) what it feeds; a piece with no
+    router layers from its own ends.
+  - **Both axes move.** Rows level, columns are evenly spaced. Built: rows
+    are as tall as their tallest box (faces); columns are not a fixed pitch
+    but at their barycentres, at least a unit apart.
   - **Vertical cables preferred:** an outlet 0 → inlet 0 chain becomes one
     straight vertical line; other boxes sit at their sources' barycentre,
-    then are pushed apart.
+    then are pushed apart. Built: only between neighbouring rows (a cable
+    skipping rows stays slanted, so no vertical line runs through a box).
   - **Spacing:** the vertical gap is read from the patch (its most common
     gap), defaulting to half a unit; flush-stacked boxes stay flush. At
-    least a unit between boxes in a row.
+    least a unit between boxes in a row. Built: the most common gap over
+    cables up to three units long; a flush stack (outlet 0 into inlet 0,
+    touching) moves as one tall box.
   - **Comments ride with the box they sit over** (nearest box within three
-    units, same side, keeping their offset); otherwise they stay.
-  - **Unconnected boxes stay where they are.**
+    units, same side, keeping their offset); otherwise they stay. Built:
+    routers carry none; the rows make room for a comment above or below its
+    box, and only one beside it widens it.
+  - **Unconnected boxes stay where they are.** Built: with a selection,
+    unconnected means no cable to another selected box; a piece that would
+    land on a box that stays moves right past it.
   - **Width:** separate pieces are packed into rows that fit the window's
-    width at the current zoom, never strung out in one row.
-  - **The border** may move down to make room above, never up.
+    width at the current zoom, never strung out in one row. Built: the
+    pieces through the routers share the border row and can't wrap, so a
+    wide one is wider than the window; ctrl shelves stack up from it, synth
+    shelves down, in the arrangement's reading order.
+  - **The border** may move down to make room above, never up. Built: the
+    ctrl rows keep the scope's top; the border steps in whole units and
+    pushes boxes that stay as a border drag does.
   - **View:** afterwards, pan and zoom to fit the result in the window.
+  - Built: a pass is seeded by current x, so it repeats (up to four) until
+    it reproduces itself; on the bundled patches a second `l` changes
+    nothing.
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
