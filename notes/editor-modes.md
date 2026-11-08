@@ -35,6 +35,25 @@ so a performer could edit mid-show without switching modes. Its costs:
   with the dot grid in a welcome animation (identity work, not designed yet).
   For now, saved patches open in edit mode too (Pd opens them in run).
 
+## Grid (decided 2026-11-08)
+
+The editor's 20px grid is binding, not decoration. It keeps patches neat and
+gives them Pd's look.
+
+- **Each box's top-left corner sits on a grid dot.** Creating, dragging,
+  pasting and arrow-key nudges all move in whole units. Old patches snap
+  when they load.
+- **Boxes are one unit (20px) tall**, replacing `BOX_HEIGHT` 22. A box's
+  bottom edge, where its outlets sit, lies on the next row of dots.
+- **Widths round up to whole units**, so the right edge is on the grid too.
+- **Ports as in Pd:** inlet 0 and outlet 0 sit flush with the left edge, the
+  last port flush with the right edge, and any others spread evenly between.
+  A box placed directly under another gets a vertical cable from left outlet
+  to left inlet. (Today, ports are spread evenly inside the box,
+  `patch-editor.js:622`.)
+- **The border sits on a row of dots.**
+- **Abstraction faces** are whole units by construction (`abstractions.md`).
+
 ## Parked
 
 - A Max-style presentation mode: a second layout of the same patch, for

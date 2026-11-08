@@ -121,7 +121,6 @@ rows, `CC_SOURCE` and `findBoxByText` go.
 
 ## Open
 
-- The face: Thomas's answers to the questions under "Face proposal" below.
 - The bundled libraries: names (one general library, or themed ones such
   as `granular/` and `midi/`) and contents.
 
@@ -185,7 +184,20 @@ Display values come through the existing `values` messages.
 7. The face tool in the abstraction editor.
 8. Nesting.
 
-**Questions for Thomas (Fable's recommendation in brackets).**
+**Decided (Thomas, 2026-11-08).**
+1. The face is in grid units. All boxes now sit on the grid too (see "Grid"
+   in `editor-modes.md`).
+2. The face shows every GUI box wholly inside the rectangle. A box crossing
+   the edge is an error.
+3. A face needs at least one GUI box; a comment counts as one.
+4. **Strict: no values are saved, and every apply resets.** Thomas uses
+   re-apply to hush a patch in performance. Initial values come explicitly
+   from `const`, so `knob` (and any other box that holds a value) needs a
+   "set" inlet, as `toggle` has. Drop "Saving values" from the order.
+5. `hideName` hides the name and arguments together.
+6. Grid snapping applies to every box, not only faced instances.
+
+**Questions as put to Thomas (Fable's recommendation in brackets).**
 1. Face in grid units while boxes stay in px? (Yes.)
 2. Everything GUI inside the rectangle, or an explicit list? (Everything
    inside; an error when a box crosses the edge.)
