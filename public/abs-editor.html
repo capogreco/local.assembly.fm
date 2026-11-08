@@ -59,6 +59,9 @@
     #header-panel .hp-entry .hp-desc { grid-column: 2 / 4; }
     #header-panel .hp-idx { color: var(--hint); align-self: center; }
     #header-panel .hp-foot { margin-top: 10px; color: var(--hint); }
+    #header-panel #hp-face { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+    #header-panel #hp-face input[type=number] { width: 38px; }
+    #header-panel #hp-face .hp-hint { color: var(--hint); }
   </style>
 </head>
 <body>
@@ -69,6 +72,7 @@
     <div class="hp-row"><span class="hp-label">name</span><span id="hp-name"></span></div>
     <div class="hp-row"><span class="hp-label">side</span>
       <select id="hp-side"><option value="">(choose)</option><option value="ctrl">ctrl</option><option value="synth">synth</option></select></div>
+    <div class="hp-row"><span class="hp-label">face</span><span id="hp-face"></span></div>
     <div><span class="hp-label">description</span></div>
     <textarea id="hp-desc" rows="3"></textarea>
     <div class="hp-list" data-list="args"></div>

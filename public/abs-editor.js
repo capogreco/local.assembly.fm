@@ -12,6 +12,10 @@ if (!absName) { document.title = "no abstraction specified"; throw new Error("No
 
 document.title = `editing: ${absName}`;
 let dirty = false;
+// The face tool (below); declared here because the overlay draws it from
+// the first render, which loading triggers.
+let faceTool = null; // null | { armed: true } | { start, end } while dragging
+let faceNote = "";
 
 await loadAbstractions();
 
@@ -36,8 +40,9 @@ const editor = new PatchEditor(canvas, {
     ctx.fillStyle = COLORS.labelDim;
     ctx.textAlign = "right";
     // Under the header panel while it shows; it lists its own key.
-    if (document.getElementById("header-panel").classList.contains("hidden")) ctx.fillText("Cmd+S save  |  Cmd+Z undo  |  i header", w - 12, 8);
+    if (document.getElementById("header-panel").classList.contains("hidden")) ctx.fillText("Cmd+S save  |  Cmd+Z undo  |  i header  |  f face", w - 12, 8);
     ctx.textAlign = "left";
+    drawFaceRect(ctx);
   }
 });
 
@@ -101,8 +106,34 @@ function renderList(key) {
   });
 }
 
+// The face row: x y w h (grid units), hide name, clear; or how to make one.
+function renderFace() {
+  const host = document.getElementById("hp-face");
+  const f = header.face;
+  if (!f) {
+    host.replaceChildren(el("span", { className: "hp-hint", textContent: "none (f, then drag)" }));
+    return;
+  }
+  const nums = ["x", "y", "w", "h"].map((k) => {
+    const n = el("input", { type: "number", step: 1, min: k === "w" || k === "h" ? 2 : undefined, value: f[k], title: `${k} (grid units)` });
+    n.onchange = () => {
+      const v = Number(n.value);
+      if (!Number.isInteger(v) || ((k === "w" || k === "h") && v < 2)) { n.value = f[k]; return; }
+      f[k] = v;
+      markDirty();
+    };
+    return n;
+  });
+  const hide = el("input", { type: "checkbox", checked: f.hideName, id: "hp-hide-name" });
+  hide.onchange = () => { f.hideName = hide.checked; markDirty(); };
+  const clear = el("button", { type: "button", textContent: "clear", title: "no face" });
+  clear.onclick = () => { header.face = null; renderFace(); markDirty(); };
+  host.replaceChildren(...nums, el("label", {}, [hide, " hide name"]), clear);
+}
+
 function renderPanel() {
   document.getElementById("hp-name").textContent = absName;
+  renderFace();
   const side = document.getElementById("hp-side");
   side.value = header.side;
   side.onchange = () => { header.side = side.value; markDirty(); };
@@ -136,6 +167,72 @@ editor.render();
 
 // Resize handling
 window.addEventListener("resize", () => editor.resize(window.innerWidth, window.innerHeight));
+
+// --- Face tool ---
+// `f` arms it; a drag then draws the face's rectangle, snapped outward to
+// whole grid cells (at least 2×2). Escape disarms. The rectangle is drawn
+// dashed at 1px; the panel edits its numbers, hides the name, or clears it.
+
+function faceFromDrag(a, b) {
+  const x0 = Math.floor(Math.min(a.x, b.x) / GRID), y0 = Math.floor(Math.min(a.y, b.y) / GRID);
+  const x1 = Math.ceil(Math.max(a.x, b.x) / GRID), y1 = Math.ceil(Math.max(a.y, b.y) / GRID);
+  return { x: x0, y: y0, w: Math.max(x1 - x0, 1), h: Math.max(y1 - y0, 1) };
+}
+
+function drawFaceRect(ctx) {
+  const r = faceTool?.start ? faceFromDrag(faceTool.start, faceTool.end) : header.face;
+  if (r) {
+    const s = editor.screenFromPatch(r.x * GRID, r.y * GRID);
+    ctx.strokeStyle = COLORS.abstractionStroke;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(Math.round(s.x) + 0.5, Math.round(s.y) + 0.5, Math.round(r.w * GRID * editor.zoom), Math.round(r.h * GRID * editor.zoom));
+    ctx.setLineDash([]);
+  }
+  const note = faceTool ? "face: drag a rectangle (Esc cancels)" : faceNote;
+  if (note) {
+    ctx.font = SMALL_FONT;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = COLORS.absTitle;
+    ctx.fillText(note, 12, 22);
+  }
+}
+
+function endFaceTool() {
+  faceTool = null;
+  canvas.style.cursor = "default";
+  editor.render();
+}
+
+// Capture phase on window, so the editor never sees a face-tool gesture.
+window.addEventListener("mousedown", (e) => {
+  if (!faceTool || e.target !== canvas || e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const m = editor.canvasCoords(e);
+  faceTool = { start: m, end: m };
+  editor.render();
+}, true);
+window.addEventListener("mousemove", (e) => {
+  if (!faceTool?.start) return;
+  e.stopPropagation();
+  faceTool.end = editor.canvasCoords(e);
+  editor.render();
+}, true);
+window.addEventListener("mouseup", (e) => {
+  if (!faceTool?.start) return;
+  e.stopPropagation();
+  const r = faceFromDrag(faceTool.start, editor.canvasCoords(e));
+  if (r.w < 2 || r.h < 2) {
+    faceNote = "face not changed: it needs at least 2×2 grid units";
+  } else {
+    header.face = { ...r, hideName: header.face?.hideName ?? false };
+    faceNote = "";
+    renderFace();
+    markDirty();
+  }
+  endFaceTool();
+}, true);
 
 // --- Save ---
 
@@ -185,6 +282,15 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "i" && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); panel.classList.toggle("hidden"); editor.render(); return; }
   if (e.key === "t" && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleTheme(); return; }
+  if (e.key === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    faceTool = { armed: true };
+    faceNote = "";
+    canvas.style.cursor = "crosshair";
+    editor.render();
+    return;
+  }
+  if (e.key === "Escape" && faceTool) { e.preventDefault(); endFaceTool(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); editor.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === "c") {
