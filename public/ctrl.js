@@ -802,6 +802,12 @@ function connectWS() {
         mainEditor.undoStack.length = 0;
         // The running patch may predate a header change (apply comes later).
         syncAbstractionPorts();
+      } else if (msg.type === "deployed") {
+        // A new patch: values from the last one would show on boxes (and
+        // faces) whose live ids are reused. Sent before the server graph
+        // builds, so the build's initial values arrive after this.
+        mainEditor.boxValues.clear();
+        mainEditor.render();
       } else if (msg.type === "values") {
         for (const u of msg.updates) mainEditor.boxValues.set(u.id, u.value);
         mainEditor.render();
