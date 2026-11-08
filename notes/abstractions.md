@@ -225,6 +225,22 @@ Display values come through the existing `values` messages.
 5. `hideName` hides the name and arguments together.
 6. Grid snapping applies to every box, not only faced instances.
 
+**Built (2026-11-08, feat/faces).** Steps 1–5, 7 and 8 above.
+- `gui` on the BOX_TYPES rows: `control` knob, toggle, event, fan;
+  `display` print, scope~ (drawn as a plain box); `label` comment and `//`.
+  A faced abstraction counts as a GUI box of its parent (`guiKind` "face").
+- Box geometry lives in `gpi-types.js` (`textBoxWidth`, `boxSize`,
+  `boxHeight`, `faceContents`), so the server's save check and the editor
+  agree on extents. Width counts characters at 7.2px (12px monospace)
+  rather than measuring text.
+- `face` in the header, optional; `hideName` is required inside it.
+- Instance maps: `expandAbstractions` records each instance's local→global
+  ids, nested ones under their own global id; ctrl gets them with `applied`
+  and `state`. A map applies only while the instance's text is unchanged.
+- The face tool: `f` in the abstraction editor, then drag; the header
+  panel edits, hides the name, or clears it. Not on the undo stack.
+- Example: `common/pitch-amp`, used by `patches/faces_pitch-amp.json`.
+
 **Questions as put to Thomas (Fable's recommendation in brackets).**
 1. Face in grid units while boxes stay in px? (Yes.)
 2. Everything GUI inside the rectangle, or an explicit list? (Everything
