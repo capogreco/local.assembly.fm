@@ -1,4 +1,4 @@
-import { BOX_HEIGHT, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_HEIGHT, boxTypeName, boxBinding, cableTypeProblem, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -1571,17 +1571,16 @@ class PatchEditor {
     if (this.mode === "cabling" && this.cableFrom) {
       const inlet = this.hitTestInlet(m.x, m.y);
       if (inlet && inlet.boxId !== this.cableFrom.boxId) {
-        // Validate cable types:
-        // - audio → audio: OK (signal routing)
-        // - audio → number: OK (AudioParam modulation)
-        // - number → audio: REJECTED (can't send control to audio bus — use sig~)
-        // - number → number: OK (control)
+        // Port types, by the rule apply uses (gpi-types cableTypeProblem):
+        // audio into audio or a built-in audio box's AudioParam; nothing
+        // else into audio (bridge with sig~).
         const srcBoxObj = this.boxes.get(this.cableFrom.boxId);
-        const srcDef = getDef(srcBoxObj?.text);
-        const srcIsAudio = getOutletDef(srcBoxObj?.text, this.cableFrom.index)?.type === "audio";
-        const dstIsAudio = this.isAudioInlet(inlet.boxId, inlet.index);
-        if (!srcIsAudio && dstIsAudio) {
-          // number → audio: rejected, use sig~ to bridge
+        const dstBoxObj = this.boxes.get(inlet.boxId);
+        const typeProblem = cableTypeProblem(
+          getOutletDef(srcBoxObj?.text, this.cableFrom.index)?.type,
+          dstBoxObj?.text, getInletDef(dstBoxObj?.text, inlet.index));
+        if (typeProblem) {
+          this.onError(["✗ cable rejected: " + typeProblem]);
           this.cableFrom = null;
           this.mode = "idle";
           this.canvas.style.cursor = "default";

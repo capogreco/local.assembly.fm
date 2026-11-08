@@ -954,6 +954,24 @@ function isAudioBox(text) {
   return hasAudioIn(text) || hasAudioOut(text) || isDac(text);
 }
 
+// Can a source of port type `src` feed an inlet of `dstText` whose def is
+// `dstDef`? Audio lands on audio inlets, or on the number inlets of a built-in
+// audio box (its AudioParams); a `message` number inlet (adsr~'s gate) is not
+// an AudioParam, nor is an abstraction's number inlet (isAudioBox is false for
+// it). Nothing but audio lands on an audio inlet. Returns the problem, or null.
+// The editor's cable drop and apply both use this, so they can't disagree.
+function cableTypeProblem(src, dstText, dstDef) {
+  const dst = dstDef?.type;
+  if (src === undefined || dst === undefined) return null;
+  if (src === "audio") {
+    if (dst === "audio") return null;
+    if (dst === "number" && !dstDef.message && isAudioBox(dstText)) return null;
+    return `audio into a ${dst} inlet${dstDef.message ? " (a message inlet, not an AudioParam)" : ""}`;
+  }
+  if (dst === "audio") return `${src} into an audio inlet`;
+  return null;
+}
+
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, PORT_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
 

@@ -14,8 +14,8 @@ import {
   clearPatchState, getBorderY, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import {
-  BOX_HEIGHT, PORT_TYPES, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
-  groupArgs, isAudioBox, isOffSide, positionSide, sideOf, wholeSide,
+  BOX_HEIGHT, PORT_TYPES, boxTypeName, boxBinding, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
+  groupArgs, isOffSide, positionSide, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
 export interface PortSpec { name: string; type: string; description: string }
@@ -126,20 +126,10 @@ function bindingOf(text: string, loaded: Map<string, AbstractionDef>): string {
   return absOf(text, loaded)?.side ?? boxBinding(text);
 }
 
-// Can a source of type `src` feed inlet `dstInlet` of `dstText`? Audio lands
-// on audio inlets, or on the number inlets of a built-in audio box (its
-// AudioParams); nothing else lands on an audio inlet. An abstraction's number
-// inlet is not an AudioParam. Returns the problem, or null.
+// Can a source of type `src` feed inlet `dstInlet` of `dstText`? The rule is
+// gpi-types' cableTypeProblem (the editor's too); the inlet comes from `loaded`.
 function typeProblem(src: string, dstText: string, dstInlet: number, loaded: Map<string, AbstractionDef>): string | null {
-  const dst = inletSpec(dstText, dstInlet, loaded)?.type;
-  if (dst === undefined) return null;
-  if (src === "audio") {
-    if (dst === "audio") return null;
-    if (dst === "number" && !absOf(dstText, loaded) && isAudioBox(dstText)) return null;
-    return `audio into a ${dst} inlet`;
-  }
-  if (dst === "audio") return `${src} into an audio inlet`;
-  return null;
+  return cableTypeProblem(src, dstText, inletSpec(dstText, dstInlet, loaded));
 }
 
 // Index of an `inlet i` / `outlet i` box, or null if it isn't exactly that.
@@ -456,6 +446,19 @@ function offSideProblem(box: Box, borderY: number, binding: string): string | nu
 // values cross the border through a router, never on a bare cable. A bound box
 // must sit wholly on its own side. The editor refuses these and auto-routes the rest;
 // this catches patch files edited by hand and anything else that bypasses it.
+// Port types on every cable of the expanded graph, by the editor's rule, so a
+// cable the editor refuses is refused here too (hand-edited files).
+function findTypeProblems(boxes: Map<number, Box>, cables: Map<number, Cable>): string[] {
+  const problems = new Set<string>();
+  for (const [, c] of cables) {
+    const src = boxes.get(c.srcBox), dst = boxes.get(c.dstBox);
+    if (!src || !dst) continue;
+    const problem = cableTypeProblem(getOutletDef(src.text, c.srcOutlet)?.type, dst.text, getInletDef(dst.text, c.dstInlet));
+    if (problem) problems.add(`cable "${src.text}" outlet ${c.srcOutlet} → "${dst.text}" inlet ${c.dstInlet}: ${problem}`);
+  }
+  return [...problems];
+}
+
 function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>, borderY: number): string[] {
   const problems = new Set<string>();
   for (const [, box] of boxes) {
@@ -519,7 +522,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   errors.push(...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`), ...findBadArgs(boxes));
   if (errors.length > 0) return result(errors);
   for (const [, box] of boxes) box.side = sideOf(box, borderY);
-  errors.push(...findSideViolations(boxes, cables, borderY));
+  errors.push(...findTypeProblems(boxes, cables), ...findSideViolations(boxes, cables, borderY));
   return result(errors);
 }
 

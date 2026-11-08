@@ -9,7 +9,7 @@
 
 import { boxes, cables, clearPatchState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
+import { cableTypeProblem, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const CTRL_Y = 100, SYNTH_Y = 600;
@@ -95,6 +95,12 @@ console.log("save: port types against the wiring");
   });
   check("audio inlet into an audio inlet", audioIn("dac~").length === 0, JSON.stringify(audioIn("dac~")));
   check("audio inlet into an AudioParam (osc~ frequency)", audioIn("osc~").length === 0, JSON.stringify(audioIn("osc~")));
+  check("audio inlet into a message inlet (adsr~ gate) rejected", audioIn("adsr~ 0.1 0.1 0.5 0.3").some((e) => /audio into a number inlet \(a message inlet/.test(e)), JSON.stringify(audioIn("adsr~ 0.1 0.1 0.5 0.3")));
+  check("audio inlet into an AudioParam (adsr~ attack)", errs({
+    inlets: [port("sig", "audio")], outlets: [],
+    boxes: [[1, { text: "inlet 0" }], [2, { text: "adsr~ 0.1 0.1 0.5 0.3" }]],
+    cables: [[3, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 1 }]],
+  }).length === 0);
   check("audio inlet into a value box rejected", audioIn("* 2").some((e) => /inlet 0 \(sig, audio\) → "\* 2" inlet 0: audio into a number inlet/.test(e)), JSON.stringify(audioIn("* 2")));
   check("number inlet into an audio inlet rejected", audioIn("dac~", [port("v", "number")]).some((e) => /number into an audio inlet/.test(e)), JSON.stringify(audioIn("dac~", [port("v", "number")])));
   const outFrom = (src: string, type: string) => errs({
@@ -156,6 +162,10 @@ console.log("apply: boundary errors");
       /^"t\/x" inlet 0 \(in, number\): fed by audio from "osc~"$/],
     ["audio outlet into a value box", msg([box(1, "t/gain~ 1", SYNTH_Y), box(2, "+ 1", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]),
       /^"t\/gain~ 1" outlet 0 \(out, audio\): into "\+ 1" inlet 0: audio into a number inlet$/],
+    ["audio into a message inlet (plain boxes)", msg([box(1, "osc~ 440", SYNTH_Y), box(2, "adsr~ 0.1 0.1 0.5 0.3", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]),
+      /^cable "osc~ 440" outlet 0 → "adsr~ 0.1 0.1 0.5 0.3" inlet 0: audio into a number inlet \(a message inlet, not an AudioParam\)$/],
+    ["number into an audio inlet (plain boxes)", msg([box(1, "+ 1", SYNTH_Y), box(2, "dac~", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]),
+      /^cable "\+ 1" outlet 0 → "dac~" inlet 0: number into an audio inlet$/],
     ["missing arg", msg([box(1, "t/gain~", SYNTH_Y)]),
       /^"t\/gain~" arg 1 \(gain, number\): missing$/],
     ["arg not a number", msg([box(1, "t/gain~ loud", SYNTH_Y)]),
@@ -184,6 +194,14 @@ console.log("apply: a hand-edited abstraction is checked again");
   const broken = new Map(loaded).set("t/x", { ...def(), outlets: [] });
   const r = applyPatch(msg([box(1, "t/x", CTRL_Y)]), broken);
   check("rejected", r.errors.some((e) => /"outlet 0" has no header entry/.test(e)), JSON.stringify(r.errors));
+}
+
+console.log("cable types: one rule for the editor and apply");
+{
+  check("audio into an AudioParam", cableTypeProblem("audio", "osc~", getInletDef("osc~", 0)) === null);
+  check("audio into adsr~ gate refused", cableTypeProblem("audio", "adsr~", getInletDef("adsr~", 0)) !== null);
+  check("audio into an abstraction's number inlet refused", (useAbstractions(loaded), cableTypeProblem("audio", "t/x", getInletDef("t/x", 0)) !== null));
+  useAbstractions(new Map());
 }
 
 console.log("editor lookups (useAbstractions)");
