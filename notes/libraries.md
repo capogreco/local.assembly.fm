@@ -79,6 +79,8 @@ Steps 1-4 work without any `libs/` directory.
 
 ## 5. Abstraction port typing
 
+**Superseded (2026-11-08)** by the header in `abstractions.md`.
+
 `loadAbstractions` (patch-editor.js) gives abstractions `inlets: [], outlets: []`. Proposal: `inlet 0 freq number` / `outlet 0 out audio`, where the optional name and type follow the index. `loadAbstractions` builds `def.inlets[idx]` from them (the type defaults to `passthrough`), and the first `comment` box becomes the description. `expandAbstractions` (server.ts:251) reads only the index, so it needs no change. Audio ports through abstractions are not handled by expansion today. That is a separate job.
 
 ## 6. Failure behaviour
