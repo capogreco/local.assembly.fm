@@ -348,8 +348,11 @@ async function decodeMono(ctx, file) {
  * onProgress(loaded, total) runs after each buffer, loaded or failed.
  * Resolves to { lengths: Map<boxId, seconds>, errors: string[] }; a buffer
  * that fails stays missing (play~ is silent) and is named in `errors`.
+ * isStale() true means a newer sync is queued behind this one: stop between
+ * buffers rather than download what the newer one may drop (the result is
+ * then incomplete, and the caller discards it).
  */
-function syncBuffers(ctx, modulesLoaded, list, onProgress) {
+function syncBuffers(ctx, modulesLoaded, list, onProgress, isStale) {
   let store = bufferStores.get(ctx);
   if (!store) {
     store = { registry: null, held: new Map(), lengths: new Map(), chain: Promise.resolve() };
@@ -375,6 +378,7 @@ function syncBuffers(ctx, modulesLoaded, list, onProgress) {
     let done = 0;
     onProgress?.(0, total);
     for (const b of list) {
+      if (isStale?.()) break;
       const key = bufferKey(b);
       try {
         if (store.held.get(b.name) !== key) {

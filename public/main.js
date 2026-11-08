@@ -37,7 +37,7 @@ const workletModulesLoaded = new Set();
 let currentPatch = null;
 
 // --- Voices ---
-// Each voice: { conn, graph, engines, panner, patchLoading, pendingMessages }
+// Each voice: { conn, graph, engines, panner, patchLoading, pendingMessages, loadGen }
 
 let voices = [];
 let N = countDisplay
@@ -253,19 +253,20 @@ function updateParamDisplay() {
 // The voices share one AudioContext, so the first loads and the rest find the
 // buffers held. Resolves to boxId → length in seconds.
 // A deploy with no buffers still syncs, so the last patch's are freed.
-async function loadBuffers(voice, list) {
+// `isStale` says a newer patch load has superseded this one: stop reporting.
+async function loadBuffers(voice, list, isStale) {
   if (list.length === 0) {
     try { await syncBuffers(audioCtx, workletModulesLoaded, []); }
     catch (err) { console.error(`buffers failed to free: ${err?.message ?? err}`); }
     return new Map();
   }
   const report = (loaded, total, errors) =>
-    voice.conn?.send({ type: "media", loaded, total, failed: errors?.length ?? 0, ...(errors?.length && voice.index === 0 && { errors }) });
+    !isStale() && voice.conn?.send({ type: "media", loaded, total, failed: errors?.length ?? 0, ...(errors?.length && voice.index === 0 && { errors }) });
   let lengths = new Map(), errors;
   try {
     ({ lengths, errors } = await syncBuffers(audioCtx, workletModulesLoaded, list, (loaded, total) => {
       if (loaded < total) report(loaded, total);
-    }));
+    }, isStale));
   } catch (err) {
     // e.g. buffer-processor.js failed to load: no buffer is usable.
     errors = [`buffers failed to load: ${err?.message ?? err}`];
@@ -275,12 +276,8 @@ async function loadBuffers(voice, list) {
   return lengths;
 }
 
-async function loadPatchForVoice(voice, patch) {
-  voice.patchLoading = true;
-  voice.pendingMessages = [];
-
-  // tear down old engines and audio subgraph
-  for (const e of voice.engines.values()) {
+function disposeEngines(engines) {
+  for (const e of engines.values()) {
     if (e.node) {
       try { e.node.stop?.(); } catch {}
       e.node.disconnect();
@@ -290,36 +287,60 @@ async function loadPatchForVoice(voice, patch) {
     e.out?.disconnect();
     if (e.outputs) for (const o of e.outputs) o.disconnect();
   }
-  voice.engines.clear();
+  engines.clear();
+}
 
-  // patchLoading gates voiceOnMessage, so it MUST be cleared on every exit: a
-  // throw in here used to leave it true forever, queueing every later message
-  // and leaving a connected, started, permanently silent client.
+// Loads can overlap: a double apply, or a reconnect re-sending the patch,
+// starts a second while the first awaits buffers or engines. Each load takes a
+// generation and checks it after every await; only the latest one touches the
+// voice, so a superseded load never wires its nodes or clears patchLoading.
+// The old patch keeps playing until the new one's buffers and engines are
+// ready, then is swapped out in one synchronous step.
+async function loadPatchForVoice(voice, patch) {
+  const gen = (voice.loadGen = (voice.loadGen ?? 0) + 1);
+  const isStale = () => gen !== voice.loadGen;
+  voice.patchLoading = true;
+  voice.pendingMessages = [];
+
+  // patchLoading gates voiceOnMessage, so the latest load MUST clear it on
+  // every exit: a throw in here used to leave it true forever, queueing every
+  // later message and leaving a connected, started, permanently silent client.
+  const engines = new Map();
   try {
-    const bufferLengths = await loadBuffers(voice, patch.buffers ?? []);
-    voice.graph = buildGraph({ ...patch, instanceIndex: voice.index, instanceCount: N });
+    const bufferLengths = await loadBuffers(voice, patch.buffers ?? [], isStale);
+    if (isStale()) return;
+    const graph = buildGraph({ ...patch, instanceIndex: voice.index, instanceCount: N });
 
     // Create all engines and effects (unconnected). One engine failing to load
     // (e.g. addModule rejecting) shouldn't cost us the rest of the patch.
     const unbuilt = [];
     // dac~ has no engine: buildAudioTopology wires it as the output.
     const dacIds = new Set(patch.boxes.filter((b) => b.dac).map((b) => b.id));
-    for (const [id, def] of voice.graph.engines) {
+    for (const [id, def] of graph.engines) {
       if (dacIds.has(id)) continue;
       try {
         const engine = await createEngine(def.type, def.args);
+        if (isStale()) { if (engine) engines.set(id, engine); disposeEngines(engines); return; }
         if (engine) {
           engine.messagePorts = def.messagePorts;
-          voice.engines.set(id, engine);
+          engines.set(id, engine);
         } else {
           console.error(`phone cannot build ${def.type} (box ${id}): no engine`);
           unbuilt.push({ type: def.type, id, reason: "no engine" });
         }
       } catch (err) {
+        if (isStale()) { disposeEngines(engines); return; }
         console.error(`engine ${def.type} (box ${id}) failed to load:`, err);
         unbuilt.push({ type: def.type, id, reason: `failed to load: ${err?.message ?? err}` });
       }
     }
+
+    // Swap: tear down the old patch's engines and wire the new ones. No await
+    // from here on, so no other load can interleave.
+    disposeEngines(voice.engines);
+    voice.engines = engines;
+    voice.graph = graph;
+
     // Nobody reads a phone console during a show: one report per patch load,
     // which the server forwards to ctrl. Every voice on this device builds the
     // same engines, so only voice 0 reports (ensemble mode would repeat it N times).
@@ -357,9 +378,14 @@ async function loadPatchForVoice(voice, patch) {
       for (const [dst, params] of Object.entries(updates)) voiceSendParams(voice, Number(dst), params);
     }
     drainUplinks(voice);
+  } catch (err) {
+    // A throw before the swap leaves the old patch playing; drop what was built.
+    if (engines !== voice.engines) disposeEngines(engines);
+    throw err;
   } finally {
-    voice.patchLoading = false;
+    if (!isStale()) voice.patchLoading = false;
   }
+  if (isStale()) return;
   for (const msg of voice.pendingMessages) voiceOnMessage(voice, msg);
   voice.pendingMessages = [];
 
@@ -452,6 +478,7 @@ function buildVoices() {
       destination,
       patchLoading: false,
       pendingMessages: [],
+      loadGen: 0,
     };
 
     // each voice gets its own server connection
