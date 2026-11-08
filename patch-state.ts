@@ -50,6 +50,15 @@ export function getLaptopPatch(): Record<string, any> | null { return _laptopPat
 // deno-lint-ignore no-explicit-any
 export function setLaptopPatch(v: Record<string, any> | null): void { _laptopPatch = v; }
 
+// The patch as authored, from the last successful apply: abstraction
+// instances unexpanded, as the ctrl page sent it. `boxes`/`cables` above are
+// the expanded graph; a reconnecting ctrl page gets this instead (ctrlState).
+// deno-lint-ignore no-explicit-any
+export interface AuthoredPatch { boxes: [number, any][]; cables: [number, any][]; nextId: number; borderY: number }
+let _authoredPatch: AuthoredPatch | null = null;
+export function getAuthoredPatch(): AuthoredPatch | null { return _authoredPatch; }
+export function setAuthoredPatch(v: AuthoredPatch | null): void { _authoredPatch = v; }
+
 // --- Pipeline state ---
 
 export const routerState = new Map<number, { index: number; order?: number[]; storedValues?: Record<number, unknown> }>();
@@ -70,12 +79,31 @@ export const assignState = new Map<number, { assignment: Map<number, number>; la
 // --- Helpers ---
 
 export function clearPatchState(): void {
+  _authoredPatch = null;
   boxes.clear();
   cables.clear();
   boxValues.clear();
   routerState.clear();
   groupState.clear();
   assignState.clear();
+}
+
+// Full state for a ctrl page that (re)connects: the authored patch, so it
+// sees abstraction instances, not their insides. `boxValues` are keyed by
+// live (expanded) ids; top-level boxes keep their ids through expansion, so
+// theirs line up with the authored boxes.
+export function ctrlState(): Record<string, unknown> {
+  const bv: Record<number, BoxValue> = {};
+  for (const [id, v] of boxValues) bv[id] = v;
+  const authored = _authoredPatch;
+  return {
+    type: "state",
+    boxes: authored?.boxes ?? [],
+    cables: authored?.cables ?? [],
+    nextId: authored?.nextId ?? _patchNextId,
+    borderY: authored?.borderY ?? _borderY,
+    boxValues: bv,
+  };
 }
 
 export function removeCablesForBox(boxId: number): void {

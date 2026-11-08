@@ -1,10 +1,10 @@
 import {
-  type Box, type Cable, type BoxValue,
-  boxes, cables, boxValues,
-  getPatchNextId, setPatchNextId,
-  getBorderY, setBorderY,
+  type Box, type Cable,
+  boxes, boxValues,
+  setPatchNextId,
+  setBorderY,
   getDeployedPatch, setDeployedPatch, getLaptopPatch, setLaptopPatch,
-  routerState, uplinkIndex,
+  routerState, uplinkIndex, ctrlState,
 } from "./patch-state.ts";
 import { initHardware, initGrid, rebuildGridRegions, arcValues, getGridDeviceInfo, getArcDeviceInfo } from "./hardware.ts";
 import {
@@ -253,23 +253,6 @@ function deployPatch(): void {
   sendCtrl(getLaptopPatch()!);
 }
 
-// --- Full state sync for ctrl ---
-
-function getFullState(): Record<string, unknown> {
-  const bv: Record<number, BoxValue> = {};
-  for (const [id, v] of boxValues) bv[id] = v;
-  return {
-    type: "state",
-    // `side` is stamped at apply from position and binding; the editor derives
-    // its own, so a stamped one would go stale on the first drag (and be saved).
-    boxes: [...boxes.entries()].map(([id, { side: _side, ...box }]) => [id, box]),
-    cables: [...cables.entries()],
-    nextId: getPatchNextId(),
-    borderY: getBorderY(),
-    boxValues: bv,
-  };
-}
-
 // --- Ctrl WebSocket handler ---
 
 function handleCtrlWs(req: Request): Response {
@@ -279,7 +262,7 @@ function handleCtrlWs(req: Request): Response {
     ctrlSockets.add(socket);
     event("ctrl connected");
     drawStatus();
-    socket.send(JSON.stringify(getFullState()));
+    socket.send(JSON.stringify(ctrlState()));
     socket.send(JSON.stringify({ type: "count", clients: totalSynthClients() }));
     const gridInfo = getGridDeviceInfo();
     if (gridInfo) {

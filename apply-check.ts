@@ -5,7 +5,7 @@
 import {
   type Box, type Cable,
   boxes as liveBoxes, cables as liveCables,
-  clearPatchState, getBorderY, setBorderY, setPatchNextId,
+  clearPatchState, getBorderY, setAuthoredPatch, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import { boxTypeName, boxBinding, getBoxDef, getBoxPorts, getOutletDef, groupArgs, isOffSide, positionSide, routerY, sideOf } from "./public/gpi-types.js";
 
@@ -269,6 +269,8 @@ export function applyPatch(msg: any, loaded: Map<string, AbstractionDef>): Apply
   for (const [id, cable] of result.cables) liveCables.set(id, cable);
   setPatchNextId(msg.nextId || 1);
   setBorderY(result.borderY);
+  // A copy: the caller's message must not change what a reconnecting ctrl sees.
+  setAuthoredPatch(structuredClone({ boxes: msg.boxes, cables: msg.cables, nextId: msg.nextId || 1, borderY: result.borderY }));
   return result;
 }
 

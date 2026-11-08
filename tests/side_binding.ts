@@ -6,7 +6,7 @@
  * Usage: deno run --allow-read tests/side_binding.ts
  */
 
-import { boxes, cables, clearPatchState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
+import { boxes, boxValues, cables, clearPatchState, ctrlState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-check.ts";
 import { BOX_HEIGHT as H, GRID, movesOffSide } from "../public/gpi-types.js";
 
@@ -210,6 +210,28 @@ console.log("router unchanged");
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
   check("side is border", boxes.get(1)!.side === "border");
   check("snapped to borderY - BOX_HEIGHT (routerY)", boxes.get(1)!.y === BORDER - H, String(boxes.get(1)!.y));
+}
+
+console.log("a reconnecting ctrl gets the patch as authored, not the expanded graph");
+{
+  reset();
+  check("before any apply: an empty patch", JSON.stringify(ctrlState().boxes) === "[]");
+  const m = msg([box(1, "knob 0.5", CTRL_Y), box(2, "free-abs", CTRL_Y), box(3, "print", CTRL_Y)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]);
+  const r = applyPatch(m, loaded);
+  check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
+  check("live graph is expanded", !boxes.has(2) && [...boxes.values()].some((b) => b.text === "+ 1"));
+  // deno-lint-ignore no-explicit-any
+  const st = ctrlState() as any;
+  check("state has the instance, not its insides", JSON.stringify(st.boxes.map(([id, b]: B) => [id, b.text])) === JSON.stringify([[1, "knob 0.5"], [2, "free-abs"], [3, "print"]]), JSON.stringify(st.boxes));
+  check("state has the authored cables", JSON.stringify(st.cables) === JSON.stringify(m.cables));
+  check("state has the authored nextId and border", st.nextId === 1000 && st.borderY === BORDER);
+  check("top-level ids survive expansion, so values line up", boxes.has(1) && boxes.has(3));
+  boxValues.set(1, 0.5);
+  check("values keyed by those ids", (ctrlState() as { boxValues: Record<number, unknown> }).boxValues[1] === 0.5);
+  m.boxes[0][1].text = "changed";
+  check("a copy: the message changing later doesn't reach the state", JSON.stringify(ctrlState().boxes).includes("knob 0.5"));
+  const bad = applyPatch(msg([box(1, "key", SYNTH_Y)]), loaded);
+  check("a rejected apply keeps the last authored patch", bad.errors.length > 0 && JSON.stringify(ctrlState().boxes).includes("free-abs"));
 }
 
 console.log("abstraction save check");

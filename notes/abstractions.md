@@ -152,7 +152,9 @@ Display values come through the existing `values` messages.
 **Found along the way.**
 - A reconnecting ctrl receives the *expanded* graph (`getFullState`,
   `server.ts:258`), so it loses its abstraction instances. The server should
-  keep the patch as authored and send that, plus the map.
+  keep the patch as authored and send that, plus the map. (Fixed 2026-11-08:
+  `applyPatch` keeps the authored patch and `ctrlState` in `patch-state.ts`
+  sends it; the map is still to come with faces.)
 - Knob and toggle values aren't saved, and every apply resets each knob to
   its text argument (`initSources`, `eval-engine.ts:566`). The proposed fix
   serves both levels: the patch stores the values (`state` on an instance
