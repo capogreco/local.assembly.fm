@@ -333,283 +333,81 @@ class PatchEditor {
     this.render();
   }
 
-  // --- Tidy Layout (Sugiyama-style layered DAG layout) ---
-  // `l` in the ctrl editor's edit mode; one undo step. Every box keeps its
-  // side (a free box straddling the line goes to its centre's side, as when
-  // its text is committed): ctrl boxes are laid out above the line, synth
-  // boxes from two units below it, routers on it, so nothing but a router
-  // crosses the line. Layers are as tall as their tallest box (faces).
+  // --- Neaten (Pd's Tidy Up, roughly) ---
+  // `l` in the ctrl editor's edit mode; one undo step (none if nothing
+  // moves). Keeps the arrangement: the selected boxes, or every box if none
+  // is selected, snap to half units, and a box fed from above straightens
+  // under its source, top-down so whole chains straighten. A box whose
+  // inlet 0 is fed from outlet 0 of a box above it, left edges within two
+  // units, takes its source's left edge (the vertical left-outlet to
+  // left-inlet cable); the nearest source wins. Failing that, a box whose
+  // other inlet sits within a unit of the outlet feeding it from above moves
+  // so the two line up, when they can on half units. Only x moves, so no box
+  // changes side; routers stay on the border row. A move that would land a
+  // box on another is skipped. Repeated to a standstill, so pressing `l`
+  // again changes nothing.
 
-  tidyLayout() {
+  neaten() {
     if (this.boxes.size === 0) return;
-    this.pushUndo();
+    const before = this.serialize();
+    const scope = this.selection.size > 0 ? [...this.selection].filter((id) => this.boxes.has(id)) : [...this.boxes.keys()];
 
-    // Whole grid units, so a final snap (below) can't make boxes overlap.
-    // A layer is as tall as its tallest box (a face is several units), then
-    // this gap before the next.
-    const LAYER_GAP = 2 * GRID;
-    const H_GAP = GRID;
-    const SUBGRAPH_GAP = 3 * GRID;
-    const TOP_MARGIN = 2 * GRID;
-    const BORDER_PAD = 2 * GRID;
-
-    // Build adjacency
-    const childrenOf = new Map();
-    const parentsOf = new Map();
-    for (const [id] of this.boxes) { childrenOf.set(id, []); parentsOf.set(id, []); }
-    for (const [, cable] of this.cables) {
-      childrenOf.get(cable.srcBox)?.push(cable.dstBox);
-      parentsOf.get(cable.dstBox)?.push(cable.srcBox);
-    }
-
-    // Partition into ctrl / synth / router
-    const ctrlBoxes = [], synthBoxes = [], routerBoxes = [];
-    for (const [id, box] of this.boxes) {
-      if (this.isRouterType(box.text)) routerBoxes.push(id);
-      else if (this.sideOfBox(box) === "ctrl") ctrlBoxes.push(id);
-      else synthBoxes.push(id);
-    }
-
-    // Find connected components within a set of box ids
-    const findComponents = (boxIds) => {
-      const idSet = new Set(boxIds);
-      const visited = new Set();
-      const components = [];
-      const adj = new Map();
-      for (const id of boxIds) adj.set(id, []);
-      for (const [, cable] of this.cables) {
-        if (idSet.has(cable.srcBox) && idSet.has(cable.dstBox)) {
-          adj.get(cable.srcBox).push(cable.dstBox);
-          adj.get(cable.dstBox).push(cable.srcBox);
-        }
-      }
-      for (const id of boxIds) {
-        if (visited.has(id)) continue;
-        const comp = [];
-        const stack = [id];
-        while (stack.length > 0) {
-          const n = stack.pop();
-          if (visited.has(n)) continue;
-          visited.add(n);
-          comp.push(n);
-          for (const nb of adj.get(n)) {
-            if (!visited.has(nb)) stack.push(nb);
-          }
-        }
-        components.push(comp);
-      }
-      return components;
-    };
-
-    // Assign layers via longest-path from roots
-    const assignLayers = (boxIds) => {
-      const idSet = new Set(boxIds);
-      const layer = new Map();
-      const topo = [];
-      const visited = new Set();
-      const visit = (id) => {
-        if (visited.has(id)) return;
-        visited.add(id);
-        for (const c of childrenOf.get(id) || []) {
-          if (idSet.has(c)) visit(c);
-        }
-        topo.push(id);
-      };
-      for (const id of boxIds) visit(id);
-      topo.reverse();
-
-      for (const id of topo) {
-        let maxParentLayer = -1;
-        for (const p of parentsOf.get(id) || []) {
-          if (layer.has(p)) maxParentLayer = Math.max(maxParentLayer, layer.get(p));
-        }
-        layer.set(id, maxParentLayer + 1);
-      }
-
-      const layers = [];
-      for (const id of boxIds) {
-        const l = layer.get(id) || 0;
-        while (layers.length <= l) layers.push([]);
-        layers[l].push(id);
-      }
-      return layers;
-    };
-
-    // Box width helper
-    const bw = (id) => this.boxWidth(this.boxes.get(id), id);
-
-    // Layer width
-    const layerWidth = (layer) => {
-      let w = 0;
-      for (const id of layer) w += bw(id);
-      return w + Math.max(0, layer.length - 1) * H_GAP;
-    };
-
-    // Place a layer centered on centerX
-    const placeLayer = (layer, centerX) => {
-      const w = layerWidth(layer);
-      let x = centerX - w / 2;
-      for (const id of layer) {
-        this.boxes.get(id).x = x;
-        x += bw(id) + H_GAP;
-      }
-    };
-
-    // Layout a single connected component, returning metadata
-    const layoutComponent = (boxIds) => {
-      const layers = assignLayers(boxIds);
-      if (layers.length === 0) return { layers: [], tops: [], width: 0, height: 0, minX: 0 };
-
-      // Initial ordering: sort each layer by original x
-      for (const l of layers) {
-        l.sort((a, b) => this.boxes.get(a).x - this.boxes.get(b).x);
-      }
-
-      // Rough initial placement centered at 0
-      for (const l of layers) placeLayer(l, 0);
-
-      // Barycenter ordering using actual x midpoints (6 passes)
-      for (let pass = 0; pass < 6; pass++) {
-        // Forward sweep
-        for (let li = 1; li < layers.length; li++) {
-          const bary = new Map();
-          for (const id of layers[li]) {
-            const ps = (parentsOf.get(id) || []).filter(p => layers[li - 1].includes(p));
-            if (ps.length > 0) {
-              bary.set(id, ps.reduce((s, p) => s + this.boxes.get(p).x + bw(p) / 2, 0) / ps.length);
-            } else {
-              bary.set(id, this.boxes.get(id).x + bw(id) / 2);
-            }
-          }
-          layers[li].sort((a, b) => bary.get(a) - bary.get(b));
-          placeLayer(layers[li], 0);
-        }
-
-        // Backward sweep
-        for (let li = layers.length - 2; li >= 0; li--) {
-          const bary = new Map();
-          for (const id of layers[li]) {
-            const cs = (childrenOf.get(id) || []).filter(c => layers[li + 1].includes(c));
-            if (cs.length > 0) {
-              bary.set(id, cs.reduce((s, c) => s + this.boxes.get(c).x + bw(c) / 2, 0) / cs.length);
-            } else {
-              bary.set(id, this.boxes.get(id).x + bw(id) / 2);
-            }
-          }
-          layers[li].sort((a, b) => bary.get(a) - bary.get(b));
-          placeLayer(layers[li], 0);
-        }
-      }
-
-      // Final overlap-free placement: target barycenter, enforce min gap
-      for (let li = 0; li < layers.length; li++) {
-        const layer = layers[li];
-        const ideal = new Map();
-        for (const id of layer) {
-          const ps = (parentsOf.get(id) || []).filter(p => {
-            for (let pli = 0; pli < li; pli++) if (layers[pli].includes(p)) return true;
-            return false;
-          });
-          const cs = (childrenOf.get(id) || []).filter(c => {
-            for (let cli = li + 1; cli < layers.length; cli++) if (layers[cli].includes(c)) return true;
-            return false;
-          });
-          const connected = [...ps, ...cs];
-          if (connected.length > 0) {
-            ideal.set(id, connected.reduce((s, n) => s + this.boxes.get(n).x + bw(n) / 2, 0) / connected.length);
-          } else {
-            ideal.set(id, this.boxes.get(id).x + bw(id) / 2);
-          }
-        }
-        layer.sort((a, b) => ideal.get(a) - ideal.get(b));
-
-        // Greedy left-to-right: place as close to ideal as possible, no overlaps
-        let minX = -Infinity;
-        for (const id of layer) {
-          const w = bw(id);
-          const x = Math.max(ideal.get(id) - w / 2, minX);
-          this.boxes.get(id).x = x;
-          minX = x + w + H_GAP;
-        }
-      }
-
-      // Compute bounding box
-      let minBX = Infinity, maxBX = -Infinity;
-      for (const l of layers) {
-        for (const id of l) {
-          const box = this.boxes.get(id);
-          minBX = Math.min(minBX, box.x);
-          maxBX = Math.max(maxBX, box.x + bw(id));
-        }
-      }
-
-      // Each layer's top, accumulated from the tallest box in the layers above.
-      const tops = [];
-      let y = 0;
-      for (const l of layers) {
-        tops.push(y);
-        y += Math.max(BOX_HEIGHT, ...l.map((id) => this.boxHeight(this.boxes.get(id), id))) + LAYER_GAP;
-      }
-      return { layers, tops, width: maxBX - minBX, height: y, minX: minBX };
-    };
-
-    // Layout a region: find components, lay each out, pack side by side
-    const layoutRegion = (boxIds, startY) => {
-      if (boxIds.length === 0) return startY;
-
-      const components = findComponents(boxIds);
-      components.sort((a, b) => b.length - a.length); // largest first
-
-      const results = components.map(comp => layoutComponent(comp));
-
-      let cursorX = 60;
-      let maxHeight = 0;
-
-      for (let ci = 0; ci < results.length; ci++) {
-        const r = results[ci];
-        if (r.layers.length === 0) continue;
-        const offsetX = cursorX - (r.minX || 0);
-
-        for (let li = 0; li < r.layers.length; li++) {
-          for (const id of r.layers[li]) {
-            const box = this.boxes.get(id);
-            box.x += offsetX;
-            box.y = startY + r.tops[li];
-          }
-        }
-
-        cursorX += r.width + SUBGRAPH_GAP;
-        maxHeight = Math.max(maxHeight, r.height);
-      }
-
-      return startY + maxHeight;
-    };
-
-    const ctrlEnd = layoutRegion(ctrlBoxes, TOP_MARGIN);
-    if (ctrlEnd + BORDER_PAD > this.borderY && ctrlBoxes.length > 0) {
-      this.borderY = snapToGrid(ctrlEnd + BORDER_PAD);
-    }
-
-    // Place routers on border, x-aligned to connected boxes
-    for (const id of routerBoxes) {
+    // Snap. Rounding is monotone and the border sits on a dot row, so a box
+    // wholly on a side stays there. Overlaps a snap makes are pushed apart,
+    // away from the line, as the border piston does.
+    const moved = new Set();
+    for (const id of scope) {
       const box = this.boxes.get(id);
-      box.y = routerY(this.borderY);
-      const connected = [
-        ...(parentsOf.get(id) || []),
-        ...(childrenOf.get(id) || [])
-      ].map(n => this.boxes.get(n)).filter(Boolean);
-      if (connected.length > 0) {
-        box.x = connected.reduce((s, b) => s + b.x, 0) / connected.length;
-      }
+      const x = snapPos(box.x), y = this.isRouterType(box.text) && this.showBorder ? routerY(this.borderY) : snapPos(box.y);
+      if (x !== box.x || y !== box.y) { box.x = x; box.y = y; moved.add(id); }
+    }
+    if (moved.size > 0 && this.showBorder) {
+      this.cascadeOverlaps("down", 0, "synth", this.borderY, new Set(moved));
+      this.cascadeOverlaps("up", 0, "ctrl", this.borderY, new Set(moved));
     }
 
-    layoutRegion(synthBoxes, this.borderY + BORDER_PAD);
-    // Snap to the grid. Widths and gaps are whole units, so rounding each x
-    // moves neighbours at most half a unit closer and never into each other.
-    for (const [, box] of this.boxes) { box.x = snapPos(box.x); box.y = snapPos(box.y); }
-    this.zoomToFit();
-    this.dirty = true;
-    this.onDirty();
+    // Straighten: how far a box would move to sit under its source (0: it
+    // does), or null if nothing above feeds it within reach.
+    const STRAIGHT_REACH = 2 * GRID, PORT_REACH = GRID;
+    const shiftFor = (id, box) => {
+      let best = null, other = null;
+      for (const [, c] of this.cables) {
+        if (c.dstBox !== id) continue;
+        const src = this.boxes.get(c.srcBox);
+        if (!src || c.srcBox === id || src.y >= box.y) continue;
+        if (c.srcOutlet === 0 && c.dstInlet === 0) {
+          const d = src.x - box.x;
+          if (Math.abs(d) <= STRAIGHT_REACH && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+        } else {
+          const d = this.outletPos(src, c.srcOutlet, c.srcBox).x - this.inletPos(box, c.dstInlet, id).x;
+          if (Math.abs(d) <= PORT_REACH && d % SNAP === 0 && (other === null || Math.abs(d) < Math.abs(other))) other = d;
+        }
+      }
+      return best ?? other;
+    };
+    const overlapsAt = (id, box) => {
+      const hits = new Set();
+      for (const [oid, o] of this.boxes) if (oid !== id && this.boxesAABBOverlap(id, box, oid, o)) hits.add(oid);
+      return hits;
+    };
+    const order = () => scope.slice().sort((a, b) => this.boxes.get(a).y - this.boxes.get(b).y || this.boxes.get(a).x - this.boxes.get(b).x || a - b);
+    for (let pass = 0; pass < 2 * scope.length + 2; pass++) {
+      let changed = false;
+      for (const id of order()) {
+        const box = this.boxes.get(id);
+        const d = shiftFor(id, box);
+        if (!d) continue;
+        const now = overlapsAt(id, box);
+        const next = { ...box, x: box.x + d };
+        if ([...overlapsAt(id, next)].some((o) => !now.has(o))) continue;
+        box.x = next.x;
+        changed = true;
+      }
+      if (!changed) break;
+    }
+
+    if (this.serialize() === before) return;
+    this.pushUndo(before);
     this.render();
   }
 

@@ -42,7 +42,7 @@ gives them Pd's look.
 
 - **Each box's top-left corner sits on a grid dot, or halfway between dots
   on either axis** (`SNAP`, 10px; decided 2026-11-08, so routers can sit
-  on both sides of the membrane). Creating, dragging, pasting, tidy and
+  on both sides of the membrane). Creating, dragging, pasting, neatening and
   arrow-key nudges all move in half units. Old patches snap when they load.
   Sizes stay whole units (heights, widths, faces) and the dots are still
   drawn every 20px.
@@ -84,13 +84,25 @@ gives them Pd's look.
   router crossing the line, naming it: a backstop for patches that didn't
   come through the editor.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
+- **`l` neatens in place** (decided 2026-11-08, replacing the Sugiyama
+  auto-layout, which threw the arrangement away). As Pd's Tidy Up: the
+  selection, or the whole patch if nothing is selected, in the ctrl
+  editor's edit mode, one undo step. Positions snap to half units (overlaps a snap makes are pushed apart,
+  away from the line, as by the border piston); a box fed
+  from above straightens under its source, top-down so chains straighten:
+  outlet 0 to inlet 0 with left edges within two units takes the source's
+  left edge (the nearest source wins); failing that, another port pair
+  within a unit lines up when it can on half units (in practice right outlet
+  over right inlet). Only x moves, so no box changes side and routers stay
+  on the border row. A move that would land a box on another is skipped, not
+  pushed. Repeated to a standstill, so a second press changes nothing. Boxes
+  sharing a row are left as they are.
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
 units: positions) and `routerY` live in `gpi-types.js`. The editor snaps on
 load (x, y and `borderY`), live while dragging, on create (the cell under the pointer),
-paste, duplicate, Tab-create (one empty row below, kept on the source's side), tidy (`l` in the ctrl editor's edit
-mode, one undo step), and border drags
+paste, duplicate, Tab-create (one empty row below, kept on the source's side), neaten (`l`, below), and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
 land snug against the line; each step is worked out from the drag's start,
 so pushed boxes spring back as the border retreats, never past where they

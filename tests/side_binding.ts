@@ -7,7 +7,7 @@
  */
 
 import { boxes, boxValues, cables, clearPatchState, ctrlState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
-import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-check.ts";
+import { applyPatch, checkAbstraction, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
 import { BOX_HEIGHT as H, GRID, SNAP, isOffSide, movesOffSide, positionSide, routerY, snapPos, snapToGrid, wholeSide } from "../public/gpi-types.js";
 
 const BORDER = 400;
@@ -338,7 +338,7 @@ console.log("buffer~ and play~ names are per side");
   }
 }
 
-console.log("editor: zone from type on commit; creation, Tab and paste keep sides; tidy keeps every box on its side");
+console.log("editor: zone from type on commit; creation, Tab and paste keep sides");
 {
   // patch-editor.js reads a theme at import; give it just enough of a browser.
   // deno-lint-ignore no-explicit-any
@@ -414,31 +414,6 @@ console.log("editor: zone from type on commit; creation, Tab and paste keep side
   check("drag onto the line cancelled", /would cross the border/.test(ed.boundSideViolation(before) ?? ""));
   ed.boxes.set(1, free(SYNTH_Y));
   check("drag wholly across accepted", ed.boundSideViolation(before) === null);
-
-  // A ctrl chain into a synth chain through a router, a straddling free box, a bound one off side.
-  ed.boxes = new Map<number, unknown>([
-    [1, { x: 0, y: CTRL_Y, text: "key", inlets: 0, outlets: 1 }],
-    [2, { x: 13, y: CTRL_Y + 47, text: "+ 1", inlets: 2, outlets: 1 }],
-    [3, { x: 0, y: routerY(BORDER), text: "all 1", inlets: 1, outlets: 1 }],
-    [4, { x: 0, y: SYNTH_Y, text: "osc~ 440", inlets: 2, outlets: 1 }],
-    [5, { x: 0, y: SYNTH_Y + 60, text: "dac~", inlets: 1, outlets: 0 }],
-    [6, { x: 200, y: routerY(BORDER) - 1, text: "* 2", inlets: 2, outlets: 1 }],
-    [7, { x: 300, y: CTRL_Y, text: "touch", inlets: 0, outlets: 1 }],
-    [8, { x: 300, y: CTRL_Y, text: "comment a label", inlets: 0, outlets: 0 }],
-  ]);
-  ed.cables = new Map([[1, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [2, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }],
-    [3, { srcBox: 3, srcOutlet: 0, dstBox: 4, dstInlet: 0 }], [4, { srcBox: 4, srcOutlet: 0, dstBox: 5, dstInlet: 0 }]]);
-  ed.undoStack = [];
-  const sidesBefore = [...ed.boxes].map(([id, b]: [number, { text: string }]) => [id, ed.sideOfBox(b)]);
-  ed.tidyLayout();
-  check("tidy is one undo step", ed.undoStack.length === 1);
-  const all = [...ed.boxes.values()] as { x: number; y: number; text: string }[];
-  check("tidy: nothing off side, nothing but a router straddling", all.every((b) => !isOffSide(b, ed.borderY)), JSON.stringify(all));
-  check("tidy: on half units", all.every((b) => b.x % SNAP === 0 && b.y % SNAP === 0));
-  check("tidy: border on a dot row", ed.borderY % GRID === 0);
-  check("tidy: router on the border", ed.boxes.get(3).y === routerY(ed.borderY));
-  const sidesAfter = [...ed.boxes].map(([id, b]: [number, { text: string }]) => [id, ed.sideOfBox(b)]);
-  check("tidy: every box keeps its side", JSON.stringify(sidesBefore) === JSON.stringify(sidesAfter), JSON.stringify(sidesAfter));
 }
 
 console.log("editor: a border drag never changes a box's side; drags, border drags and nudges are one undo step each");
@@ -575,6 +550,99 @@ console.log("editor: a border drag never changes a box's side; drags, border dra
     key("ArrowUp"); key("ArrowUp");
     check("a cancelled nudge pushes no step", errs.length === 1 && ed.undoStack.length === 1 && ed.boxes.get(2).y === BORDER, `${errs} ${ed.undoStack.length}`);
   }
+}
+
+console.log("editor: l neatens in place");
+{
+  // deno-lint-ignore no-explicit-any
+  const g = globalThis as any;
+  g.matchMedia ??= () => ({ matches: false, addEventListener() {} });
+  g.document ??= { documentElement: { dataset: {} } };
+  const { PatchEditor, abstractionTypes } = await import("../public/patch-editor.js");
+  // deno-lint-ignore no-explicit-any
+  function mk(list: [number, any][], cs: [number, any][] = []) {
+    const ed = Object.create(PatchEditor.prototype);
+    Object.assign(ed, {
+      boxes: new Map(list), cables: new Map(cs), selection: new Set(), cableSelection: new Set(), boxValues: new Map(),
+      undoStack: [], maxUndo: 50, borderY: BORDER, showBorder: true, editingBoxId: null, input: null, nextId: 100,
+      onDirty() {}, zoomToFit() {}, render() {},
+    });
+    return ed;
+  }
+  const b = (x: number, y: number, text: string, inlets = 1, outlets = 1) => ({ x, y, text, inlets, outlets });
+  const c = (id: number, s: number, d: number, so = 0, di = 0): [number, unknown] => [id, { srcBox: s, srcOutlet: so, dstBox: d, dstInlet: di }];
+  // deno-lint-ignore no-explicit-any
+  const sides = (ed: any) => [...ed.boxes].map(([id, x]: [number, any]) => `${id}:${ed.sideOfBox(x)}`).join(" ");
+  // A ctrl chain stepping right, through a router, into a synth chain; an
+  // off-grid box; a box fed from too far away.
+  const patch = () => mk([
+    [1, b(0, 100, "key", 0, 1)], [2, b(20, 140, "+ 1", 2, 1)], [3, b(30, 180, "* 2", 2, 1)],
+    [4, b(10, routerY(BORDER), "all 1")], [5, b(-20, BORDER + 20, "osc~ 440", 2, 1)], [6, b(20, BORDER + 60, "dac~", 1, 0)],
+    [7, b(203, 103, "+ 3", 2, 1)], [8, b(100, 260, "print", 1, 0)],
+  ], [c(1, 1, 2), c(2, 2, 3), c(3, 3, 4), c(4, 4, 5), c(5, 5, 6), c(6, 1, 8)]);
+  {
+    const ed = patch();
+    const sidesBefore = sides(ed);
+    ed.neaten();
+    const x = (id: number) => ed.boxes.get(id).x, y = (id: number) => ed.boxes.get(id).y;
+    check("neaten: a chain straightens under its head, through the router", [2, 3, 4, 5, 6].every((id) => x(id) === 0), [2, 3, 4, 5, 6].map(x).join());
+    check("neaten: rows unchanged", y(2) === 140 && y(3) === 180 && y(5) === BORDER + 20 && y(6) === BORDER + 60);
+    check("neaten: off-grid box snapped", x(7) === 200 && y(7) === 100);
+    check("neaten: a box fed from more than two units away stays", x(8) === 100);
+    check("neaten: router on the border", y(4) === routerY(ed.borderY));
+    check("neaten: every box keeps its side", sides(ed) === sidesBefore, sides(ed));
+    check("neaten: one undo step", ed.undoStack.length === 1);
+    const once = ed.serialize();
+    ed.neaten();
+    check("neaten: idempotent, and a second press pushes no step", ed.serialize() === once && ed.undoStack.length === 1);
+    ed.undo();
+    // (Undo reloads, and a load snaps: the off-grid box comes back snapped.)
+    check("neaten: undo restores", ed.boxes.get(2).x === 20 && ed.boxes.get(3).x === 30 && ed.boxes.get(6).x === 20);
+  }
+  {
+    const ed = patch();
+    ed.selection.add(3);
+    ed.neaten();
+    const x = (id: number) => ed.boxes.get(id).x;
+    check("neaten: selection only, aligned to its source where it is", x(3) === 20 && x(2) === 20 && x(4) === 10 && x(7) === 203, [2, 3, 4, 7].map(x).join());
+  }
+  {
+    // A box in the way: the straightening is skipped.
+    const ed = mk([[1, b(0, 100, "key", 0, 1)], [2, b(30, 140, "+ 1", 2, 1)], [3, b(-60, 140, "+ 2 ", 2, 1)]], [c(1, 1, 2)]);
+    const w = ed.boxWidth(ed.boxes.get(3), 3);
+    ed.boxes.get(3).x = 20 - w; // its right edge 20: in the way of x 0, not of x 30
+    ed.neaten();
+    check("neaten: never lands a box on another", ed.boxes.get(2).x === 30 && ed.undoStack.length === 0);
+  }
+  {
+    // Right outlet to right inlet, a half unit off: lines up.
+    const ed = mk([[1, b(0, 100, "+ 1", 2, 2)], [2, b(10, 140, "+ 1", 2, 2)]], [c(1, 1, 2, 1, 1)]);
+    ed.neaten();
+    check("neaten: right outlet over right inlet lines up", ed.boxes.get(2).x === 0, String(ed.boxes.get(2).x));
+  }
+  // Bundled patches keep their shape: no wider, sides kept, idempotent.
+  for (const lib of Deno.readDirSync("libs")) {
+    for (const e of Deno.readDirSync(`libs/${lib.name}/abstractions`)) {
+      const name = `${lib.name}/${e.name.replace(/\.json$/, "")}`;
+      const { def } = parseAbstraction(name, JSON.parse(Deno.readTextFileSync(`libs/${lib.name}/abstractions/${e.name}`)));
+      if (def) abstractionTypes.set(name, def);
+    }
+  }
+  for (const file of ["granular_example", "faces_pitch-amp"]) {
+    const ed = mk([]);
+    ed.load(Deno.readTextFileSync(`patches/${file}.json`));
+    // deno-lint-ignore no-explicit-any
+    const width = () => { const bs = [...ed.boxes].map(([id, x]: [number, any]) => [x.x, x.x + ed.boxWidth(x, id)]); return Math.max(...bs.map((p) => p[1])) - Math.min(...bs.map((p) => p[0])); };
+    const w0 = width(), s0 = sides(ed);
+    ed.neaten();
+    check(`${file}: no wider than a unit more (${w0} → ${width()})`, width() <= w0 + GRID);
+    check(`${file}: every box keeps its side`, sides(ed) === s0);
+    check(`${file}: nothing off side`, [...ed.boxes].every(([id, x]: [number, { x: number; y: number; text: string }]) => !isOffSide(x, ed.borderY, ed.boxHeight(x, id))));
+    const once = ed.serialize();
+    ed.neaten();
+    check(`${file}: idempotent`, ed.serialize() === once);
+  }
+  abstractionTypes.clear();
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);
