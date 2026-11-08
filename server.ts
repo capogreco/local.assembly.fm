@@ -1,8 +1,6 @@
 import {
   type Box, type Cable,
   boxes, boxValues,
-  setPatchNextId,
-  setBorderY,
   getDeployedPatch, setDeployedPatch, getLaptopPatch, setLaptopPatch,
   routerState, uplinkIndex, ctrlState,
 } from "./patch-state.ts";
