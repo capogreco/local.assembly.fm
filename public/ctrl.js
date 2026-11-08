@@ -6,7 +6,7 @@
  * Also hosts ctrl-side engines (above the border) with audio output to laptop speakers.
  */
 
-import { boxTypeName, getBoxPorts } from "./gpi-types.js";
+import { ABS_NAME, boxTypeName, getBoxPorts } from "./gpi-types.js";
 import { PatchEditor, platformMod, COLORS, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
 import { currentTheme, toggleTheme, onThemeChange } from "./theme.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
@@ -614,7 +614,7 @@ function openAbstractionForEdit(text) {
 function newAbstraction() {
   const name = prompt("New abstraction, as library/name (e.g. common/double):")?.trim();
   if (!name) return;
-  if (!/^[A-Za-z0-9_][A-Za-z0-9_~-]*\/[A-Za-z0-9_][A-Za-z0-9_~-]*$/.test(name)) {
+  if (!ABS_NAME.test(name)) {
     alert(`"${name}": write it as library/name (letters, digits, _ - ~)`);
     return;
   }

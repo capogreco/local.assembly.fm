@@ -14,7 +14,7 @@ import {
   clearPatchState, getBorderY, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import {
-  BOX_HEIGHT, PORT_TYPES, boxTypeName, boxBinding, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
+  ABS_NAME, BOX_HEIGHT, LIB_NAME, PORT_TYPES, boxTypeName, boxBinding, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
   groupArgs, isOffSide, positionSide, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
@@ -36,12 +36,8 @@ export interface AbstractionDef {
 
 // --- Names ---
 
-// An abstraction name is `lib/name`: exactly one `/`, each part letters,
-// digits, `_`, `-` and `~`, starting with a letter, digit or `_`. No spaces (a
-// box's type is its first word) and no dots (no path tricks).
-const NAME_PART = "[A-Za-z0-9_][A-Za-z0-9_~-]*";
-const ABS_NAME = new RegExp(`^${NAME_PART}/${NAME_PART}$`);
-export const LIB_NAME = new RegExp(`^${NAME_PART}$`);
+// The `lib/name` pattern is gpi-types' (the editor's too).
+export { LIB_NAME };
 
 export function isAbstractionName(name: string): boolean {
   return ABS_NAME.test(name);

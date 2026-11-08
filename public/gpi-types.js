@@ -778,6 +778,14 @@ function getBoxDef(text) {
 
 const PORT_TYPES = ["number", "event", "symbol", "array", "passthrough", "audio"];
 
+// An abstraction name is `lib/name`: exactly one `/`, each part letters,
+// digits, `_`, `-` and `~`, starting with a letter, digit or `_`. No spaces (a
+// box's type is its first word) and no dots (no path tricks). LIB_NAME is a
+// library's name alone.
+const NAME_PART = "[A-Za-z0-9_][A-Za-z0-9_~-]*";
+const ABS_NAME = new RegExp(`^${NAME_PART}/${NAME_PART}$`);
+const LIB_NAME = new RegExp(`^${NAME_PART}$`);
+
 let abstractions = new Map();
 
 // Use `map` (name → header) as the abstraction table. The caller keeps it;
@@ -973,5 +981,5 @@ function cableTypeProblem(src, dstText, dstDef) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
+export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
 

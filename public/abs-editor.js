@@ -111,8 +111,9 @@ function renderPanel() {
   for (const key of Object.keys(LISTS)) renderList(key);
 }
 
-// Make the inlet/outlet lists as long as the highest `inlet i`/`outlet i` box
-// index + 1, keeping the entries already there.
+// Grow the inlet/outlet lists to the highest `inlet i`/`outlet i` box index
+// + 1, keeping the entries already there. Entries past the highest box are
+// kept too, never cut: saving reports each one with no box.
 document.getElementById("hp-sync").onclick = () => {
   for (const [kind, key] of [["inlet", "inlets"], ["outlet", "outlets"]]) {
     let max = -1;
@@ -121,7 +122,6 @@ document.getElementById("hp-sync").onclick = () => {
       if (t[0] === kind && /^\d+$/.test(t[1] ?? "")) max = Math.max(max, Number(t[1]));
     }
     const list = header[key];
-    list.splice(max + 1);
     while (list.length < max + 1) list.push({ name: `${kind === "inlet" ? "in" : "out"}${list.length}`, type: "number", description: "" });
   }
   renderPanel();
