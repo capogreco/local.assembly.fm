@@ -314,6 +314,128 @@
     "groupState": {},
     "latestValues": {}
   },
+  "knob set by a const: no blip of the knob's own arg at build": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [
+        {
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 0.2
+        }
+      ],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 0.2,
+      "3": 0.2
+    },
+    "graph": {
+      "1": {
+        "inletValues": [
+          0.2
+        ],
+        "state": {
+          "value": 0.2,
+          "min": 0,
+          "max": 1
+        }
+      },
+      "2": {
+        "inletValues": [
+          0.2
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": {
+          "value": 0.2
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 0.2
+      }
+    }
+  },
+  "knob and toggle set inlets: a bad value is an evaluation error, not ignored": {
+    "capture": {
+      "ctrlSends": [
+        {
+          "type": "errors",
+          "errors": [
+            "evaluation error: value at box 2 \"knob\" inlet 0: NaN is not a finite number"
+          ]
+        },
+        {
+          "type": "errors",
+          "errors": [
+            "evaluation error: value at box 4 \"toggle\" inlet 1: [1 2] is not a finite number"
+          ]
+        }
+      ],
+      "synthBroadcasts": [],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": null,
+      "2": 0,
+      "3": [
+        1,
+        2
+      ],
+      "4": 0
+    },
+    "graph": {
+      "1": {
+        "inletValues": [],
+        "state": {
+          "value": 0
+        }
+      },
+      "2": {
+        "inletValues": [
+          null
+        ],
+        "state": {
+          "value": 0,
+          "min": 0,
+          "max": 1
+        }
+      },
+      "3": {
+        "inletValues": [],
+        "state": {
+          "value": 0
+        }
+      },
+      "4": {
+        "inletValues": [
+          null,
+          [
+            1,
+            2
+          ]
+        ],
+        "state": {
+          "value": 0
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {}
+  },
   "toggle inlet 1 flips on rising edge": {
     "capture": {
       "ctrlSends": [],

@@ -846,11 +846,42 @@ const MAX_DEPTH = 16;
 // advances 0.6em per glyph. BOX_PAD_X, PORT_W and PORT_GAP are the editor's.
 const CHAR_W = 7.2, BOX_PAD_X = 8, PORT_W = 8, PORT_GAP = 4;
 
-// Width of a text box: room for its text and its ports with a gap between
-// each, at least two units, rounded up to whole units so the right edge is
-// on the grid too.
+// A knob's value label is 10px monospace: 6px per glyph.
+const LABEL_CHAR_W = 6;
+
+// A value as a knob's label (and a monitor box) shows it.
+function formatValue(v) {
+  return typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+}
+
+// A knob's args: init [min] [max] [curve].
+function knobArgs(text) {
+  const args = text.split(/\s+/).slice(1).map(Number);
+  return {
+    init: args[0] !== undefined ? args[0] : 0.5,
+    min: args[1] !== undefined ? args[1] : 0,
+    max: args[2] !== undefined ? args[2] : 1,
+    curve: args[3] || 1,
+  };
+}
+
+// Width of the widest value label a knob shows (formatValue): its init, min
+// and max, and a non-integer as wide as either end of the range. Fixed for
+// the knob's text, so the box doesn't change width as the value moves.
+function knobLabelWidth(text) {
+  const { init, min, max } = knobArgs(text);
+  const samples = [init, min, max].filter(Number.isFinite);
+  const labels = samples.map(formatValue);
+  for (const v of samples) labels.push((v < 0 ? "-" : "") + String(Math.floor(Math.abs(v))).replace(/\d/g, "0") + ".0000");
+  return Math.max(0, ...labels.map((l) => l.length * LABEL_CHAR_W));
+}
+
+// Width of a text box: room for its text (and a knob's value label, drawn
+// inside it after the text) and its ports with a gap between each, at least
+// two units, rounded up to whole units so the right edge is on the grid too.
 function textBoxWidth(text, ports) {
-  const w = Math.max(text.length * CHAR_W + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
+  const label = boxTypeName(text) === "knob" ? BOX_PAD_X + knobLabelWidth(text) : 0;
+  const w = Math.max(text.length * CHAR_W + label + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
   return Math.ceil(w / GRID) * GRID;
 }
 
@@ -1050,5 +1081,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, PORT_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

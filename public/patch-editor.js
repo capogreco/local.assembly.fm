@@ -1,4 +1,4 @@
-import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, faceOf, faceContents, boxTypeName, boxBinding, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, faceContents, boxTypeName, boxBinding, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -65,10 +65,6 @@ function getDef(text) {
 }
 
 // --- utility ---
-
-function formatValue(v) {
-  return typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
-}
 
 // An instance's args, from its text.
 function instanceArgs(text) {
@@ -643,7 +639,8 @@ class PatchEditor {
       const v = this.boxValues.get(id);
       text = _type + " " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
-    // gpi-types' formula, which the server's face check uses too.
+    // gpi-types' formula, which the server's face check uses too; a knob
+    // gets room for its value label inside the box.
     return textBoxWidth(text, Math.max(box.inlets, box.outlets));
   }
 
@@ -666,21 +663,34 @@ class PatchEditor {
 
   // --- Hit Testing ---
 
+  // A port's zone: PORT_HIT either side of its centre across, and down its
+  // own box's half (inlets the top half, outlets the bottom) plus PORT_HIT
+  // outside the box. Boxes stack flush on the grid, so the outside margin
+  // counts only where no box is under the pointer: over a box, only that
+  // box's ports can be hit, and a box's own halves never overlap.
+  // `under` is the box under the pointer (hitTestBox), or null.
+  portHit(id, box, mx, my, p, inlet, under) {
+    if (under !== null && under !== id) return false;
+    if (Math.abs(mx - p.x) >= PORT_HIT) return false;
+    const h = this.boxHeight(box, id), mid = box.y + h / 2;
+    return inlet ? my >= box.y - PORT_HIT && my < mid : my >= mid && my < box.y + h + PORT_HIT;
+  }
+
   hitTestOutlet(mx, my) {
+    const under = this.hitTestBox(mx, my);
     for (const [id, box] of this.boxes) {
       for (let i = 0; i < box.outlets; i++) {
-        const p = this.outletPos(box, i, id);
-        if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
+        if (this.portHit(id, box, mx, my, this.outletPos(box, i, id), false, under)) return { boxId: id, index: i };
       }
     }
     return null;
   }
 
   hitTestInlet(mx, my) {
+    const under = this.hitTestBox(mx, my);
     for (const [id, box] of this.boxes) {
       for (let i = 0; i < box.inlets; i++) {
-        const p = this.inletPos(box, i, id);
-        if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
+        if (this.portHit(id, box, mx, my, this.inletPos(box, i, id), true, under)) return { boxId: id, index: i };
       }
     }
     return null;
@@ -1070,10 +1080,10 @@ class PatchEditor {
       this.drawPorts(box, id);
     }
 
-    // Knob value labels (below the box)
+    // Knob value labels: inside the box, right-aligned (boxWidth leaves room).
     for (const [id, box] of this.boxes) {
-      if (boxTypeName(box.text) !== "knob" || !this.boxValues.has(id)) continue;
-      this.drawKnobLabel(this.boxValues.get(id), box.x, box.y);
+      if (boxTypeName(box.text) !== "knob" || !this.boxValues.has(id) || this.editingBoxId === id) continue;
+      this.drawKnobLabel(this.boxValues.get(id), box.x, box.y, this.boxWidth(box, id));
     }
 
     // Draw overlays in screen space (reset pan/zoom)
@@ -1138,11 +1148,15 @@ class PatchEditor {
     this.ctx.fillText(text.replace(/^comment\s*/, ""), x + BOX_PAD_X, y + BOX_HEIGHT / 2);
   }
 
-  drawKnobLabel(value, x, y) {
+  // A knob's value: inside its box (width w), right-aligned (textBoxWidth
+  // leaves room for the widest value it shows).
+  drawKnobLabel(value, x, y, w) {
     this.ctx.font = SMALL_FONT;
     this.ctx.fillStyle = COLORS.valueText;
-    this.ctx.textBaseline = "top";
-    this.ctx.fillText(formatValue(value), x + BOX_PAD_X, y + BOX_HEIGHT + 2);
+    this.ctx.textBaseline = "middle";
+    this.ctx.textAlign = "right";
+    this.ctx.fillText(formatValue(value), x + w - BOX_PAD_X, y + BOX_HEIGHT / 2);
+    this.ctx.textAlign = "left";
   }
 
   // Inlets on the top edge, outlets on the bottom, coloured by port type.
@@ -1217,9 +1231,9 @@ class PatchEditor {
         if (item.kind === "label") { this.drawComment(t, ix, iy, false); continue; }
         const value = this.faceValue(t, liveId, !!live);
         this.drawBoxBody(t, ix, iy, item.w, { fill: COLORS.boxFill, stroke: COLORS.boxStroke, value });
-        if (boxTypeName(t) === "knob" && value !== undefined) knobs.push([value, ix, iy]);
+        if (boxTypeName(t) === "knob" && value !== undefined) knobs.push([value, ix, iy, item.w]);
       }
-      for (const [v, kx, ky] of knobs) this.drawKnobLabel(v, kx, ky);
+      for (const [v, kx, ky, kw] of knobs) this.drawKnobLabel(v, kx, ky, kw);
       ctx.restore();
     }
     if (!face.hideName) {
@@ -1308,15 +1322,7 @@ class PatchEditor {
 
   // --- Knob value (normalised 0-1 space, with the knob's curve) ---
 
-  knobArgs(text) {
-    const args = text.split(/\s+/).slice(1).map(Number);
-    return {
-      init: args[0] !== undefined ? args[0] : 0.5,
-      min: args[1] !== undefined ? args[1] : 0,
-      max: args[2] !== undefined ? args[2] : 1,
-      curve: args[3] || 1,
-    };
-  }
+  knobArgs(text) { return knobArgs(text); }
 
   // A knob is { id, text }: its live id and its text (runTargetAt), so a
   // knob on a face works as one in the patch.
@@ -1573,14 +1579,17 @@ class PatchEditor {
       // touches, is pushed wholly clear of it, keeping its side (taken against
       // the old line). Then cascade-resolve overlaps in the sweep direction so
       // the push propagates through stacked boxes instead of squashing them.
+      // The row just above the line is the routers' (routerY), so a ctrl box
+      // is pushed clear of that row too, as placeOnSide places it.
+      const ctrlLimit = routerY(newY);
       for (const [id, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
-          box.y = routerY(newY);
+          box.y = ctrlLimit;
           continue;
         }
         const side = this.sideOf(box, oldY), h = this.boxHeight(box, id);
         if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
-        else if (newY < oldY && side === "ctrl" && box.y + h > newY) box.y = newY - h - PAD;
+        else if (newY < oldY && side === "ctrl" && box.y + h > ctrlLimit) box.y = ctrlLimit - h - PAD;
       }
       this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();

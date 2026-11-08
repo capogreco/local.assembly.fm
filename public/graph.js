@@ -97,8 +97,17 @@ function buildGraph(patch, hooks = {}) {
     graph.wireless.get(name)[role].push(id);
   }
 
+  // A knob whose set inlet is cabled takes its initial value from that cable
+  // (a const), so it doesn't emit its own arg first: through a router that
+  // would be a blip on every apply.
+  const setByCable = new Set();
+  for (const cable of patch.cables) {
+    if (cable.dstInlet === 0 && graph.boxes.get(cable.dstBox)?.type === "knob") setByCable.add(cable.dstBox);
+  }
+
   // propagate initial values from all boxes with deterministic state
   for (const [id, node] of graph.boxes) {
+    if (setByCable.has(id)) continue;
     if (node.state && node.state.value !== undefined) {
       propagateValue(graph, id, 0, node.state.value);
     }

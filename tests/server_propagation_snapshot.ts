@@ -241,6 +241,35 @@ const cases: Case[] = [
     },
   },
   {
+    name: "knob set by a const: no blip of the knob's own arg at build",
+    run: () => {
+      reset();
+      addBox(1, "knob 0.5 0 1");
+      addBox(2, "all 1", 100, 389); // router (border): every value it gets is broadcast
+      addBox(3, "const 0.2"); // after the knob in id order
+      addBox(10, "karplus-strong~", 100, 500);
+      addCable(1, 1, 0, 2, 0);
+      addCable(2, 3, 0, 1, 0);
+      addCable(3, 2, 0, 10, 0);
+      buildServerGraph();
+    },
+  },
+  {
+    name: "knob and toggle set inlets: a bad value is an evaluation error, not ignored",
+    run: () => {
+      reset();
+      addBox(1, "const 0");
+      addBox(2, "knob 0.5 0 1");
+      addBox(3, "const 0");
+      addBox(4, "toggle");
+      addCable(1, 1, 0, 2, 0);
+      addCable(2, 3, 0, 4, 1);
+      buildServerGraph();
+      injectValue(1, 0, NaN); // the knob's set throws: reported
+      injectValue(3, 0, [1, 2]); // an array into the toggle's set: reported
+    },
+  },
+  {
     name: "toggle inlet 1 flips on rising edge",
     run: () => {
       reset();

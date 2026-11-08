@@ -888,6 +888,14 @@ function deliverEventToInlet(graph, boxId, inlet, helpers) {
   return updates;
 }
 
+// A set inlet (knob, toggle) takes a finite number; anything else is a patch
+// error, raised as the other evaluation errors are (the server reports it).
+function requireFiniteNumber(boxId, node, inlet, value) {
+  if (typeof value === "number" && Number.isFinite(value)) return;
+  const shown = Array.isArray(value) ? `[${value.join(" ")}]` : typeof value === "string" ? JSON.stringify(value) : String(value);
+  throw new Error(`value at box ${boxId} "${node.type}" inlet ${inlet}: ${shown} is not a finite number`);
+}
+
 // Single source of truth for value-path destination dispatch. Called by both
 // client (propagateValue / processRouterValue) and server-side equivalents.
 //
@@ -1002,9 +1010,11 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
   }
 
   // Knob inlet 0 (set): clamp to the knob's range, hold, and output, so a
-  // `const` can give a knob its starting value on every apply.
+  // `const` can give a knob its starting value on every apply. Anything but a
+  // finite number is an error, not ignored.
   if (node.type === "knob" && inlet === 0) {
-    if (node.state && typeof value === "number" && Number.isFinite(value)) {
+    requireFiniteNumber(boxId, node, inlet, value);
+    if (node.state) {
       const lo = Math.min(node.state.min, node.state.max), hi = Math.max(node.state.min, node.state.max);
       node.state.value = Math.max(lo, Math.min(hi, value));
       mergeUpdates(updates, helpers.propagateValue(graph, boxId, 0, node.state.value));
@@ -1012,8 +1022,10 @@ function deliverValueToInlet(graph, boxId, inlet, value, helpers, inletDef) {
     return { updates, deferEvent: false };
   }
 
-  // Toggle inlet 1: flip on rising edge, propagate state.
+  // Toggle inlet 1 (set): flip on rising edge, propagate state. As knob's
+  // set, anything but a finite number is an error.
   if (node.type === "toggle" && inlet === 1) {
+    requireFiniteNumber(boxId, node, inlet, value);
     if (node.state) {
       const newVal = value > 0 ? 1 : 0;
       if (newVal !== node.state.value) {

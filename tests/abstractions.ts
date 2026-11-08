@@ -9,7 +9,7 @@
 
 import { boxes, cables, clearPatchState, ctrlState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
+import { boxSize, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const CTRL_Y = 100, SYNTH_Y = 600;
@@ -124,15 +124,17 @@ console.log("save: $n needs a declared arg");
 
 console.log("save: the face");
 {
-  const face = { x: 0, y: 0, w: 8, h: 3, hideName: false };
-  // "knob 0.5 0 1" is 120px (6 units) wide: inside at (20, 20), across the right edge at (60, 20).
+  const face = { x: 0, y: 0, w: 10, h: 3, hideName: false };
+  // "knob 0.5 0 1" is 160px (8 units) wide, room for its value label inside:
+  // inside at (20, 20), across the right edge at (60, 20).
   const with_ = (extra: B[], f: unknown = face) => errs({
     face: f,
     boxes: [[1, { x: 0, y: 200, text: "inlet 0" }], [2, { x: 0, y: 220, text: "* 2" }], [3, { x: 0, y: 260, text: "outlet 0" }], ...extra],
   });
   const ok = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }]]);
   check("a knob wholly inside accepted", ok.length === 0, JSON.stringify(ok));
-  check("parsed into the def", def({ face }).face?.w === 8);
+  check("parsed into the def", def({ face }).face?.w === 10);
+  check("a knob's width leaves room for its widest label", boxSize("knob 0.5 0 1").w === 160 && boxSize("knob 220 50 1000 2").w === 220, JSON.stringify([boxSize("knob 0.5 0 1"), boxSize("knob 220 50 1000 2")]));
   check("no face is null", def().face === null);
   const across = with_([[10, { x: 60, y: 20, text: "knob 0.5 0 1" }]]);
   check("a GUI box across the edge rejected, named", across.some((e) => /face: "knob 0\.5 0 1" crosses the face's edge/.test(e)), JSON.stringify(across));
@@ -155,7 +157,7 @@ console.log("save: the face");
   const lib = new Map([["t/inner", inner]]);
   const outer = (x: number) => errs({ face, outlets: [], inlets: [], boxes: [[1, { x, y: 0, text: "t/inner" }]], cables: [] }, lib);
   check("a faced instance inside counts", outer(100).length === 0, JSON.stringify(outer(100)));
-  check("a faced instance across the edge rejected", outer(120).some((e) => /"t\/inner" crosses/.test(e)), JSON.stringify(outer(120)));
+  check("a faced instance across the edge rejected", outer(160).some((e) => /"t\/inner" crosses/.test(e)), JSON.stringify(outer(160)));
 }
 
 // --- Apply ---
