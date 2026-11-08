@@ -1469,14 +1469,17 @@ class PatchEditor {
       // touches, is pushed wholly clear of it, keeping its side (taken against
       // the old line). Then cascade-resolve overlaps in the sweep direction so
       // the push propagates through stacked boxes instead of squashing them.
+      // The row just above the line is the routers' (routerY), so a ctrl box
+      // is pushed clear of that row too, as placeOnSide places it.
+      const ctrlLimit = routerY(newY);
       for (const [, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
-          box.y = routerY(newY);
+          box.y = ctrlLimit;
           continue;
         }
         const side = this.sideOf(box, oldY);
         if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
-        else if (newY < oldY && side === "ctrl" && box.y + BOX_HEIGHT > newY) box.y = newY - BOX_HEIGHT - PAD;
+        else if (newY < oldY && side === "ctrl" && box.y + BOX_HEIGHT > ctrlLimit) box.y = ctrlLimit - BOX_HEIGHT - PAD;
       }
       this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
