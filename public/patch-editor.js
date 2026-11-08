@@ -1,4 +1,4 @@
-import { GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -18,8 +18,8 @@ const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", m
 const IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 function platformMod(e) { return IS_MAC ? e.metaKey : e.ctrlKey; }
 
-// Boxes that answer the pointer in run mode.
-const INTERACTIVE_TYPES = new Set(["toggle", "event", "fan", "knob"]);
+// Boxes that answer the pointer in run mode: gui "control" in gpi-types.
+const INTERACTIVE_TYPES = new Set(Object.entries(BOX_TYPES).filter(([, d]) => d.gui === "control").map(([name]) => name));
 
 // Knob sensitivity: normalised units per screen pixel of vertical drag.
 const KNOB_DRAG_STEP = 0.005, KNOB_DRAG_STEP_FINE = 0.0005;

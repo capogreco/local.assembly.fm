@@ -3,6 +3,9 @@
  * Defines all operator types with their ports, bindings, and documentation.
  * Port types: PORT_TYPES (number, event, symbol, array, passthrough, audio)
  * Bindings: ctrl, synth, border (routers); no binding = free
+ * GUI: `gui` marks a box an abstraction's face shows (notes/abstractions.md):
+ *   "control" (the pointer plays it in run mode), "display" (shows a value),
+ *   "label" (comment). No field: hidden on a face.
  */
 
 const BOX_TYPES = {
@@ -61,28 +64,28 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "in", type: "passthrough", description: "Connected inside abstraction" }] },
   outlet:         { description: "Abstraction outlet. Index determines port order.", args: "index", example: "outlet 0",
                     inlets: [{ name: "out", type: "passthrough", description: "Connected inside abstraction" }], outlets: [] },
-  comment:        { description: "Documentation text. No ports, just displays text.", isComment: true,
+  comment:        { gui: "label", description: "Documentation text. No ports, just displays text.", isComment: true,
                     inlets: [], outlets: [] },
-  "//":           { description: "Comment. Same as comment.", isComment: true,
+  "//":           { gui: "label", description: "Comment. Same as comment.", isComment: true,
                     inlets: [], outlets: [] },
 
   // --- values ---
   const:          { description: "Constant value. Event inlet re-propagates.", args: "value", example: "const 220",
                     inlets: [{ name: "trigger", type: "event", description: "Re-propagate value" }],
                     outlets: [{ name: "value", type: "number", description: "Constant output" }] },
-  knob:           { description: "Interactive knob. Drag or scroll to change value. Args: init [min] [max] [curve]. Inlet 0 sets the value directly.", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
+  knob:           { gui: "control", description: "Interactive knob. Drag or scroll to change value. Args: init [min] [max] [curve]. Inlet 0 sets the value directly.", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
                     inlets: [{ name: "set", type: "number", description: "Set the value (clamped to min..max) and output it" }], outlets: [{ name: "value", type: "number", description: "Current value" }] },
-  toggle:         { description: "On/off switch. Click or event to flip. Inlet 1 sets value directly.",
+  toggle:         { gui: "control", description: "On/off switch. Click or event to flip. Inlet 1 sets value directly.",
                     inlets: [{ name: "trigger", type: "event", description: "Flip state" },
                              { name: "set", type: "number", description: "Set to 0 (on 0) or 1 (on >0)" }],
                     outlets: [{ name: "value", type: "number", description: "0 or 1" }] },
   change:         { description: "Only pass value when it differs from previous.",
                     inlets: [{ name: "in", type: "number", description: "Input value" }],
                     outlets: [{ name: "out", type: "number", description: "Value (only on change)" }] },
-  print:          { description: "Display incoming value on the box.",
+  print:          { gui: "display", description: "Display incoming value on the box.",
                     inlets: [{ name: "in", type: "passthrough", description: "Value to display" }],
                     outlets: [] },
-  event:          { description: "Manual null event. Click in performance mode.",
+  event:          { gui: "control", description: "Manual null event. Click in performance mode.",
                     inlets: [{ name: "trigger", type: "event", description: "Fire event" }],
                     outlets: [{ name: "out", type: "event", description: "Null event on click" }] },
 
@@ -321,7 +324,7 @@ const BOX_TYPES = {
                     outlets: [{ name: "result", type: "number", description: "1 or 0" }] },
 
   // --- fan (multi-value output) ---
-  fan:            { description: "Output stored values on trigger. One outlet per value. Click or trigger inlet to fire.", args: "values...", example: "fan 30 500 4000",
+  fan:            { gui: "control", description: "Output stored values on trigger. One outlet per value. Click or trigger inlet to fire.", args: "values...", example: "fan 30 500 4000",
                     dynamic: true,
                     inlets: [{ name: "trigger", type: "event", description: "Fire all values" }],
                     outlets: [{ name: "out", type: "number", description: "Value" }] },
@@ -435,7 +438,7 @@ const BOX_TYPES = {
                     inlets: [], outlets: [{ name: "out", type: "audio", description: "Summed audio" }] },
 
   // --- audio-rate objects (~) — any box with audio ports ---
-  "scope~":       { binding: "synth", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z. Knot colour via audio-rate HSB.", args: "[z]", example: "scope~ 5",
+  "scope~":       { gui: "display", binding: "synth", description: "3D Lissajous oscilloscope. Maps 3 audio signals to X/Y/Z. Knot colour via audio-rate HSB.", args: "[z]", example: "scope~ 5",
                     inlets: [
                       { name: "x", type: "audio", description: "X axis signal" },
                       { name: "y", type: "audio", description: "Y axis signal" },
