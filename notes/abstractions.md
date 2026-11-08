@@ -90,17 +90,25 @@ rows, `CC_SOURCE` and `findBoxByText` go.
 7. The BBC2 migration, then `grain-voice~` once `buffer~`/`play~` exist, with
    media collected after expansion.
 
+## Decided (Thomas, 2026-11-08, second round)
+
+- **Names are always explicit.** A library abstraction is always written
+  `library/name`, in boxes and in saved patches. There's no short form and
+  no search order. Names may be longer; it keeps things simple. (Built-in
+  boxes keep their bare names.)
+- **A GUI workflow for abstractions, as in Pd,** rather than typing names.
+  To be designed.
+- **A port mismatch at apply is an error.** The running patch keeps running,
+  and only the change is held back.
+- **Libraries live in `libs/<lib>/`**: worklets, abstractions and help
+  together, as in `libraries.md` §1, so all of a user's pieces are in one
+  place.
+- **Identity:** a namespace is a folder locally. It's tied to an account only
+  when publishing to or fetching from tambourin.fm (later, with accounts).
+
 ## Open
 
-- **Short names and identity.**
-  - *Proposed:* `core` needs no prefix. Saved patches always store
-    `library/name`. The editor lets you type the short form and fills in the
-    prefix, or asks when two libraries match.
-  - *Identity:* a namespace is just a folder locally. It's tied to an
-    account only when publishing to or fetching from tambourin.fm (later,
-    with accounts).
-  - *Folder layout:* to reconcile with `libraries.md` §1. `libs/<lib>/`
-    holds worklets, abstractions and help together, which suits libraries
-    better than `abstractions/<lib>/`.
-- **Port mismatch at apply: error or warning?** Proposed: an error. The
-  running patch keeps running and only the change is held back.
+- The GUI workflow: creating, opening, saving and placing abstractions from
+  the editor, modelled on Pd.
+- Whether `core` abstractions are written `core/name` too. This follows from
+  explicit naming.
