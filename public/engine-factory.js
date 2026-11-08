@@ -355,9 +355,11 @@ function syncBuffers(ctx, modulesLoaded, list, onProgress) {
           const samples = b.file !== undefined
             ? await decodeMono(ctx, b.file)
             : new Float32Array(Math.max(1, Math.round(b.seconds * ctx.sampleRate)));
+          // Read the length first: the transfer detaches `samples`.
+          const seconds = samples.length / ctx.sampleRate;
           port.postMessage({ type: "set", name: b.name, samples }, [samples.buffer]);
           store.held.set(b.name, key);
-          store.lengths.set(b.name, samples.length / ctx.sampleRate);
+          store.lengths.set(b.name, seconds);
         }
         lengths.set(b.id, store.lengths.get(b.name));
       } catch (err) {
