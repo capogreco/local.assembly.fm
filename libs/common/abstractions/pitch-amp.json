@@ -1,0 +1,89 @@
+{
+ "name": "common/pitch-amp",
+ "side": "ctrl",
+ "description": "Two knobs on a face: a pitch in Hz (50-1000, curved) and an amplitude (0-1).",
+ "args": [],
+ "inlets": [],
+ "outlets": [
+  {
+   "name": "pitch",
+   "type": "number",
+   "description": "Frequency in Hz"
+  },
+  {
+   "name": "amp",
+   "type": "number",
+   "description": "Amplitude, 0-1"
+  }
+ ],
+ "face": {
+  "x": 1,
+  "y": 1,
+  "w": 8,
+  "h": 5,
+  "hideName": false
+ },
+ "boxes": [
+  [
+   1,
+   {
+    "x": 20,
+    "y": 20,
+    "text": "comment pitch / amp"
+   }
+  ],
+  [
+   2,
+   {
+    "x": 20,
+    "y": 40,
+    "text": "knob 220 50 1000 2"
+   }
+  ],
+  [
+   3,
+   {
+    "x": 20,
+    "y": 80,
+    "text": "knob 0.2 0 1"
+   }
+  ],
+  [
+   4,
+   {
+    "x": 20,
+    "y": 200,
+    "text": "outlet 0"
+   }
+  ],
+  [
+   5,
+   {
+    "x": 120,
+    "y": 200,
+    "text": "outlet 1"
+   }
+  ]
+ ],
+ "cables": [
+  [
+   6,
+   {
+    "srcBox": 2,
+    "srcOutlet": 0,
+    "dstBox": 4,
+    "dstInlet": 0
+   }
+  ],
+  [
+   7,
+   {
+    "srcBox": 3,
+    "srcOutlet": 0,
+    "dstBox": 5,
+    "dstInlet": 0
+   }
+  ]
+ ],
+ "nextId": 8
+}
