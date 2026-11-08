@@ -644,6 +644,34 @@ function newAbstraction() {
   window.open(`/abs-editor.html?name=${encodeURIComponent(name)}&side=${side}`, `abs-${name}`, "width=800,height=600");
 }
 
+// Cmd+Shift+E: the selection becomes a new abstraction, library/name, on the
+// selection's side, and one instance of it (notes/abstractions.md, Editing).
+// The patch changes only after the server has saved it with every check.
+async function encapsulateSelection() {
+  const refuse = (...lines) => notify(["✗ encapsulate: " + lines[0], ...lines.slice(1)]);
+  if (mainEditor.mode === "text-editing") { refuse("finish the box being typed first"); return; }
+  const refusal = mainEditor.encapsulateRefusal();
+  if (refusal) { refuse(refusal); return; }
+  const name = prompt("Encapsulate into, as library/name (e.g. common/voice):")?.trim();
+  if (!name) return;
+  if (!ABS_NAME.test(name)) { refuse(`"${name}": write it as library/name (letters, digits, _ - ~)`); return; }
+  if (abstractionTypes.has(name)) { refuse(`"${name}" already exists`); return; }
+  const result = mainEditor.encapsulation(name);
+  if (result.error) { refuse(result.error); return; }
+  const res = await fetch(`/abstractions/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(result.file) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    refuse(`${name} not saved`, ...(body.errors ?? [body.error ?? String(res.status)]));
+    return;
+  }
+  await reloadAbstractions();
+  if (!mainEditor.applyEncapsulation(result.plan)) {
+    refuse(`${name} saved, but the patch changed meanwhile; place it by hand`);
+    return;
+  }
+  notify([`✓ encapsulated into ${name}`]);
+}
+
 // Instances take their header's ports; cables to ports that are gone are
 // dropped and listed. Runs after every registry load and every state load.
 function syncAbstractionPorts() {
@@ -676,6 +704,12 @@ window.addEventListener("keydown", (e) => {
   if (platformMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
     e.preventDefault();
     mainEditor.toggleEditorMode();
+    return;
+  }
+  // Cmd+Shift+E (Ctrl+Shift+E off macOS): encapsulate the selection, edit mode only.
+  if (platformMod(e) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+    e.preventDefault();
+    if (!e.repeat && mainEditor.editorMode === "edit") encapsulateSelection();
     return;
   }
   if (mainEditor.mode === "text-editing") return;

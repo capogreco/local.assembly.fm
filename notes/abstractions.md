@@ -68,6 +68,27 @@ panel for editing the header. Help patches sit beside the abstraction.
   them.
 - *Delete:* refused while the running patch uses the abstraction.
 - *Run mode:* allows only `h`.
+- *Encapsulate (decided 2026-11-08, built on feat/faces):* Cmd+Shift+E
+  (Ctrl+Shift+E elsewhere; Max's shortcut), ctrl editor, edit mode. Asks
+  for `library/name` (as Shift+N) and turns the selection into a new
+  abstraction plus one instance of it. Refused, nothing changed: empty
+  selection, a router, boxes from both zones, an empty or unfinished box, an
+  `inlet`/`outlet` box, a name that's invalid or taken, anything the
+  server's save check rejects (its errors shown). Side = the selection's
+  zone. Ports = the cables crossing the selection's edge: one inlet per
+  inside (box, inlet) fed from outside, one outlet per inside (box, outlet)
+  feeding outside, ordered by the inside port's x, ties by box y (Pd). Name
+  (made unique), type and description from the inside port; an inside
+  number inlet fed audio from outside (an AudioParam) becomes an audio
+  inlet, and one fed both audio and values is refused. Inside, the boxes keep
+  their layout, moved near the origin, with `inlet i` boxes on a row above
+  and `outlet i` boxes on a row below, each over its port. No args, no face,
+  empty description: added in the abstraction editor. Saved through PUT
+  `/abstractions`; only then the registry reloads and the instance replaces
+  the selection at its top-left (kept wholly on its side), outside cables on
+  its ports with their ids kept. One undo step; undo doesn't delete the
+  saved file. `PatchEditor.encapsulation`/`applyEncapsulation`,
+  `tests/encapsulate.ts`.
 
 **Port changes to existing instances.**
 - *Open patch:* drop the cables that no longer fit and list each one in the

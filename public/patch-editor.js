@@ -339,6 +339,169 @@ class PatchEditor {
     this.render();
   }
 
+  // --- Encapsulate (Cmd+Shift+E; notes/abstractions.md, Editing) ---
+  // The selection becomes a new abstraction and one instance of it. Cables
+  // crossing the selection's edge become its ports: one inlet per inside
+  // (box, inlet) fed from outside, one outlet per inside (box, outlet) feeding
+  // outside, ordered left to right by the inside port's x (Pd's rule), ties
+  // by box y. Each port's name and type come from the inside port. The host
+  // (ctrl.js) saves the file through the server's checks, reloads the
+  // registry, then calls applyEncapsulation.
+
+  // Why the selection can't be encapsulated, or null.
+  encapsulateRefusal() {
+    if (this.selection.size === 0) return "nothing selected";
+    let side = null;
+    for (const id of this.selection) {
+      const box = this.boxes.get(id);
+      if (!box) continue;
+      if (id === this.editingBoxId || !box.text.trim()) return "an empty box is selected; finish or delete it";
+      if (this.isRouterType(box.text)) return `"${box.text}" is a router; routers can't go in an abstraction`;
+      const type = boxTypeName(box.text);
+      if (type === "inlet" || type === "outlet") return `"${box.text}" only works inside an abstraction`;
+      const s = this.sideOfBox(box);
+      if (side && s !== side) return "the selection has boxes on both sides of the border";
+      side = s;
+    }
+    return null;
+  }
+
+  // The abstraction file for the selection under `name`, and the plan for
+  // replacing the selection with an instance: { file, plan } or { error }.
+  encapsulation(name) {
+    const refusal = this.encapsulateRefusal();
+    if (refusal) return { error: refusal };
+    const ids = [...this.selection].filter((id) => this.boxes.has(id)).sort((a, b) => a - b);
+    const inside = new Set(ids);
+    const side = this.sideOfBox(this.boxes.get(ids[0]));
+
+    // Crossing cables, grouped by their inside port.
+    const ins = new Map(), outs = new Map(), internal = [], inbound = [], outbound = [];
+    for (const [cid, c] of this.cables) {
+      const a = inside.has(c.srcBox), b = inside.has(c.dstBox);
+      if (a && b) { internal.push(c); continue; }
+      if (!a && !b) continue;
+      const [map, boxId, index] = b ? [ins, c.dstBox, c.dstInlet] : [outs, c.srcBox, c.srcOutlet];
+      const key = `${boxId}:${index}`;
+      if (!map.has(key)) {
+        const box = this.boxes.get(boxId);
+        const pos = b ? this.inletPos(box, index, boxId) : this.outletPos(box, index, boxId);
+        const def = b ? getInletDef(box.text, index) : getOutletDef(box.text, index);
+        map.set(key, { box: boxId, index, x: pos.x, y: box.y, def, srcTypes: new Set() });
+      }
+      if (b) {
+        const src = this.boxes.get(c.srcBox);
+        ins.get(key).srcTypes.add(src ? getOutletDef(src.text, c.srcOutlet)?.type : undefined);
+        inbound.push({ id: cid, cable: c, key });
+      } else {
+        outbound.push({ id: cid, cable: c, key });
+      }
+    }
+    const order = (a, b) => a.x - b.x || a.y - b.y || a.box - b.box || a.index - b.index;
+    const inlets = [...ins.values()].sort(order), outlets = [...outs.values()].sort(order);
+
+    // Header entries: the inside port's name (made unique, one word) and
+    // type. An inside number inlet fed audio from outside is an AudioParam;
+    // the abstraction's inlet is then audio (its own number inlet is not one).
+    const specs = (list, kind) => {
+      const used = new Set();
+      return list.map((p, i) => {
+        let type = p.def?.type ?? "passthrough";
+        if (kind === "inlet" && p.srcTypes.has("audio") && type !== "audio") {
+          if (p.srcTypes.size > 1) {
+            return { error: `"${this.boxes.get(p.box).text}" inlet ${p.index} takes audio and other values from outside; one inlet can't carry both` };
+          }
+          type = "audio";
+        }
+        const base = (p.def?.name ?? "").replace(/\s+/g, "-") || `${kind === "inlet" ? "in" : "out"}${i}`;
+        let n = base;
+        for (let k = 2; used.has(n); k++) n = `${base}${k}`;
+        used.add(n);
+        return { name: n, type, description: p.def?.description ?? "" };
+      });
+    };
+    const inSpecs = specs(inlets, "inlet"), outSpecs = specs(outlets, "outlet");
+    const bad = [...inSpecs, ...outSpecs].find((s) => s.error);
+    if (bad) return { error: bad.error };
+
+    // Inside: the boxes keep their layout, moved to start near the origin,
+    // with a row of `inlet i` boxes above them and `outlet i` boxes below,
+    // each over (or under) the port it serves, pushed right as needed so
+    // neighbours on the row don't overlap.
+    let minX = Infinity, minY = Infinity, maxY = -Infinity;
+    for (const id of ids) {
+      const box = this.boxes.get(id);
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxY = Math.max(maxY, box.y + this.boxHeight(box, id));
+    }
+    const dx = GRID - minX, dy = 3 * GRID - minY;
+    const idMap = new Map(ids.map((id, i) => [id, i + 1]));
+    let next = ids.length + 1;
+    const boxes = ids.map((id) => {
+      const box = this.boxes.get(id);
+      return [idMap.get(id), { ...box, x: box.x + dx, y: box.y + dy }];
+    });
+    const row = (list, kind, y) => {
+      let free = -Infinity; // the leftmost x the next box may take
+      return list.map((p, i) => {
+        const text = `${kind} ${i}`;
+        const portBox = { x: 0, y, text, inlets: kind === "outlet" ? 1 : 0, outlets: kind === "inlet" ? 1 : 0 };
+        portBox.x = Math.max(snapPos(p.x - PORT_W / 2 + dx), free);
+        free = portBox.x + this.boxWidth(portBox) + SNAP;
+        const id = next++;
+        boxes.push([id, portBox]);
+        return id;
+      });
+    };
+    const inIds = row(inlets, "inlet", GRID);
+    const outIds = row(outlets, "outlet", maxY + dy + GRID);
+    const cables = [];
+    for (const c of internal) {
+      cables.push([next++, { srcBox: idMap.get(c.srcBox), srcOutlet: c.srcOutlet, dstBox: idMap.get(c.dstBox), dstInlet: c.dstInlet }]);
+    }
+    inlets.forEach((p, i) => cables.push([next++, { srcBox: inIds[i], srcOutlet: 0, dstBox: idMap.get(p.box), dstInlet: p.index }]));
+    outlets.forEach((p, i) => cables.push([next++, { srcBox: idMap.get(p.box), srcOutlet: p.index, dstBox: outIds[i], dstInlet: 0 }]));
+
+    const file = { name, side, description: "", args: [], inlets: inSpecs, outlets: outSpecs, boxes, cables, nextId: next };
+
+    // The instance: at the selection's top-left, wholly on its side.
+    let y = snapPos(minY);
+    if (this.showBorder) y = side === "synth" ? Math.max(y, this.borderY) : Math.min(y, this.borderY - BOX_HEIGHT);
+    const index = (list) => new Map(list.map((p, i) => [`${p.box}:${p.index}`, i]));
+    const inIndex = index(inlets), outIndex = index(outlets);
+    const plan = {
+      name, ids, x: snapPos(minX), y, before: this.serialize(),
+      inbound: inbound.map(({ id, cable, key }) => ({ id, srcBox: cable.srcBox, srcOutlet: cable.srcOutlet, inlet: inIndex.get(key) })),
+      outbound: outbound.map(({ id, cable, key }) => ({ id, outlet: outIndex.get(key), dstBox: cable.dstBox, dstInlet: cable.dstInlet })),
+    };
+    return { file, plan };
+  }
+
+  // Replace the selection with an instance of the saved abstraction, the
+  // outside cables moved onto its ports (they keep their ids): one undo
+  // step. The registry must already hold the abstraction. Returns false,
+  // changing nothing, if the patch changed since the plan was made.
+  applyEncapsulation(plan) {
+    if (this.serialize() !== plan.before) return false;
+    this.pushUndo(plan.before);
+    const gone = new Set(plan.ids);
+    for (const [cid, c] of [...this.cables]) {
+      if (gone.has(c.srcBox) || gone.has(c.dstBox)) this.cables.delete(cid);
+    }
+    for (const id of gone) this.boxes.delete(id);
+    const id = this.nextId++;
+    const ports = getBoxPorts(plan.name);
+    this.boxes.set(id, { x: plan.x, y: plan.y, text: plan.name, inlets: ports.inlets, outlets: ports.outlets });
+    for (const c of plan.inbound) this.cables.set(c.id, { srcBox: c.srcBox, srcOutlet: c.srcOutlet, dstBox: id, dstInlet: c.inlet });
+    for (const c of plan.outbound) this.cables.set(c.id, { srcBox: id, srcOutlet: c.outlet, dstBox: c.dstBox, dstInlet: c.dstInlet });
+    this.selection.clear();
+    this.selection.add(id);
+    this.cableSelection.clear();
+    this.render();
+    return true;
+  }
+
   // --- Nudge apart (`l`; notes/editor-modes.md, Grid) ---
   // Ctrl editor, edit mode; one undo step (none if nothing moves). Boxes
   // closer than half a unit to another on both axes (overlapping, or
