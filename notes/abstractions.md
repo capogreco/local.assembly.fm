@@ -121,7 +121,77 @@ rows, `CC_SOURCE` and `findBoxByText` go.
 
 ## Open
 
-- The face: header format, which boxes count as GUI, hiding the name, and
-  how the face is edited in the abstraction editor.
+- The face: Thomas's answers to the questions under "Face proposal" below.
 - The bundled libraries: names (one general library, or themed ones such
   as `granular/` and `midi/`) and contents.
+
+## Face proposal (Fable, 2026-11-08)
+
+Sources: Max's `bpatcher` and presentation mode docs; Pd's
+`tcl/dialog_canvas.tcl`, `src/g_canvas.c` (`gobj_shouldvis`) and
+`src/g_graph.c` (`graph_vis`).
+
+**Header.** `"face": { "x": 0, "y": 0, "w": 6, "h": 3, "hideName": false }`,
+with the rectangle in grid units; boxes stay in px. The face shows every GUI
+box lying wholly inside the rectangle, which is Pd's rule. Pd silently hides a
+box that crosses the edge; we refuse it at save. `hideName` hides the name and
+arguments together, as Pd's single checkbox does.
+
+**What counts as GUI.** A `gui` flag on the box's row in `gpi-types.js`:
+- `control`: knob, toggle, event, fan. This replaces the hard-coded
+  `INTERACTIVE_TYPES` (`patch-editor.js:22`).
+- `display`: print, and `scope~` (drawn only on phones; a placeholder in
+  the editor).
+- `label`: comment.
+
+**Mapping a face's controls to the patch.** `expandAbstractions` already
+builds each instance's local→global id map, then throws it away. Instead, keep
+it and send it to ctrl with `applied` and with full state. A knob on a face
+then sends the expanded box's id, and the server's knob path is unchanged.
+Display values come through the existing `values` messages.
+
+**Found along the way.**
+- A reconnecting ctrl receives the *expanded* graph (`getFullState`,
+  `server.ts:258`), so it loses its abstraction instances. The server should
+  keep the patch as authored and send that, plus the map.
+- Knob and toggle values aren't saved, and every apply resets each knob to
+  its text argument (`initSources`, `eval-engine.ts:566`). The proposed fix
+  serves both levels: the patch stores the values (`state` on an instance
+  box, `value` on a top-level knob), and the patch build prefers them.
+
+**Drawing and interaction.**
+- A faced instance is `w×20 × h×20`. Every place that assumes the fixed
+  `BOX_HEIGHT` instead takes the box's own height, including the side rules.
+- Faced instances snap to the grid dots.
+- Ports go along the top and bottom edges, coloured by their header types.
+- In edit mode the face behaves as one box (select, move, cable,
+  double-click to open). In run mode its controls work.
+- Nested faces are drawn recursively.
+
+**Authoring.**
+- In the abstraction editor, `f` drags out a rectangle snapped to the grid,
+  drawn dashed at the 1px weight.
+- Errors at save: a rectangle not in whole grid units; smaller than 2×2;
+  no GUI box inside; a GUI box crossing the edge.
+
+**Order.**
+1. The `gui` flag.
+2. `face` in the header, the loader and the save checks.
+3. The instance map: the server keeps the authored patch, and ctrl stores
+   the map.
+4. Box height, drawing, ports, snapping, and edit mode.
+5. Run mode on faces.
+6. Saving values.
+7. The face tool in the abstraction editor.
+8. Nesting.
+
+**Questions for Thomas (Fable's recommendation in brackets).**
+1. Face in grid units while boxes stay in px? (Yes.)
+2. Everything GUI inside the rectangle, or an explicit list? (Everything
+   inside; an error when a box crosses the edge.)
+3. A face with no GUI box, a pure label? (Refuse, but a comment counts.)
+4. Save knob and toggle values in the patch, at the top level too, which
+   changes today's reset-on-apply? (Yes, both.)
+5. `hideName` hides the arguments too? (Yes, one flag, as Pd.)
+6. Snap only faced instances to the grid, or everything? (Faced instances
+   now; everything later, as identity work.)
