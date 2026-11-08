@@ -159,6 +159,42 @@ and stop enforcing the static IP when the router owns DNS, and update the
 `server.ts` DNS check to probe via the router rather than `127.0.0.1:53`. That's
 the point at which the laptop truly becomes "a server at a known IP."
 
+## Friction: router setup needs an agent today (Thomas, 2026-10-30)
+
+Setting up the Beryl AX for the 2026-10-31 gig took an LLM agent at every step.
+Other people must be able to do this without one. Fix it with automation,
+copious scaffolding, or both.
+
+Where the friction was:
+- **Hidden prerequisite: the cert.** There was no cert for the default
+  `HOST_DOMAIN` (`local.tamb.fm`), and nothing said so until a reviewer dug
+  through `/etc/letsencrypt`. The repo `cert.pem` had expired silently.
+  `start-macos.sh` should check the cert's domain and expiry before anything
+  else, and say what to run.
+- **The GUI has many settings and few answers.** Each one needed a judgement
+  call: 160 MHz dynamic bandwidth (no, because DFS), the channel (36–48),
+  TX power, the DNS mode (Automatic, not Encrypted), "override DNS for all
+  clients" (on), and rebind protection (off). None of it is written down as a
+  click-through.
+- **The subnet move.** The router ships as `192.168.8.1`; we need
+  `192.168.178.1/24` and a DHCP pool that leaves `.24` free. Changing it drops
+  the admin session.
+- **The DNS hijack needs SSH and `uci`.** That is fine for us and a wall for
+  most people.
+- **Verification is scattered.** It used `dig @192.168.178.1 captive.apple.com`,
+  the server banner, and a phone test. Nothing runs them together.
+
+Directions (not decided):
+- **Automation:** a `router-setup` script that SSHes in once at the factory
+  default and applies everything (SSID/key, channels, widths, subnet, DHCP
+  pool, reservation, hijack, rebind), then verifies. Or one pasteable `uci`
+  block. Plus a `doctor`/preflight that checks the cert, the subnet, DNS and
+  the laptop IP.
+- **Scaffolding:** a printed, screenshot-level GL.iNet click-through, one
+  setting per line with the value and a one-line why. A known-good backup of
+  the router config to restore. A labelled, pre-configured router as the
+  default thing to hand someone.
+
 ## Cross-link
 
 `network-and-modes.md` should link here from its hardware/contract section (left
