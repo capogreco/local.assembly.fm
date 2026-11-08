@@ -8,6 +8,7 @@ import { COLORS, onThemeChange } from "./theme.js";
 const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
+const SMALL_CHAR_W = 6; // SMALL_FONT's glyph advance (0.6em)
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 
 // --- editor modes ---
@@ -1300,11 +1301,18 @@ class PatchEditor {
       for (const [v, kx, ky, kw] of knobs) this.drawKnobLabel(v, kx, ky, kw);
       ctx.restore();
     }
+    // The name and args, in the top row: inside the face, cut to its width.
     if (!face.hideName) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, W, H);
+      ctx.clip();
       ctx.font = SMALL_FONT;
       ctx.fillStyle = COLORS.commentText;
       ctx.textBaseline = "top";
-      ctx.fillText(text, x + 3, y + 2);
+      const fit = Math.floor((W - 6) / SMALL_CHAR_W);
+      ctx.fillText(text.length > fit ? text.slice(0, Math.max(0, fit - 1)) + "…" : text, x + 3, y + 2);
+      ctx.restore();
     }
     ctx.strokeStyle = selected ? COLORS.boxSelectedStroke : COLORS.abstractionStroke;
     ctx.strokeRect(x + 0.5, y + 0.5, W - 1, H - 1);

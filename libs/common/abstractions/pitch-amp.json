@@ -1,7 +1,7 @@
 {
  "name": "common/pitch-amp",
  "side": "ctrl",
- "description": "Two knobs on a face: a pitch in Hz (50-1000, curved) and an amplitude (0-1).",
+ "description": "Two knobs on a face, under its name: a pitch in Hz (50-1000, curved) and an amplitude (0-1).",
  "args": [],
  "inlets": [],
  "outlets": [
@@ -20,7 +20,7 @@
   "x": 1,
   "y": 1,
   "w": 12,
-  "h": 5,
+  "h": 4,
   "hideName": false
  },
  "boxes": [
@@ -28,7 +28,7 @@
    1,
    {
     "x": 20,
-    "y": 20,
+    "y": 40,
     "text": "comment pitch / amp"
    }
   ],
@@ -36,7 +36,7 @@
    2,
    {
     "x": 20,
-    "y": 40,
+    "y": 60,
     "text": "knob 220 50 1000 2"
    }
   ],
