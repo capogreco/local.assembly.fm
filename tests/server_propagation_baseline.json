@@ -314,6 +314,59 @@
     "groupState": {},
     "latestValues": {}
   },
+  "knob set by a const: no blip of the knob's own arg at build": {
+    "capture": {
+      "ctrlSends": [],
+      "synthBroadcasts": [
+        {
+          "type": "rv",
+          "r": 2,
+          "ch": 0,
+          "v": 0.2
+        }
+      ],
+      "clientSends": [],
+      "events": []
+    },
+    "boxValues": {
+      "1": 0.2,
+      "3": 0.2
+    },
+    "graph": {
+      "1": {
+        "inletValues": [
+          0.2
+        ],
+        "state": {
+          "value": 0.2,
+          "min": 0,
+          "max": 1
+        }
+      },
+      "2": {
+        "inletValues": [
+          0.2
+        ],
+        "state": null
+      },
+      "3": {
+        "inletValues": [],
+        "state": {
+          "value": 0.2
+        }
+      }
+    },
+    "routerState": {},
+    "groupState": {},
+    "latestValues": {
+      "2:0": {
+        "type": "rv",
+        "r": 2,
+        "ch": 0,
+        "v": 0.2
+      }
+    }
+  },
   "toggle inlet 1 flips on rising edge": {
     "capture": {
       "ctrlSends": [],
