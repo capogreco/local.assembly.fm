@@ -1,0 +1,197 @@
+{
+ "name": "common/quantiser",
+ "side": "synth",
+ "description": "Quantises a 0-1 position to a scale: multiplies by steps, floors, passes changes only, looks the step up in the scale (semitones, default 0 4 7 11) and outputs it as a fraction of an octave (semitones / 12).",
+ "args": [],
+ "inlets": [
+  {
+   "name": "in",
+   "type": "number",
+   "description": "Position, 0-1"
+  },
+  {
+   "name": "scale",
+   "type": "number",
+   "description": "New scale table (array of semitones), replaces 0 4 7 11"
+  },
+  {
+   "name": "steps",
+   "type": "number",
+   "description": "Scale steps the 0-1 range covers (default 4)"
+  }
+ ],
+ "outlets": [
+  {
+   "name": "out",
+   "type": "number",
+   "description": "Scale degree in octaves (semitones / 12)"
+  }
+ ],
+ "boxes": [
+  [
+   1,
+   {
+    "x": 350,
+    "y": 206,
+    "text": "* 4",
+    "inlets": 2,
+    "outlets": 1
+   }
+  ],
+  [
+   2,
+   {
+    "x": 328,
+    "y": 238,
+    "text": "floor",
+    "inlets": 1,
+    "outlets": 1
+   }
+  ],
+  [
+   3,
+   {
+    "x": 325,
+    "y": 272,
+    "text": "change",
+    "inlets": 1,
+    "outlets": 1
+   }
+  ],
+  [
+   4,
+   {
+    "x": 339,
+    "y": 307,
+    "text": "map 0 4 7 11",
+    "inlets": 2,
+    "outlets": 1
+   }
+  ],
+  [
+   5,
+   {
+    "x": 379,
+    "y": 347,
+    "text": "/ 12",
+    "inlets": 2,
+    "outlets": 1
+   }
+  ],
+  [
+   11,
+   {
+    "x": 246,
+    "y": 119,
+    "text": "inlet 0",
+    "inlets": 0,
+    "outlets": 1
+   }
+  ],
+  [
+   12,
+   {
+    "x": 483,
+    "y": 115,
+    "text": "inlet 2",
+    "inlets": 0,
+    "outlets": 1
+   }
+  ],
+  [
+   15,
+   {
+    "x": 366,
+    "y": 121,
+    "text": "inlet 1",
+    "inlets": 0,
+    "outlets": 1
+   }
+  ],
+  [
+   17,
+   {
+    "x": 369,
+    "y": 414,
+    "text": "outlet 0",
+    "inlets": 1,
+    "outlets": 0
+   }
+  ]
+ ],
+ "cables": [
+  [
+   6,
+   {
+    "srcBox": 1,
+    "srcOutlet": 0,
+    "dstBox": 2,
+    "dstInlet": 0
+   }
+  ],
+  [
+   8,
+   {
+    "srcBox": 2,
+    "srcOutlet": 0,
+    "dstBox": 3,
+    "dstInlet": 0
+   }
+  ],
+  [
+   9,
+   {
+    "srcBox": 3,
+    "srcOutlet": 0,
+    "dstBox": 4,
+    "dstInlet": 0
+   }
+  ],
+  [
+   10,
+   {
+    "srcBox": 4,
+    "srcOutlet": 0,
+    "dstBox": 5,
+    "dstInlet": 0
+   }
+  ],
+  [
+   13,
+   {
+    "srcBox": 11,
+    "srcOutlet": 0,
+    "dstBox": 1,
+    "dstInlet": 0
+   }
+  ],
+  [
+   14,
+   {
+    "srcBox": 12,
+    "srcOutlet": 0,
+    "dstBox": 1,
+    "dstInlet": 1
+   }
+  ],
+  [
+   16,
+   {
+    "srcBox": 15,
+    "srcOutlet": 0,
+    "dstBox": 4,
+    "dstInlet": 1
+   }
+  ],
+  [
+   18,
+   {
+    "srcBox": 5,
+    "srcOutlet": 0,
+    "dstBox": 17,
+    "dstInlet": 0
+   }
+  ]
+ ],
+ "nextId": 19
+}

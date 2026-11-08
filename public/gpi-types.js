@@ -1,7 +1,7 @@
 /**
  * GPI Box Type Registry
  * Defines all operator types with their ports, bindings, and documentation.
- * Port types: number, event, symbol, array, passthrough
+ * Port types: PORT_TYPES (number, event, symbol, array, passthrough, audio)
  * Bindings: ctrl, synth, border (routers); no binding = free
  */
 
@@ -698,7 +698,7 @@ function boxTypeName(text) {
 }
 
 function getBoxPorts(text) {
-  const def = BOX_TYPES[boxTypeName(text)];
+  const def = typeDef(boxTypeName(text));
   if (!def) return { inlets: 1, outlets: 1 };
   if (def.dynamic) {
     const name = boxTypeName(text);
@@ -769,36 +769,45 @@ function getBoxDef(text) {
   return BOX_TYPES[boxTypeName(text)] || null;
 }
 
+// --- Abstractions ---
+// Abstractions are not in BOX_TYPES: they live in libraries and are written
+// `lib/name`. Whoever loads them (the server, the editor) hands their headers
+// here, so ports and sides resolve for an instance as for a built-in box.
+// A header is { name, side, description, args, inlets, outlets }; port types
+// are PORT_TYPES. getBoxDef stays built-in only.
+
+const PORT_TYPES = ["number", "event", "symbol", "array", "passthrough", "audio"];
+
+let abstractions = new Map();
+
+// Use `map` (name → header) as the abstraction table. The caller keeps it;
+// later changes to the same Map are seen here.
+function useAbstractions(map) {
+  abstractions = map;
+}
+
+function getAbstractionDef(name) {
+  return abstractions.get(name) ?? null;
+}
+
+// Built-in row or abstraction header.
+function typeDef(name) {
+  return BOX_TYPES[name] ?? abstractions.get(name) ?? null;
+}
+
 // --- Side and binding ---
 // A box is free (its side follows its position against the border) or bound
 // to a single side whatever its position; routers are the border. A type's
-// `binding` field is "ctrl", "synth" or "border"; no field means free.
-// `lookup(name)` returns an abstraction's inner boxes (anything iterable of
-// {text}) or null; without it, unknown types count as free.
+// `binding` field is "ctrl", "synth" or "border"; no field means free. An
+// abstraction is bound to the side its header declares; whether its contents
+// agree is checked when it is saved, loaded and applied (apply-check.ts).
 
-// Binding of a box: { binding: "ctrl" | "synth" | "border" | "free", error }.
-// An abstraction's binding is inferred from its contents (nested ones too):
-// ctrl-bound if any inner box is ctrl-bound, synth-bound if any is synth-bound.
-// Both kinds, or a router, inside is an error (`error` is set), and so is an
-// abstraction that contains itself, at any depth.
-function boxBinding(text, lookup, seen = new Set()) {
+// Binding of a box: "ctrl" | "synth" | "border" | "free".
+function boxBinding(text) {
   const name = boxTypeName(text);
   const def = BOX_TYPES[name];
-  if (def) return { binding: def.binding ?? "free", error: null };
-  const inner = lookup ? lookup(name) : null;
-  if (!inner) return { binding: "free", error: null };
-  if (seen.has(name)) return { binding: "free", error: `abstraction "${name}" contains itself` };
-  const path = new Set(seen).add(name);
-  let ctrl = null, synth = null;
-  for (const innerBox of inner) {
-    const b = boxBinding(innerBox.text, lookup, path);
-    if (b.error) return b;
-    if (b.binding === "border") return { binding: "free", error: `abstraction "${name}" contains router "${innerBox.text}": an abstraction lives on a single side` };
-    if (b.binding === "ctrl") ctrl ??= innerBox.text;
-    if (b.binding === "synth") synth ??= innerBox.text;
-  }
-  if (ctrl && synth) return { binding: "free", error: `abstraction "${name}" mixes ctrl-bound "${ctrl}" and synth-bound "${synth}": an abstraction lives on a single side` };
-  return { binding: ctrl ? "ctrl" : synth ? "synth" : "free", error: null };
+  if (def) return def.binding ?? "free";
+  return abstractions.get(name)?.side ?? "free";
 }
 
 // Height of a box in patch units. The side rule needs it, so it lives here
@@ -820,18 +829,16 @@ function wholeSide(box, borderY) {
 }
 
 // The one place a box's side is decided: "ctrl" | "synth" | "border".
-// Bound boxes ignore borderY. Throws on an abstraction with an inconsistent binding.
-function sideOf(box, borderY, lookup) {
-  const { binding, error } = boxBinding(box.text, lookup);
-  if (error) throw new Error(error);
+// Bound boxes ignore borderY.
+function sideOf(box, borderY) {
+  const binding = boxBinding(box.text);
   return binding === "free" ? positionSide(box, borderY) : binding;
 }
 
 // A bound box not wholly on its side: on the other side, or straddling the
 // border. Only routers straddle the line, so a straddling bound box is off side.
-function isOffSide(box, borderY, lookup) {
-  const { binding, error } = boxBinding(box.text, lookup);
-  if (error) throw new Error(error);
+function isOffSide(box, borderY) {
+  const binding = boxBinding(box.text);
   return (binding === "ctrl" || binding === "synth") && binding !== wholeSide(box, borderY);
 }
 
@@ -839,13 +846,13 @@ function isOffSide(box, borderY, lookup) {
 // a box already off side at `from` (against fromY) moves freely, since it is
 // flagged and apply rejects it until it is back. `from` null is a new box,
 // judged by `to` alone.
-function movesOffSide(from, fromY, to, toY, lookup) {
-  return isOffSide(to, toY, lookup) && !(from && isOffSide(from, fromY, lookup));
+function movesOffSide(from, fromY, to, toY) {
+  return isOffSide(to, toY) && !(from && isOffSide(from, fromY));
 }
 
 // Resolve port definition for a specific inlet/outlet index (handles dynamic types)
 function getInletDef(text, index) {
-  const def = BOX_TYPES[boxTypeName(text)];
+  const def = typeDef(boxTypeName(text));
   if (!def) return null;
   const name = boxTypeName(text);
   if (name === "group") {
@@ -874,7 +881,7 @@ function getInletDef(text, index) {
 
 function getOutletDef(text, index) {
   const name = boxTypeName(text);
-  const def = BOX_TYPES[name];
+  const def = typeDef(name);
   if (!def) return null;
   // select/sel: match outlets are events, last outlet (reject) is number
   if (name === "select" || name === "sel") {
@@ -948,5 +955,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, boxBinding, positionSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, PORT_TYPES, BOX_HEIGHT, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

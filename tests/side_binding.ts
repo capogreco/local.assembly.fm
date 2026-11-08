@@ -27,26 +27,30 @@ const cable = (id: number, srcBox: number, srcOutlet: number, dstBox: number, ds
   [id, { srcBox, srcOutlet, dstBox, dstInlet }];
 const msg = (b: B[], c: [number, unknown][] = []) => ({ boxes: b, cables: c, nextId: 1000, borderY: BORDER });
 
-function absDef(texts: string[]): AbstractionDef {
+// An abstraction whose boxes are wired in a chain, first to last. A header
+// inlet/outlet is declared (number) for each `inlet i`/`outlet i` box.
+function absDef(name: string, side: "ctrl" | "synth", texts: string[]): AbstractionDef {
+  const port = (kind: string) => texts.filter((t) => t.startsWith(kind + " ")).map((_, i) => ({ name: `${kind[0]}${i}`, type: "number", description: "" }));
   return {
+    name, side, description: "", args: [], inlets: port("inlet"), outlets: port("outlet"),
     boxes: new Map(texts.map((text, i) => [i + 1, { x: 0, y: 0, text }])),
-    // Wire the first box through the rest in a chain, as an inlet-to-outlet path.
     cables: new Map(texts.slice(1).map((_, i) => [i + 1, { srcBox: i + 1, srcOutlet: 0, dstBox: i + 2, dstInlet: 0 }])),
   };
 }
 const loaded = new Map<string, AbstractionDef>([
-  ["free-abs", absDef(["inlet 0", "+ 1", "outlet 0"])],
-  ["ctrl-abs", absDef(["inlet 0", "key", "outlet 0"])],
-  ["synth-abs", absDef(["inlet 0", "touch", "outlet 0"])],
-  ["mixed-abs", absDef(["key", "touch"])],
-  ["router-abs", absDef(["inlet 0", "all 1"])],
-  ["nested-mixed", absDef(["ctrl-abs", "synth-abs"])],
-  ["nested-ctrl", absDef(["free-abs", "ctrl-abs"])],
-  ["typo-abs", absDef(["inlet 0", "no-such-box", "outlet 0"])],
-  ["self-abs", absDef(["inlet 0", "self-abs", "self-abs", "outlet 0"])],
-  ["ping", absDef(["inlet 0", "pong", "outlet 0"])],
-  ["pong", absDef(["inlet 0", "ping", "outlet 0"])],
-]);
+  absDef("t/free-abs", "ctrl", ["inlet 0", "+ 1", "outlet 0"]),
+  absDef("t/synth-free", "synth", ["inlet 0", "+ 1", "outlet 0"]),
+  absDef("t/ctrl-abs", "ctrl", ["inlet 0", "key", "outlet 0"]),
+  absDef("t/synth-abs", "synth", ["inlet 0", "touch", "outlet 0"]),
+  absDef("t/mixed-abs", "ctrl", ["key", "touch"]),
+  absDef("t/router-abs", "ctrl", ["inlet 0", "all 1"]),
+  absDef("t/nested-mixed", "ctrl", ["t/ctrl-abs", "t/synth-abs"]),
+  absDef("t/nested-ctrl", "ctrl", ["t/free-abs", "t/ctrl-abs"]),
+  absDef("t/typo-abs", "ctrl", ["inlet 0", "no-such-box", "outlet 0"]),
+  absDef("t/self-abs", "ctrl", ["inlet 0", "t/self-abs", "t/self-abs", "outlet 0"]),
+  absDef("t/ping", "ctrl", ["inlet 0", "t/pong", "outlet 0"]),
+  absDef("t/pong", "ctrl", ["inlet 0", "t/ping", "outlet 0"]),
+].map((d) => [d.name, d]));
 
 function reset(): void {
   clearPatchState();
@@ -72,36 +76,39 @@ console.log("synth-bound box placed ctrl-side");
 console.log("abstraction containing a router");
 {
   reset();
-  const r = applyPatch(msg([box(1, "router-abs", CTRL_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "t/router-abs", CTRL_Y)]), loaded);
   check("rejected", r.errors.some((e) => /contains router/.test(e)), JSON.stringify(r.errors));
 }
 
-console.log("abstraction mixing ctrl- and synth-bound boxes");
+console.log("abstraction containing a box bound to the other side");
 {
   reset();
-  const r = applyPatch(msg([box(1, "mixed-abs", CTRL_Y)]), loaded);
-  check("rejected", r.errors.some((e) => /mixes ctrl-bound "key" and synth-bound "touch"/.test(e)), JSON.stringify(r.errors));
-  const n = applyPatch(msg([box(1, "nested-mixed", CTRL_Y)]), loaded);
-  check("nested mix rejected", n.errors.some((e) => /mixes/.test(e)), JSON.stringify(n.errors));
+  const r = applyPatch(msg([box(1, "t/mixed-abs", CTRL_Y)]), loaded);
+  check("rejected", r.errors.some((e) => /"t\/mixed-abs": is declared ctrl but contains synth-bound "touch"/.test(e)), JSON.stringify(r.errors));
+  const n = applyPatch(msg([box(1, "t/nested-mixed", CTRL_Y)]), loaded);
+  check("nested abstraction on the other side rejected", n.errors.some((e) => /contains synth-bound "t\/synth-abs"/.test(e)), JSON.stringify(n.errors));
 }
 
-console.log("bound abstraction placed on the wrong side");
+console.log("abstraction placed on the wrong side");
 {
   reset();
-  const r = applyPatch(msg([box(1, "ctrl-abs", SYNTH_Y)]), loaded);
-  check("rejected", r.errors.length > 0 && /"key"/.test(r.errors[0]), JSON.stringify(r.errors));
+  const r = applyPatch(msg([box(1, "t/ctrl-abs", SYNTH_Y)]), loaded);
+  check("bound contents: rejected", r.errors.length === 1 && /"t\/ctrl-abs" is bound to the ctrl side/.test(r.errors[0]), JSON.stringify(r.errors));
+  const f = applyPatch(msg([box(1, "t/free-abs", SYNTH_Y)]), loaded);
+  check("free contents: declared side still holds", f.errors.length === 1 && /"t\/free-abs" is bound to the ctrl side/.test(f.errors[0]), JSON.stringify(f.errors));
 }
 
 console.log("valid patch accepted");
 {
   reset();
   const r = applyPatch(msg(
-    [box(1, "key", CTRL_Y), box(2, "all 1", BORDER), box(3, "touch", SYNTH_Y), box(4, "free-abs", CTRL_Y), box(5, "ewing~", SYNTH_Y), box(6, "nested-ctrl", CTRL_Y)],
+    [box(1, "key", CTRL_Y), box(2, "all 1", BORDER), box(3, "touch", SYNTH_Y), box(4, "t/free-abs", CTRL_Y), box(5, "ewing~", SYNTH_Y), box(6, "t/nested-ctrl", CTRL_Y)],
     [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)],
   ), loaded);
   check("no errors", r.errors.length === 0, JSON.stringify(r.errors));
   check("committed to the live patch", boxes.has(1) && boxes.has(3) && getPatchNextId() === 1000);
-  check("abstractions expanded away", ![...boxes.values()].some((b) => b.text === "free-abs" || b.text === "nested-ctrl"));
+  check("abstractions expanded away", ![...boxes.values()].some((b) => b.text === "t/free-abs" || b.text === "t/nested-ctrl"));
+  check("abstractions used, nested ones too", JSON.stringify([...r.abstractions].sort()) === JSON.stringify(["t/ctrl-abs", "t/free-abs", "t/nested-ctrl"]), JSON.stringify([...r.abstractions]));
   const sides = Object.fromEntries([...boxes].filter(([id]) => id <= 6).map(([id, b]) => [id, b.side]));
   check("sides stamped", JSON.stringify(sides) === JSON.stringify({ 1: "ctrl", 2: "border", 3: "synth", 5: "synth" }), JSON.stringify(sides));
   check("every box has a side", [...boxes.values()].every((b) => b.side !== undefined));
@@ -118,9 +125,9 @@ console.log("rejected apply leaves the previous patch in place");
   const before = JSON.stringify({ b: [...boxes], c: [...cables], n: getPatchNextId(), y: getBorderY() });
   const bad = [
     msg([box(7, "key", SYNTH_Y)]),
-    msg([box(7, "mixed-abs", CTRL_Y)]),
+    msg([box(7, "t/mixed-abs", CTRL_Y)]),
     msg([box(7, "no-such-box", CTRL_Y)]),
-    { ...msg([box(7, "free-abs", CTRL_Y), box(8, "key", SYNTH_Y)]), borderY: 250, nextId: 5 },
+    { ...msg([box(7, "t/free-abs", CTRL_Y), box(8, "key", SYNTH_Y)]), borderY: 250, nextId: 5 },
   ];
   for (const m of bad) {
     const snapshot = JSON.stringify(m);
@@ -135,17 +142,17 @@ console.log("rejected apply leaves the previous patch in place");
 console.log("abstraction that contains itself");
 {
   reset();
-  const r = applyPatch(msg([box(1, "self-abs", CTRL_Y)]), loaded);
-  check("direct cycle rejected", r.errors.some((e) => /"self-abs" contains itself/.test(e)), JSON.stringify(r.errors));
+  const r = applyPatch(msg([box(1, "t/self-abs", CTRL_Y)]), loaded);
+  check("direct cycle rejected", r.errors.some((e) => /"t\/self-abs": contains itself/.test(e)), JSON.stringify(r.errors));
   check("nothing committed", boxes.size === 0);
-  const m = applyPatch(msg([box(1, "ping", CTRL_Y)]), loaded);
+  const m = applyPatch(msg([box(1, "t/ping", CTRL_Y)]), loaded);
   check("mutual cycle rejected", m.errors.some((e) => /contains itself/.test(e)), JSON.stringify(m.errors));
 }
 
 console.log("unknown box type inside an abstraction");
 {
   reset();
-  const r = applyPatch(msg([box(1, "typo-abs", CTRL_Y)]), loaded);
+  const r = applyPatch(msg([box(1, "t/typo-abs", CTRL_Y)]), loaded);
   check("rejected", r.errors.some((e) => /unknown box type "no-such-box"/.test(e)), JSON.stringify(r.errors));
   check("nothing committed", boxes.size === 0);
 }
@@ -168,7 +175,7 @@ console.log("group args: a count or two or more positive weights");
 console.log("border crossings are still caught after expansion");
 {
   reset();
-  const r = applyPatch(msg([box(1, "cc", CTRL_Y), box(2, "free-abs", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]), loaded);
+  const r = applyPatch(msg([box(1, "cc", CTRL_Y), box(2, "t/synth-free", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]), loaded);
   check("bare event cable across border rejected", r.errors.some((e) => /crosses the border without a router/.test(e)), JSON.stringify(r.errors));
 }
 
@@ -206,14 +213,11 @@ console.log("router unchanged");
   check("snapped to borderY - BOX_HEIGHT/2", boxes.get(1)!.y === BORDER - 11, String(boxes.get(1)!.y));
 }
 
-console.log("abstraction save check");
+console.log("abstraction save check: side against contents");
 {
-  const mixed = { boxes: [[1, { text: "key" }], [2, { text: "touch" }]], cables: [] };
-  check("mixed rejected", checkAbstraction("m", mixed, loaded) !== null);
-  const ok = { boxes: [[1, { text: "+ 1" }]], cables: [] };
-  check("free accepted", checkAbstraction("f", ok, loaded) === null);
-  const self = { boxes: [[1, { text: "self" }], [2, { text: "key" }]], cables: [] };
-  check("self-reference rejected", /contains itself/.test(checkAbstraction("self", self, loaded) ?? ""));
+  check("other side rejected", checkAbstraction(absDef("t/m", "ctrl", ["key", "touch"]), loaded).length === 1);
+  check("free contents accepted on either side", checkAbstraction(absDef("t/f", "synth", ["+ 1"]), loaded).length === 0);
+  check("self-reference rejected", checkAbstraction(absDef("t/self", "ctrl", ["t/self", "key"]), loaded).some((e) => /contains itself/.test(e)));
 }
 
 console.log("editor move judged by where it ends (movesOffSide)");

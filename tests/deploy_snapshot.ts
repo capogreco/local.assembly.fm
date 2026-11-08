@@ -8,16 +8,20 @@
  *   deno run --allow-read tests/deploy_snapshot.ts verify
  */
 
-import { applyPatch, type AbstractionDef } from "../apply-check.ts";
+import { applyPatch, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
 import { serializeLaptopPatch, serializeSynthPatch } from "../deploy.ts";
 
 // Tomorrow's four, plus the ctrl-side audio and sall cases.
 const PATCHES = ["ks_arp", "frogs", "panharmonium", "epimetheus", "fftPeak_test", "cute-sine_keys", "archive/sall_test", "archive/symbiogenesis"];
 
 const loaded = new Map<string, AbstractionDef>();
-for (const e of Deno.readDirSync("abstractions")) {
-  const raw = JSON.parse(Deno.readTextFileSync(`abstractions/${e.name}`));
-  loaded.set(e.name.replace(/\.json$/, ""), { boxes: new Map(raw.boxes), cables: new Map(raw.cables) });
+for (const lib of Deno.readDirSync("libs")) {
+  for (const e of Deno.readDirSync(`libs/${lib.name}/abstractions`)) {
+    const name = `${lib.name}/${e.name.replace(/\.json$/, "")}`;
+    const { def, errors } = parseAbstraction(name, JSON.parse(Deno.readTextFileSync(`libs/${name.replace("/", "/abstractions/")}.json`)));
+    if (!def) throw new Error(`${name}: ${errors.join("; ")}`);
+    loaded.set(name, def);
+  }
 }
 
 function runAll(): Record<string, string> {

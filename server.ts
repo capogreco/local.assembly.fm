@@ -16,7 +16,7 @@ import {
 import { getLanIP, qrText } from "./onboarding.ts";
 import { boxTypeName } from "./public/gpi-types.js";
 import { serializeLaptopPatch, serializeSynthPatch } from "./deploy.ts";
-import { type AbstractionDef, applyPatch, checkAbstraction } from "./apply-check.ts";
+import { type AbstractionDef, LIB_NAME, applyPatch, checkAbstraction, isAbstractionName, parseAbstraction } from "./apply-check.ts";
 
 // Workshop self-signed cert — distinct filenames so generation can never
 // clobber a hand-copied Let's Encrypt pair sitting in the repo root.
@@ -201,17 +201,13 @@ function handleApply(msg: any): void {
   // Build and validate the new patch in local maps first. A rejected apply
   // leaves the running patch untouched; nothing is half-applied and nothing
   // is silently dropped.
-  const { errors, warnings } = applyPatch(msg, loadedAbstractions);
+  const { errors, abstractions } = applyPatch(msg, loadedAbstractions);
   if (errors.length > 0) {
     for (const err of errors) console.log(`\x1b[31m✗ apply rejected: ${err}\x1b[0m`);
     sendCtrl({ type: "apply-rejected", errors });
     return;
   }
-
-  if (warnings.length > 0) {
-    for (const err of warnings) console.log(`\x1b[33m⚠ ${err}\x1b[0m`);
-    sendCtrl({ type: "errors", errors: warnings });
-  }
+  runningAbstractions = abstractions;
 
   // Phones and the laptop get the new deploys first, so the ctrl side's
   // initial values (sent as the server graph builds) land on them.
@@ -506,41 +502,74 @@ function appHandler(req: Request, info: Deno.ServeHandlerInfo, insecure = false)
 // --- Patch storage API ---
 
 const PATCHES_DIR = "./patches";
-const ABSTRACTIONS_DIR = "./abstractions";
+const LIBS_DIR = "./libs";
 const HELP_DIR = "./help";
 await Deno.mkdir(PATCHES_DIR, { recursive: true });
-await Deno.mkdir(ABSTRACTIONS_DIR, { recursive: true });
+await Deno.mkdir(LIBS_DIR, { recursive: true });
 await Deno.mkdir(HELP_DIR, { recursive: true });
 
 // --- Abstraction loading ---
+// Every abstraction lives in a library: libs/<lib>/abstractions/<name>.json,
+// written `<lib>/<name>` in boxes (notes/abstractions.md, notes/libraries.md).
 
 const loadedAbstractions = new Map<string, AbstractionDef>();
+// Abstractions the running patch uses (nested ones too); they can't be deleted.
+let runningAbstractions = new Set<string>();
 
-async function loadAbstractions(): Promise<void> {
-  loadedAbstractions.clear();
+function abstractionFile(name: string): string {
+  const [lib, base] = name.split("/");
+  return `${LIBS_DIR}/${lib}/abstractions/${base}.json`;
+}
+
+async function* dirEntries(dir: string): AsyncGenerator<Deno.DirEntry> {
   try {
-    for await (const entry of Deno.readDir(ABSTRACTIONS_DIR)) {
-      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
-      const name = entry.name.replace(".json", "");
-      try {
-        const data = JSON.parse(await Deno.readTextFile(`${ABSTRACTIONS_DIR}/${entry.name}`));
-        const absBoxes = new Map<number, any>();
-        const absCables = new Map<number, any>();
-        for (const [id, box] of data.boxes) absBoxes.set(id, box);
-        for (const [id, cable] of data.cables) absCables.set(id, cable);
-        loadedAbstractions.set(name, { boxes: absBoxes, cables: absCables });
-      } catch (e) {
-        console.error(`Failed to load abstraction ${name}:`, e);
-      }
-    }
-    event(`loaded ${loadedAbstractions.size} abstraction(s)`);
-  } catch {
-    // Directory may not exist yet
+    for await (const e of Deno.readDir(dir)) yield e;
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) throw e;
   }
 }
 
-// Load abstractions on startup
-await loadAbstractions();
+// Read and check every library abstraction. Throws, naming each bad file,
+// if any header is malformed or any contents disagree with their header.
+async function readAbstractions(): Promise<Map<string, AbstractionDef>> {
+  const out = new Map<string, AbstractionDef>();
+  const problems: string[] = [];
+  for await (const lib of dirEntries(LIBS_DIR)) {
+    if (!lib.isDirectory) continue;
+    if (!LIB_NAME.test(lib.name)) { problems.push(`${LIBS_DIR}/${lib.name}: not a valid library name`); continue; }
+    for await (const entry of dirEntries(`${LIBS_DIR}/${lib.name}/abstractions`)) {
+      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+      const name = `${lib.name}/${entry.name.replace(/\.json$/, "")}`;
+      const file = abstractionFile(name);
+      if (!isAbstractionName(name)) { problems.push(`${file}: not a valid abstraction name`); continue; }
+      let raw;
+      try { raw = JSON.parse(await Deno.readTextFile(file)); } catch (e) { problems.push(`${file}: ${e instanceof Error ? e.message : e}`); continue; }
+      const { def, errors } = parseAbstraction(name, raw);
+      for (const err of errors) problems.push(`${file}: ${err}`);
+      if (def) out.set(name, def);
+    }
+  }
+  for (const [name, def] of out) {
+    for (const err of checkAbstraction(def, out)) problems.push(`${abstractionFile(name)}: ${err}`);
+  }
+  if (problems.length > 0) throw new Error(problems.join("\n"));
+  return out;
+}
+
+async function loadAbstractions(): Promise<void> {
+  const fresh = await readAbstractions();
+  loadedAbstractions.clear();
+  for (const [name, def] of fresh) loadedAbstractions.set(name, def);
+  event(`loaded ${loadedAbstractions.size} abstraction(s)`);
+}
+
+// A malformed library stops the server (notes/libraries.md §6).
+try {
+  await loadAbstractions();
+} catch (e) {
+  console.error(`\x1b[31m✗ abstractions failed to load:\n${e instanceof Error ? e.message : e}\x1b[0m`);
+  Deno.exit(1);
+}
 
 function sanitizeName(name: string): string | null {
   const clean = name.replace(/[^a-zA-Z0-9_\- ]/g, "").trim();
@@ -631,13 +660,20 @@ async function handleHelpAPI(req: Request, url: URL): Promise<Response> {
     return new Response(JSON.stringify(names), { headers });
   }
 
-  const name = sanitizeHelpName(decodeURIComponent(url.pathname.slice(6)));
+  // `<type>-help` for a core box, `<lib>/<name>-help` for an abstraction (its
+  // library's help/ folder).
+  const requested = decodeURIComponent(url.pathname.slice(6));
+  const slash = requested.indexOf("/");
+  const lib = slash < 0 ? null : requested.slice(0, slash);
+  if (lib !== null && !LIB_NAME.test(lib)) return new Response("Invalid name", { status: 400 });
+  const name = sanitizeHelpName(slash < 0 ? requested : requested.slice(slash + 1));
   if (!name) return new Response("Invalid name", { status: 400 });
+  const dir = lib === null ? HELP_DIR : `${LIBS_DIR}/${lib}/help`;
 
   // GET /help/name — load a help patch
   if (req.method === "GET") {
     try {
-      return new Response(await Deno.readTextFile(`${HELP_DIR}/${name}.json`), { headers });
+      return new Response(await Deno.readTextFile(`${dir}/${name}.json`), { headers });
     } catch {
       return new Response("Not found", { status: 404 });
     }
@@ -647,7 +683,8 @@ async function handleHelpAPI(req: Request, url: URL): Promise<Response> {
   if (req.method === "PUT") {
     const raw = JSON.parse(await req.text());
     delete raw.borderY;
-    await Deno.writeTextFile(`${HELP_DIR}/${name}.json`, JSON.stringify(raw));
+    await Deno.mkdir(dir, { recursive: true });
+    await Deno.writeTextFile(`${dir}/${name}.json`, JSON.stringify(raw));
     event(`saved help: ${name}`);
     return new Response(JSON.stringify({ ok: true, name }), { headers });
   }
@@ -655,63 +692,66 @@ async function handleHelpAPI(req: Request, url: URL): Promise<Response> {
   return new Response("Method not allowed", { status: 405 });
 }
 
+// Abstraction names are `lib/name` (isAbstractionName); the URL carries them
+// encoded or as two path segments.
 async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
   const headers = { "content-type": "application/json" };
+  const refuse = (status: number, errors: string[]) =>
+    new Response(JSON.stringify({ ok: false, error: errors.join("\n"), errors }), { status, headers });
 
-  // GET /abstractions — list available abstractions
+  // GET /abstractions — list available abstractions (lib/name)
   if (req.method === "GET" && url.pathname === "/abstractions") {
-    const abstractions: string[] = [];
-    for await (const entry of Deno.readDir(ABSTRACTIONS_DIR)) {
-      if (entry.isFile && entry.name.endsWith(".json")) abstractions.push(entry.name.replace(".json", ""));
-    }
-    abstractions.sort();
-    return new Response(JSON.stringify(abstractions), { headers });
+    return new Response(JSON.stringify([...loadedAbstractions.keys()].sort()), { headers });
   }
 
-  // GET /abstractions/name — load an abstraction
-  if (req.method === "GET" && url.pathname.startsWith("/abstractions/")) {
-    const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
-    if (!name) return new Response("Invalid name", { status: 400 });
+  if (!url.pathname.startsWith("/abstractions/")) return new Response("Not found", { status: 404 });
+  const name = decodeURIComponent(url.pathname.slice("/abstractions/".length));
+  if (!isAbstractionName(name)) return refuse(400, [`"${name}": an abstraction name is library/name (letters, digits, _ - ~)`]);
+  const file = abstractionFile(name);
+
+  // GET /abstractions/lib/name — load an abstraction
+  if (req.method === "GET") {
     try {
-      const data = await Deno.readTextFile(`${ABSTRACTIONS_DIR}/${name}.json`);
-      return new Response(data, { headers });
+      return new Response(await Deno.readTextFile(file), { headers });
     } catch {
       return new Response("Not found", { status: 404 });
     }
   }
 
-  // PUT /abstractions/name — save an abstraction
-  if (req.method === "PUT" && url.pathname.startsWith("/abstractions/")) {
-    const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
-    if (!name) return new Response("Invalid name", { status: 400 });
-    const raw = JSON.parse(await req.text());
-    delete raw.borderY;
-    const bindingError = checkAbstraction(name, raw, loadedAbstractions);
-    if (bindingError) {
-      console.log(`\x1b[31m✗ abstraction ${name} rejected: ${bindingError}\x1b[0m`);
-      return new Response(JSON.stringify({ ok: false, error: bindingError }), { status: 400, headers });
+  // PUT /abstractions/lib/name — save an abstraction; every check is an error
+  if (req.method === "PUT") {
+    let raw;
+    try { raw = JSON.parse(await req.text()); } catch (e) { return refuse(400, [String(e)]); }
+    if (raw && typeof raw === "object") delete raw.borderY;
+    const { def, errors } = parseAbstraction(name, raw);
+    const problems = def ? checkAbstraction(def, loadedAbstractions) : errors.map((e) => `"${name}": ${e}`);
+    if (problems.length > 0) {
+      for (const p of problems) console.log(`\x1b[31m✗ abstraction ${name} rejected: ${p}\x1b[0m`);
+      return refuse(400, problems);
     }
-    await Deno.writeTextFile(`${ABSTRACTIONS_DIR}/${name}.json`, JSON.stringify(raw));
+    await Deno.mkdir(file.slice(0, file.lastIndexOf("/")), { recursive: true });
+    await Deno.writeTextFile(file, JSON.stringify(raw, null, 1) + "\n");
     event(`saved abstraction: ${name}`);
-    await loadAbstractions();  // Reload registry
+    // The running patch is untouched until the next apply.
+    await loadAbstractions();
     return new Response(JSON.stringify({ ok: true, name }), { headers });
   }
 
-  // DELETE /abstractions/name — delete an abstraction
-  if (req.method === "DELETE" && url.pathname.startsWith("/abstractions/")) {
-    const name = sanitizeName(decodeURIComponent(url.pathname.slice(14)));
-    if (!name) return new Response("Invalid name", { status: 400 });
-    try {
-      await Deno.remove(`${ABSTRACTIONS_DIR}/${name}.json`);
-      event(`deleted abstraction: ${name}`);
-      await loadAbstractions();  // Reload registry
-      return new Response(JSON.stringify({ ok: true }), { headers });
-    } catch {
-      return new Response("Not found", { status: 404 });
-    }
+  // DELETE /abstractions/lib/name — refused while anything uses it
+  if (req.method === "DELETE") {
+    if (!loadedAbstractions.has(name)) return new Response("Not found", { status: 404 });
+    if (runningAbstractions.has(name)) return refuse(409, [`"${name}" is used by the running patch`]);
+    const users = [...loadedAbstractions.values()]
+      .filter((a) => [...a.boxes.values()].some((b) => boxTypeName(b.text ?? "") === name))
+      .map((a) => a.name);
+    if (users.length > 0) return refuse(409, [`"${name}" is used by ${users.map((u) => `"${u}"`).join(", ")}`]);
+    await Deno.remove(file);
+    event(`deleted abstraction: ${name}`);
+    await loadAbstractions();
+    return new Response(JSON.stringify({ ok: true }), { headers });
   }
 
-  return new Response("Not found", { status: 404 });
+  return new Response("Method not allowed", { status: 405 });
 }
 
 // --- Self-signed cert generation (workshop) ---
