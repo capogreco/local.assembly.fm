@@ -47,14 +47,15 @@ editor.bindEvents();
 // The contract in the file: side, description, args, inlets, outlets
 // (notes/abstractions.md). The name is the file's; rename isn't here yet.
 
-const header = { side: params.get("side") ?? "", description: "", args: [], inlets: [], outlets: [] };
+// `face` is null when the abstraction has none; the file then has no field.
+const header = { side: params.get("side") ?? "", description: "", args: [], inlets: [], outlets: [], face: null };
 
 // Load existing abstraction data; a 404 is a new abstraction (side from Shift+N).
 {
   const res = await fetch(`/abstractions/${encodeURIComponent(absName)}`);
   if (res.ok) {
     const data = await res.json();
-    for (const k of Object.keys(header)) header[k] = data[k];
+    for (const k of Object.keys(header)) header[k] = data[k] ?? (k === "face" ? null : undefined);
     editor.load(data);
   } else if (res.status !== 404) {
     alert(`can't load ${absName}: ${await res.text()}`);
@@ -142,7 +143,7 @@ async function save() {
   const { boxes, cables, nextId } = JSON.parse(editor.serialize());
   const res = await fetch(`/abstractions/${encodeURIComponent(absName)}`, {
     method: "PUT",
-    body: JSON.stringify({ name: absName, ...header, boxes, cables, nextId }),
+    body: JSON.stringify({ name: absName, ...header, face: header.face ?? undefined, boxes, cables, nextId }),
   });
   if (res.ok) {
     dirty = false;

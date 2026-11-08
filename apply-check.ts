@@ -15,11 +15,14 @@ import {
 } from "./patch-state.ts";
 import {
   BOX_HEIGHT, PORT_TYPES, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
-  groupArgs, isAudioBox, isOffSide, positionSide, routerY, sideOf, wholeSide,
+  boxHeight, faceContents, groupArgs, isAudioBox, isOffSide, positionSide, routerY, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
 export interface PortSpec { name: string; type: string; description: string }
 export interface ArgSpec { name: string; type: "symbol" | "number"; description: string }
+// The rectangle an instance shows on its parent, in grid units in the
+// abstraction's own coordinates (notes/abstractions.md, "Face proposal").
+export interface Face { x: number; y: number; w: number; h: number; hideName: boolean }
 
 export interface AbstractionDef {
   name: string;                 // "lib/name"
@@ -28,6 +31,7 @@ export interface AbstractionDef {
   args: ArgSpec[];
   inlets: PortSpec[];
   outlets: PortSpec[];
+  face: Face | null;
   // deno-lint-ignore no-explicit-any
   boxes: Map<number, any>;
   // deno-lint-ignore no-explicit-any
@@ -49,7 +53,7 @@ export function isAbstractionName(name: string): boolean {
 
 // --- Header ---
 
-const HEADER_KEYS = new Set(["name", "side", "description", "args", "inlets", "outlets", "boxes", "cables", "nextId"]);
+const HEADER_KEYS = new Set(["name", "side", "description", "args", "inlets", "outlets", "face", "boxes", "cables", "nextId"]);
 
 // deno-lint-ignore no-explicit-any
 function isObj(v: any): boolean {
@@ -74,6 +78,18 @@ function checkSpecList(raw: any, key: string, types: readonly string[], errors: 
   });
 }
 
+// An optional face: x, y (integers), w, h (integers, at least 2), all grid
+// units, and hideName (a boolean). Nothing else.
+// deno-lint-ignore no-explicit-any
+function checkFace(face: any, errors: string[]): void {
+  if (face === undefined) return;
+  if (!isObj(face)) { errors.push(`"face" must be an object { x, y, w, h, hideName }`); return; }
+  for (const k of Object.keys(face)) if (!["x", "y", "w", "h", "hideName"].includes(k)) errors.push(`face has unknown field "${k}"`);
+  for (const k of ["x", "y"]) if (!Number.isInteger(face[k])) errors.push(`face.${k} must be a whole number of grid units (got ${JSON.stringify(face[k])})`);
+  for (const k of ["w", "h"]) if (!Number.isInteger(face[k]) || face[k] < 2) errors.push(`face.${k} must be a whole number of grid units, at least 2 (got ${JSON.stringify(face[k])})`);
+  if (typeof face.hideName !== "boolean") errors.push(`face.hideName must be true or false`);
+}
+
 // Read an abstraction file's JSON into an AbstractionDef. `name` is the name
 // it is stored under (`lib/name`); the header must say the same. Returns the
 // header problems, one line each; `def` is null if there are any.
@@ -88,13 +104,14 @@ export function parseAbstraction(name: string, raw: any): { def: AbstractionDef 
   checkSpecList(raw, "args", ["symbol", "number"], errors);
   checkSpecList(raw, "inlets", PORT_TYPES, errors);
   checkSpecList(raw, "outlets", PORT_TYPES, errors);
+  checkFace(raw.face, errors);
   if (!Array.isArray(raw.boxes)) errors.push(`"boxes" must be a list of [id, box]`);
   if (!Array.isArray(raw.cables)) errors.push(`"cables" must be a list of [id, cable]`);
   if (errors.length > 0) return { def: null, errors };
   return {
     def: {
       name, side: raw.side, description: raw.description,
-      args: raw.args, inlets: raw.inlets, outlets: raw.outlets,
+      args: raw.args, inlets: raw.inlets, outlets: raw.outlets, face: raw.face ?? null,
       boxes: new Map(raw.boxes), cables: new Map(raw.cables),
     },
     errors,
@@ -217,6 +234,13 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
       const from = fromInlet ? `${src.text} (${fromInlet.name}, ${fromInlet.type})` : `"${src.text}" outlet ${c.srcOutlet}`;
       err(`${from} → "${dst.text}" inlet ${c.dstInlet}: ${problem}`);
     }
+  }
+
+  // The face: every GUI box wholly inside or wholly outside, and at least one inside.
+  if (def.face) {
+    const { shown, crossing } = faceContents(def, (n: string) => all.get(n) ?? null);
+    for (const b of crossing) err(`face: "${b.text}" crosses the face's edge; move it wholly inside or outside`);
+    if (shown.length === 0) err(`face: no GUI box inside (a knob, toggle, event, fan, print, scope~, comment, or a faced abstraction)`);
   }
 
   // Containing itself, at any depth.
@@ -444,10 +468,11 @@ function findBadArgs(boxes: Map<number, Box>): string[] {
 
 // A box bound to `binding` (a built-in or an abstraction instance) not wholly
 // on its side: the problem, or null.
-function offSideProblem(box: Box, borderY: number, binding: string): string | null {
+// `h` is the box's height (a faced instance is taller than a unit).
+function offSideProblem(box: Box, borderY: number, binding: string, h: number): string | null {
   if (binding !== "ctrl" && binding !== "synth") return null;
-  if (wholeSide(box, borderY) === binding) return null;
-  const where = positionSide(box, borderY) === binding ? "overhangs the border" : `is placed on the ${binding === "ctrl" ? "synth" : "ctrl"} side`;
+  if (wholeSide(box, borderY, h) === binding) return null;
+  const where = positionSide(box, borderY, h) === binding ? "overhangs the border" : `is placed on the ${binding === "ctrl" ? "synth" : "ctrl"} side`;
   return `"${box.text}" is bound to the ${binding} side but ${where}`;
 }
 
@@ -459,7 +484,7 @@ function offSideProblem(box: Box, borderY: number, binding: string): string | nu
 function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>, borderY: number): string[] {
   const problems = new Set<string>();
   for (const [, box] of boxes) {
-    if (isOffSide(box, borderY)) problems.add(offSideProblem(box, borderY, box.side!)!);
+    if (isOffSide(box, borderY)) problems.add(offSideProblem(box, borderY, box.side!, boxHeight(box))!);
   }
   for (const [, c] of cables) {
     const src = boxes.get(c.srcBox), dst = boxes.get(c.dstBox);
@@ -510,7 +535,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   // An instance sits on its declared side; its contents take their side from it.
   for (const [, box] of boxes) {
     const a = absOf(box.text, loaded);
-    const problem = a ? offSideProblem(box, borderY, a.side) : null;
+    const problem = a ? offSideProblem(box, borderY, a.side, boxHeight(box, (n: string) => loaded.get(n) ?? null)) : null;
     if (problem) errors.push(problem);
   }
   if (errors.length > 0) return result(errors);

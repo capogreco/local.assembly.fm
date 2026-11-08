@@ -64,7 +64,13 @@ console.log("header");
     ["arg type symbol|number", { args: [port("a", "audio")] }, /args\[0\] type must be one of symbol, number/],
     ["port needs a name", { outlets: [port("", "number")] }, /outlets\[0\] needs a name/],
     ["port names unique", { inlets: [port("a", "number"), port("a", "number")] }, /name "a" is used twice/],
-    ["unknown field", { face: {} }, /unknown field "face"/],
+    ["unknown field", { colour: "red" }, /unknown field "colour"/],
+    ["face: not an object", { face: [] }, /"face" must be an object/],
+    ["face: unknown field", { face: { x: 0, y: 0, w: 2, h: 2, hideName: false, z: 1 } }, /face has unknown field "z"/],
+    ["face: whole grid units", { face: { x: 0.5, y: 0, w: 2, h: 2, hideName: false } }, /face\.x must be a whole number of grid units/],
+    ["face: at least 2 wide", { face: { x: 0, y: 0, w: 1, h: 2, hideName: false } }, /face\.w must be a whole number of grid units, at least 2/],
+    ["face: at least 2 high", { face: { x: 0, y: 0, w: 2, h: 1.5, hideName: false } }, /face\.h must be .* at least 2/],
+    ["face: hideName required", { face: { x: 0, y: 0, w: 2, h: 2 } }, /face\.hideName must be true or false/],
     ["boxes must be a list", { boxes: {} }, /"boxes" must be a list/],
   ];
   for (const [what, over, re] of bad) {
@@ -114,6 +120,42 @@ console.log("save: $n needs a declared arg");
   const e = errs({ args: one, boxes: [[1, { text: "inlet 0" }], [2, { text: "* $2" }], [3, { text: "outlet 0" }]] });
   check("$2 with one arg rejected", e.some((m) => /"\* \$2" uses \$2, but 1 arg\(s\) are declared/.test(m)), JSON.stringify(e));
   check("$0 needs no arg", errs({ boxes: [[1, { text: "inlet 0" }], [2, { text: "* $0" }], [3, { text: "outlet 0" }]] }).length === 0);
+}
+
+console.log("save: the face");
+{
+  const face = { x: 0, y: 0, w: 8, h: 3, hideName: false };
+  // "knob 0.5 0 1" is 120px (6 units) wide: inside at (20, 20), across the right edge at (60, 20).
+  const with_ = (extra: B[], f: unknown = face) => errs({
+    face: f,
+    boxes: [[1, { x: 0, y: 200, text: "inlet 0" }], [2, { x: 0, y: 220, text: "* 2" }], [3, { x: 0, y: 260, text: "outlet 0" }], ...extra],
+  });
+  const ok = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }]]);
+  check("a knob wholly inside accepted", ok.length === 0, JSON.stringify(ok));
+  check("parsed into the def", def({ face }).face?.w === 8);
+  check("no face is null", def().face === null);
+  const across = with_([[10, { x: 60, y: 20, text: "knob 0.5 0 1" }]]);
+  check("a GUI box across the edge rejected, named", across.some((e) => /face: "knob 0\.5 0 1" crosses the face's edge/.test(e)), JSON.stringify(across));
+  const below = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 0, y: 40, text: "toggle" }]]);
+  check("bottom edge counts too", below.length === 0, JSON.stringify(below));
+  const low = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 0, y: 50, text: "toggle" }]]);
+  check("a box over the bottom edge rejected", low.some((e) => /"toggle" crosses/.test(e)), JSON.stringify(low));
+  const outside = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 400, y: 400, text: "knob" }]]);
+  check("a GUI box wholly outside is fine (not shown)", outside.length === 0, JSON.stringify(outside));
+  const hidden = with_([[10, { x: 20, y: 20, text: "comment hi" }], [11, { x: 100, y: 20, text: "+ 1 2 3 4 5 6 7 8 9 10" }]]);
+  check("a non-GUI box across the edge is fine (hidden)", hidden.length === 0, JSON.stringify(hidden));
+  const empty = with_([]);
+  check("no GUI box inside rejected", empty.some((e) => /face: no GUI box inside/.test(e)), JSON.stringify(empty));
+  const label = with_([[10, { x: 0, y: 0, text: "comment hi" }]]);
+  check("a comment counts", label.length === 0, JSON.stringify(label));
+  // A faced abstraction counts as a GUI box of its parent, at its face's size.
+  const inner = def({ name: "t/inner", face: { x: 0, y: 0, w: 3, h: 2, hideName: true },
+    boxes: [[1, { x: 0, y: 200, text: "inlet 0" }], [2, { x: 0, y: 0, text: "toggle" }], [3, { x: 0, y: 260, text: "outlet 0" }]],
+    cables: [[4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [5, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]] });
+  const lib = new Map([["t/inner", inner]]);
+  const outer = (x: number) => errs({ face, outlets: [], inlets: [], boxes: [[1, { x, y: 0, text: "t/inner" }]], cables: [] }, lib);
+  check("a faced instance inside counts", outer(100).length === 0, JSON.stringify(outer(100)));
+  check("a faced instance across the edge rejected", outer(120).some((e) => /"t\/inner" crosses/.test(e)), JSON.stringify(outer(120)));
 }
 
 // --- Apply ---
@@ -184,6 +226,20 @@ console.log("apply: a hand-edited abstraction is checked again");
   const broken = new Map(loaded).set("t/x", { ...def(), outlets: [] });
   const r = applyPatch(msg([box(1, "t/x", CTRL_Y)]), broken);
   check("rejected", r.errors.some((e) => /"outlet 0" has no header entry/.test(e)), JSON.stringify(r.errors));
+}
+
+console.log("apply: a faced instance lies wholly on its side");
+{
+  const faced = def({ name: "t/faced", face: { x: 0, y: 0, w: 4, h: 3, hideName: false },
+    boxes: [[1, { x: 0, y: 200, text: "inlet 0" }], [2, { x: 0, y: 0, text: "toggle" }], [3, { x: 0, y: 260, text: "outlet 0" }]],
+    cables: [[4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [5, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]] });
+  const lib = new Map(loaded).set("t/faced", faced);
+  reset();
+  const fits = applyPatch(msg([box(1, "t/faced", BORDER - 60)]), lib);
+  check("bottom on the line accepted", fits.errors.length === 0, JSON.stringify(fits.errors));
+  reset();
+  const over = applyPatch(msg([box(1, "t/faced", BORDER - 40)]), lib);
+  check("three units tall, two above the line: overhangs", over.errors.some((e) => /"t\/faced" is bound to the ctrl side but overhangs the border/.test(e)), JSON.stringify(over.errors));
 }
 
 console.log("editor lookups (useAbstractions)");

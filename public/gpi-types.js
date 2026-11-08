@@ -834,16 +834,87 @@ function routerY(borderY) {
   return borderY - BOX_HEIGHT;
 }
 
+// --- Box geometry ---
+// Shared by the editor (drawing, hit-testing) and the server (face and side
+// checks), so both agree on every box's extent without a canvas.
+
+// Box text is drawn in a 12px monospace font; every font the editor lists
+// advances 0.6em per glyph. BOX_PAD_X, PORT_W and PORT_GAP are the editor's.
+const CHAR_W = 7.2, BOX_PAD_X = 8, PORT_W = 8, PORT_GAP = 4;
+
+// Width of a text box: room for its text and its ports with a gap between
+// each, at least two units, rounded up to whole units so the right edge is
+// on the grid too.
+function textBoxWidth(text, ports) {
+  const w = Math.max(text.length * CHAR_W + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
+  return Math.ceil(w / GRID) * GRID;
+}
+
+// `lookup(name)` gives an abstraction's header (with `face` and `boxes`) or
+// null. The default is the editor's table (useAbstractions); the server
+// passes its own loaded map.
+function defaultLookup(name) {
+  return abstractions.get(name) ?? null;
+}
+
+// An instance's face { x, y, w, h, hideName } (grid units), or null.
+function faceOf(text, lookup = defaultLookup) {
+  return lookup(boxTypeName(text))?.face ?? null;
+}
+
+// Height of a box in patch units: a faced instance is its face's height,
+// every other box one unit.
+function boxHeight(box, lookup = defaultLookup) {
+  const face = faceOf(box.text, lookup);
+  return face ? face.h * GRID : BOX_HEIGHT;
+}
+
+// Size of a box as drawn, from its text alone (no live value).
+function boxSize(text, lookup = defaultLookup) {
+  const face = faceOf(text, lookup);
+  if (face) return { w: face.w * GRID, h: face.h * GRID };
+  const a = lookup(boxTypeName(text));
+  const p = a ? { inlets: a.inlets.length, outlets: a.outlets.length } : getBoxPorts(text);
+  return { w: textBoxWidth(text, Math.max(p.inlets, p.outlets)), h: BOX_HEIGHT };
+}
+
+// What a face shows of a box: its row's `gui` ("control", "display",
+// "label"), "face" for a faced instance (faces nest), or null (hidden).
+function guiKind(text, lookup = defaultLookup) {
+  const def = BOX_TYPES[boxTypeName(text)];
+  if (def) return def.gui ?? null;
+  return faceOf(text, lookup) ? "face" : null;
+}
+
+// The GUI boxes of abstraction `def` its face shows: every one lying wholly
+// inside the rectangle, positioned relative to the face's top-left
+// (`shown`), and the ones crossing its edge (`crossing`, an error at save).
+function faceContents(def, lookup = defaultLookup) {
+  const shown = [], crossing = [];
+  const f = def.face;
+  if (!f) return { shown, crossing };
+  const X0 = f.x * GRID, Y0 = f.y * GRID, X1 = X0 + f.w * GRID, Y1 = Y0 + f.h * GRID;
+  for (const [id, box] of def.boxes) {
+    const kind = guiKind(box.text ?? "", lookup);
+    if (!kind) continue;
+    const { w, h } = boxSize(box.text, lookup);
+    const x = box.x, y = box.y;
+    if (x >= X0 && y >= Y0 && x + w <= X1 && y + h <= Y1) shown.push({ id, box, kind, x: x - X0, y: y - Y0, w, h });
+    else if (x < X1 && x + w > X0 && y < Y1 && y + h > Y0) crossing.push(box);
+  }
+  return { shown, crossing };
+}
+
 // Side a free box takes from its position: its centre against the border
-// (a centre exactly on the line counts as synth).
-function positionSide(box, borderY) {
-  return box.y + BOX_HEIGHT / 2 >= borderY ? "synth" : "ctrl";
+// (a centre exactly on the line counts as synth). `h` is its height.
+function positionSide(box, borderY, h = boxHeight(box)) {
+  return box.y + h / 2 >= borderY ? "synth" : "ctrl";
 }
 
 // The side a box lies wholly on, or null if it straddles the border. A
 // bottom edge on the line is wholly ctrl; a top edge on the line, wholly synth.
-function wholeSide(box, borderY) {
-  if (box.y + BOX_HEIGHT <= borderY) return "ctrl";
+function wholeSide(box, borderY, h = boxHeight(box)) {
+  if (box.y + h <= borderY) return "ctrl";
   if (box.y >= borderY) return "synth";
   return null;
 }
@@ -975,5 +1046,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, PORT_TYPES, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

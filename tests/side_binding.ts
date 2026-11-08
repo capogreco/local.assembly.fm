@@ -32,7 +32,7 @@ const msg = (b: B[], c: [number, unknown][] = []) => ({ boxes: b, cables: c, nex
 function absDef(name: string, side: "ctrl" | "synth", texts: string[]): AbstractionDef {
   const port = (kind: string) => texts.filter((t) => t.startsWith(kind + " ")).map((_, i) => ({ name: `${kind[0]}${i}`, type: "number", description: "" }));
   return {
-    name, side, description: "", args: [], inlets: port("inlet"), outlets: port("outlet"),
+    name, side, description: "", args: [], inlets: port("inlet"), outlets: port("outlet"), face: null,
     boxes: new Map(texts.map((text, i) => [i + 1, { x: 0, y: 0, text }])),
     cables: new Map(texts.slice(1).map((_, i) => [i + 1, { srcBox: i + 1, srcOutlet: 0, dstBox: i + 2, dstInlet: 0 }])),
   };
