@@ -62,10 +62,9 @@ gives them Pd's look.
 - **Side rule unchanged, judged against the line:** a bound box must lie
   wholly on its side (bottom on the line is wholly ctrl, top on the line
   wholly synth); a free box goes by its centre (on the line counts as
-  synth). The router row (`routerY` .. `routerY + BOX_HEIGHT`) is kept
-  clear by placement, not by the rule: placing a bound box on its side and
-  the border piston put ctrl boxes' bottoms on the row's top and synth
-  boxes' tops on its bottom.
+  synth). The router row (`routerY` .. `routerY + BOX_HEIGHT`) is not
+  reserved: a box dragged next to the line may overlap it. Only two paths
+  clear it: moving a bound box that is off side, and the border piston.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
