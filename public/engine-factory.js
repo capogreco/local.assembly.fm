@@ -303,10 +303,36 @@ function bufferKey(b) {
   return b.file !== undefined ? `file:${b.file}` : `silent:${b.seconds}`;
 }
 
+// A stalled download or decode must not hold the patch back: past these the
+// buffer counts as failed, the patch starts, and its play~ is silent.
+const FETCH_TIMEOUT_MS = 30000;
+const DECODE_TIMEOUT_MS = 30000;
+
+function withTimeout(promise, ms, what) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function decodeMono(ctx, file) {
-  const r = await fetch("/media/" + encodeURIComponent(file));
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const audio = await ctx.decodeAudioData(await r.arrayBuffer());
+  // AbortController + setTimeout rather than AbortSignal.timeout, which older
+  // Safari lacks. The abort covers the body download as well as the headers.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
+  let data;
+  try {
+    const r = await fetch("/media/" + encodeURIComponent(file), { signal: abort.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    data = await r.arrayBuffer();
+  } catch (err) {
+    if (abort.signal.aborted) throw new Error(`download timed out after ${FETCH_TIMEOUT_MS / 1000} s`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+  const audio = await withTimeout(ctx.decodeAudioData(data), DECODE_TIMEOUT_MS, "decode");
   const n = audio.numberOfChannels;
   const mono = new Float32Array(audio.length);
   for (let c = 0; c < n; c++) {
