@@ -92,7 +92,9 @@ load (x, y and `borderY`), live while dragging, on create (the cell under the po
 paste, duplicate, Tab-create (one empty row below, kept on the source's side), tidy (`l` in the ctrl editor's edit
 mode, one undo step), and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
-land snug against the line). Arrow keys nudge half a unit per press, a
+land snug against the line; each step is worked out from the drag's start,
+so pushed boxes spring back as the border retreats, never past where they
+began). Arrow keys nudge half a unit per press, a
 whole unit with Shift; routers nudge sideways only.
 Apply doesn't refuse off-grid positions: the grid is the editor's job, and
 the side rules (`positionSide`, `wholeSide`) still work for any position.

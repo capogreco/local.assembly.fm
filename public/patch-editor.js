@@ -1728,9 +1728,16 @@ class PatchEditor {
       // The border sits on a row of dots (whole units, not SNAP), low enough
       // to leave room for the router row above it.
       const newY = Math.max(2 * GRID, snapToGrid(m.y));
-      const oldY = this.borderY;
-      if (newY === oldY) return;
+      if (newY === this.borderY) return;
       this.borderY = newY;
+      // Every step works from the gesture's start: restore the positions
+      // from then, and push for the whole move from the line then. So boxes
+      // spring back as the border retreats, never past where they began.
+      const snap = this.resizeSnapshot, oldY = snap.borderY;
+      for (const [id, pos] of snap.boxes) {
+        const box = this.boxes.get(id);
+        if (box) { box.x = pos.x; box.y = pos.y; }
+      }
       // Pushed boxes stay on the grid, snug against the line.
       const PAD = 0;
       // Piston: a box on the side the membrane moves into, which the new line
@@ -1749,7 +1756,7 @@ class PatchEditor {
         if (newY > oldY && side === "synth" && box.y < newY) { box.y = newY + PAD; moved.add(id); }
         else if (newY < oldY && side === "ctrl" && box.y + h > newY) { box.y = newY - h - PAD; moved.add(id); }
       }
-      this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD, newY > oldY ? "synth" : "ctrl", oldY, moved);
+      if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD, newY > oldY ? "synth" : "ctrl", oldY, moved);
       this.render();
       return;
     }

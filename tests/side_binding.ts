@@ -503,6 +503,27 @@ console.log("editor: a border drag never changes a box's side; drags, border dra
     dragBorder(ed, [BORDER - 2 * GRID]);
     check("border up: a stacked ctrl pair pushed up, still ctrl", sides(ed) === "ctrl ctrl synth" && ed.boxes.get(1).y !== ed.boxes.get(2).y, sides(ed));
   }
+  {
+    // Within one gesture, pushed boxes spring back as the border retreats.
+    const start = () => mk([[1, u(BORDER, "+ 1")], [2, u(BORDER + H, "+ 2")], [3, u(BORDER + 3 * H, "touch")], [4, u(BORDER - H, "key", 200)], [5, u(routerY(BORDER), "all 1", 300)]]);
+    // deno-lint-ignore no-explicit-any
+    const ys = (ed: any) => [...ed.boxes.values()].map((b: any) => b.y).join();
+    const { ed: a } = start();
+    const orig = ys(a);
+    dragBorder(a, [BORDER + GRID, BORDER + 3 * GRID, BORDER + 5 * GRID, BORDER]);
+    check("down then back up in one gesture: every box back exactly", ys(a) === orig && a.borderY === BORDER, ys(a));
+    check("and no undo step", a.undoStack.length === 0);
+    const { ed: b } = start();
+    dragBorder(b, [BORDER + 5 * GRID, BORDER + 2 * GRID]);
+    const y = (id: number) => b.boxes.get(id).y;
+    check("partial retreat: partial return", y(1) === BORDER + 2 * GRID && y(2) === BORDER + 3 * GRID && y(3) === BORDER + 4 * GRID, `${y(1)} ${y(2)} ${y(3)}`);
+    check("partial retreat: router rides the line, ctrl box untouched", y(5) === routerY(b.borderY) && y(4) === BORDER - H);
+    check("partial retreat: one undo step", b.undoStack.length === 1);
+    const { ed: c } = start();
+    dragBorder(c, [BORDER + 2 * GRID, BORDER - 2 * GRID]);
+    check("down then up past the start: synth boxes back, ctrl box pushed up", c.boxes.get(1).y === BORDER && c.boxes.get(2).y === BORDER + H && c.boxes.get(3).y === BORDER + 3 * H && c.boxes.get(4).y === BORDER - 3 * H, ys(c));
+    check("and every box keeps its side", sides(c).split(" ").slice(0, 4).join(" ") === "synth synth synth ctrl", sides(c));
+  }
 
   {
     const { ed } = mk([[1, u(SYNTH_Y, "touch")]]);
