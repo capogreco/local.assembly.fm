@@ -337,531 +337,118 @@ class PatchEditor {
     this.render();
   }
 
-  // --- Rebuild layout (`l`; notes/editor-modes.md, Grid) ---
-  // Ctrl editor, edit mode; one undo step (none if nothing moves). The
-  // selection's flow, or the whole patch's, is laid out afresh. Routers are
-  // the spine: they stay on the border row (x may move), ctrl boxes layer
-  // upward from the router inlets they feed (longest path), synth boxes
-  // downward from router outlets; a piece with no router layers from its own
-  // ends. Rows are level, as tall as their tallest box (faces), the gap
-  // between them the patch's most common one (half a unit if it has none).
-  // Within a row, boxes are ordered by barycentre sweeps out from the
-  // routers, seeded by their current x (so a router's port order orders the
-  // columns); an outlet 0 → inlet 0 chain between neighbouring rows becomes
-  // one vertical line, other boxes sit at their sources' barycentre, pushed
-  // at least a unit apart. Boxes stacked flush (outlet 0 into inlet 0,
-  // touching) move as one. A comment rides with the box it sits over
-  // (nearest within three units, same side, routers aside), keeping its
-  // offset; the rows make room for it. Boxes with no cable to another in
-  // scope, comments with no box near, and (with a selection) every box
-  // outside it stay where they are, and nothing rebuilt lands on them.
-  // Separate pieces are shelf-packed into rows as wide as the window at the
-  // current zoom, from the scope's top-left. The border moves down when the
-  // ctrl side needs the room above it, never up, pushing boxes it crosses as
-  // a border drag does. Then the view fits the patch.
+  // --- Nudge apart (`l`; notes/editor-modes.md, Grid) ---
+  // Ctrl editor, edit mode; one undo step (none if nothing moves). Boxes
+  // closer than half a unit to another on both axes (overlapping, or
+  // touching) are nudged apart until every pair has at least half a unit
+  // between them across or down. The selection's boxes move, or every box
+  // if none is selected; boxes outside the selection stay, in the way.
+  // Each conflict takes the smallest push that clears it, in half units,
+  // keeping the two boxes' order on the axis pushed: across, the right one
+  // goes right (the left one left if the right one can't move); down the
+  // page, the one farther from the line goes farther away (up on the ctrl
+  // side, down on the synth side). So no box crosses the line or changes
+  // side, the border stays, and routers move only across, on the border
+  // row. Repeated until nothing is too close. Then, if the patch no longer
+  // fits the view, the view zooms out (never in) and pans just enough.
 
-  rebuildLayout() {
+  nudgeApart() {
     if (this.boxes.size === 0) return;
     const before = this.serialize();
-    // A pass is seeded by the current x, so it is repeated (up to four
-    // times) until it reproduces itself: pressing `l` again changes nothing.
-    const positions = () => JSON.stringify([...this.boxes].map(([id, b]) => [id, b.x, b.y]).concat(this.borderY));
-    for (let pass = 0; pass < 4; pass++) {
-      const was = positions();
-      this.layoutPass();
-      if (positions() === was) break;
-    }
-    if (this.serialize() === before) return;
-    this.pushUndo(before);
-    this.zoomToFit();
-  }
-
-  // One pass of rebuildLayout.
-  layoutPass() {
-    const B = (id) => this.boxes.get(id);
-    const wOf = (id) => this.boxWidth(B(id), id), hOf = (id) => this.boxHeight(B(id), id);
-    const isComment = (id) => !!getDef(B(id).text)?.isComment;
-    const isRouter = (id) => this.showBorder && this.isRouterType(B(id).text);
-    const border0 = this.borderY;
-    const sideAt = (id) => !this.showBorder ? "synth" : isRouter(id) ? "border" : this.sideOfBox(B(id), border0);
-    const outOff = (id, i) => this.outletPos(B(id), i, id).x - B(id).x;
-    const inOff = (id, i) => this.inletPos(B(id), i, id).x - B(id).x;
     const scope = new Set(this.selection.size > 0 ? [...this.selection].filter((id) => this.boxes.has(id)) : this.boxes.keys());
+    const isRouter = (id) => this.showBorder && this.isRouterType(this.boxes.get(id).text);
 
     // Snap. A loaded patch already is; this catches a box put off the grid
     // some other way.
     for (const id of scope) {
-      const b = B(id);
+      const b = this.boxes.get(id);
       b.x = snapPos(b.x);
-      b.y = isRouter(id) ? routerY(border0) : snapPos(b.y);
+      b.y = isRouter(id) ? routerY(this.borderY) : snapPos(b.y);
     }
 
-    const cables = [...this.cables.values()].filter((c) => c.srcBox !== c.dstBox && this.boxes.has(c.srcBox) && this.boxes.has(c.dstBox));
-    const rebuilt = new Set();
-    for (const c of cables) {
-      if (scope.has(c.srcBox) && scope.has(c.dstBox)) { rebuilt.add(c.srcBox); rebuilt.add(c.dstBox); }
-    }
-    if (rebuilt.size === 0) return;
-
-    // Flush stacks: outlet 0 straight into inlet 0, touching, same side.
-    const flushDown = new Map(), flushUp = new Map();
-    for (const c of cables) {
-      const s = c.srcBox, d = c.dstBox;
-      if (c.srcOutlet !== 0 || c.dstInlet !== 0 || !rebuilt.has(s) || !rebuilt.has(d) || isRouter(s) || isRouter(d)) continue;
-      if (flushDown.has(s) || flushUp.has(d) || sideAt(s) !== sideAt(d)) continue;
-      if (B(d).x === B(s).x && B(d).y === B(s).y + hOf(s)) { flushDown.set(s, d); flushUp.set(d, s); }
-    }
-
-    // The gap between rows: the most common gap over the scope's cables
-    // (half units, up to three units; the smaller on a tie), else half a unit.
-    const hist = new Map();
-    for (const c of cables) {
-      const s = c.srcBox, d = c.dstBox;
-      if (!rebuilt.has(s) || !rebuilt.has(d) || isRouter(s) || isRouter(d) || flushDown.get(s) === d) continue;
-      const g = snapPos(B(d).y - (B(s).y + hOf(s)));
-      if (g >= 0 && g <= 3 * GRID) hist.set(g, (hist.get(g) ?? 0) + 1);
-    }
-    let gap = SNAP, most = 0;
-    for (const [g, n] of [...hist].sort((a, b) => a[0] - b[0])) if (n > most) { most = n; gap = g; }
-
-    // Nodes: a box, or a flush stack moving as one (members share x).
-    const nodes = new Map(), nodeOf = new Map();
-    for (const id of rebuilt) {
-      if (flushUp.has(id)) continue;
-      const members = [];
-      let h = 0;
-      for (let m = id; m !== undefined; m = flushDown.get(m)) { members.push({ id: m, dy: h }); h += hOf(m); }
-      const w = Math.max(...members.map((m) => wOf(m.id)));
-      nodes.set(id, { members, w, h, side: sideAt(id), x0: B(id).x, y0: B(id).y, ext: { l: 0, t: 0, r: w, b: h }, riders: [] });
-      for (const m of members) nodeOf.set(m.id, id);
-    }
-
-    // Comments ride with the box they sit over: the nearest within three
-    // units on their side (the one below on a tie), if it is rebuilt.
-    const riding = new Set();
-    for (const id of scope) {
-      if (!isComment(id)) continue;
-      const c = B(id), cw = wOf(id), ch = hOf(id), side = sideAt(id);
-      let host = null, best = null;
-      for (const [oid, o] of this.boxes) {
-        if (oid === id || isComment(oid) || isRouter(oid) || sideAt(oid) !== side) continue;
-        const dx = Math.max(0, o.x - (c.x + cw), c.x - (o.x + wOf(oid)));
-        const dy = Math.max(0, o.y - (c.y + ch), c.y - (o.y + hOf(oid)));
-        const d = Math.hypot(dx, dy), below = o.y >= c.y ? 0 : 1;
-        if (d > 3 * GRID) continue;
-        if (best === null || d < best[0] || (d === best[0] && below < best[1])) { best = [d, below]; host = oid; }
-      }
-      if (host === null || !rebuilt.has(host)) continue;
-      const n = nodes.get(nodeOf.get(host)), dy = n.members.find((m) => m.id === host).dy;
-      const ox = c.x - B(host).x, oy = c.y - B(host).y + dy;
-      n.riders.push({ id, ox, oy, side });
-      // The rows make room above and below for it; it widens its box only
-      // where it sits beside it (a heading above doesn't push the row apart).
-      n.ext.t = Math.min(n.ext.t, oy);
-      n.ext.b = Math.max(n.ext.b, oy + ch);
-      if (oy < n.h && oy + ch > 0) {
-        n.ext.l = Math.min(n.ext.l, ox);
-        n.ext.r = Math.max(n.ext.r, ox + cw);
-      }
-      riding.add(id);
-    }
-
-    // Edges between nodes (cables the side rules allow), and context: cables
-    // to boxes that stay, which only steer the order within rows. A router
-    // outside the scope still anchors the boxes it is cabled to.
-    const edges = [], context = new Map(), anchors = new Set();
-    for (const c of cables) {
-      const s = c.srcBox, d = c.dstBox, sn = nodeOf.get(s), dn = nodeOf.get(d);
-      if (sn !== undefined && dn !== undefined) {
-        if (sn === dn) continue;
-        const ss = nodes.get(sn).side, ds = nodes.get(dn).side;
-        const ok = ss === ds ? ss !== "border" : (ss === "ctrl" && ds === "border") || (ss === "border" && ds === "synth");
-        if (!ok) continue;
-        edges.push({ s: sn, d: dn, so: c.srcOutlet, di: c.dstInlet, sOff: outOff(s, c.srcOutlet), dOff: inOff(d, c.dstInlet), sBottom: !flushDown.has(s), dTop: !flushUp.has(d), back: false });
-      } else if (sn !== undefined) {
-        if (!context.has(sn)) context.set(sn, []);
-        context.get(sn).push(this.inletPos(B(d), c.dstInlet, d).x - outOff(s, c.srcOutlet));
-        if (isRouter(d) && nodes.get(sn).side === "ctrl") anchors.add(sn);
-      } else if (dn !== undefined) {
-        if (!context.has(dn)) context.set(dn, []);
-        context.get(dn).push(this.outletPos(B(s), c.srcOutlet, s).x - inOff(d, c.dstInlet));
-        if (isRouter(s) && nodes.get(dn).side === "synth") anchors.add(dn);
-      }
-    }
-
-    // Cycles: drop back edges (a DFS from the top-left) from layering.
-    const order = [...nodes.keys()].sort((a, b) => nodes.get(a).y0 - nodes.get(b).y0 || nodes.get(a).x0 - nodes.get(b).x0 || a - b);
-    const outEdges = new Map(order.map((k) => [k, []]));
-    for (const e of edges) outEdges.get(e.s).push(e);
-    const state = new Map();
-    const dfs = (k) => {
-      state.set(k, 1);
-      for (const e of outEdges.get(k)) {
-        if (state.get(e.d) === 1) e.back = true;
-        else if (!state.has(e.d)) dfs(e.d);
-      }
-      state.set(k, 2);
-    };
-    for (const k of order) if (!state.has(k)) dfs(k);
-    const fwd = edges.filter((e) => !e.back);
-
-    // Ranks: distance from the border row, counted along the flow away from
-    // it (ctrl: against the cables, synth: with them). Boxes a router reaches
-    // take the longest path from it; the rest sit just above (ctrl: below)
-    // what they feed, and at least their own longest path from their ends.
-    const rank = new Map();
-    for (const [k, n] of nodes) if (n.side === "border") rank.set(k, 0);
-    for (const side of ["ctrl", "synth"]) {
-      const vs = order.filter((k) => nodes.get(k).side === side), vset = new Set(vs);
-      const par = new Map(vs.map((k) => [k, []])), kid = new Map(vs.map((k) => [k, []]));
-      const anchored = new Set([...anchors].filter((k) => vset.has(k)));
-      for (const e of fwd) {
-        const [a, b] = side === "synth" ? [e.s, e.d] : [e.d, e.s];
-        if (!vset.has(b)) continue;
-        if (vset.has(a)) { par.get(b).push(a); kid.get(a).push(b); }
-        else if (nodes.get(a).side === "border") anchored.add(b);
-      }
-      const indeg = new Map(vs.map((k) => [k, par.get(k).length]));
-      const topo = vs.filter((k) => indeg.get(k) === 0);
-      for (let i = 0; i < topo.length; i++) {
-        for (const b of kid.get(topo[i])) { indeg.set(b, indeg.get(b) - 1); if (indeg.get(b) === 0) topo.push(b); }
-      }
-      const reached = new Set(), lp = new Map();
-      for (const v of topo) {
-        const rp = par.get(v).filter((p) => reached.has(p));
-        if (anchored.has(v) || rp.length > 0) {
-          reached.add(v);
-          rank.set(v, Math.max(anchored.has(v) ? 1 : 0, ...rp.map((p) => rank.get(p) + 1)));
-        } else {
-          lp.set(v, Math.max(1, ...par.get(v).map((p) => lp.get(p) + 1)));
-        }
-      }
-      for (const v of [...topo].reverse()) {
-        if (reached.has(v)) continue;
-        const ks = kid.get(v).map((c) => rank.get(c));
-        rank.set(v, ks.length > 0 ? Math.max(lp.get(v), Math.min(...ks) - 1) : lp.get(v));
-      }
-      for (const v of topo) for (const p of par.get(v)) rank.set(v, Math.max(rank.get(v), rank.get(p) + 1));
-    }
-    const rowOf = (k) => nodes.get(k).side === "ctrl" ? -rank.get(k) : rank.get(k);
-    const left = (k) => nodes.get(k).ext.l, right = (k) => nodes.get(k).ext.r;
-
-    // Neighbours of each node, for ordering and x.
-    const adj = new Map([...nodes.keys()].map((k) => [k, []]));
-    for (const e of edges) {
-      adj.get(e.s).push({ other: e.d, mine: e.sOff, theirs: e.dOff, e });
-      adj.get(e.d).push({ other: e.s, mine: e.dOff, theirs: e.sOff, e });
-    }
-
-    // Pieces: connected through the edges (routers join the sides).
-    const pieceOf = new Map();
-    const find = (k) => { while (pieceOf.has(k) && pieceOf.get(k) !== k) k = pieceOf.get(k); return k; };
-    for (const k of nodes.keys()) pieceOf.set(k, k);
-    for (const e of edges) { const a = find(e.s), b = find(e.d); if (a !== b) pieceOf.set(b, a); }
-    const byPiece = new Map();
-    for (const k of order) { const r = find(k); if (!byPiece.has(r)) byPiece.set(r, []); byPiece.get(r).push(k); }
-
-    const layoutPiece = (keys) => {
-      const px = new Map(keys.map((k) => [k, nodes.get(k).x0]));
-      const rowIds = [...new Set(keys.map(rowOf))].sort((a, b) => a - b);
-      const rows = new Map(rowIds.map((r) => [r, keys.filter((k) => rowOf(k) === r).sort((a, b) => px.get(a) - px.get(b) || a - b)]));
-
-      // Order a row by where its neighbours in the `ref` rows (and boxes that
-      // stay) would have it, then spread it a unit apart from those keys.
-      const orderRow = (r, ref) => {
-        const row = rows.get(r), key = new Map();
-        for (const k of row) {
-          const ts = [];
-          for (const a of adj.get(k)) if (ref(rowOf(a.other))) ts.push(px.get(a.other) + a.theirs - a.mine);
-          for (const t of context.get(k) ?? []) ts.push(t);
-          key.set(k, ts.length > 0 ? ts.reduce((s, t) => s + t, 0) / ts.length : px.get(k));
-        }
-        row.sort((a, b) => key.get(a) - key.get(b) || px.get(a) - px.get(b) || a - b);
-        let edge = -Infinity;
-        for (const k of row) {
-          const x = Math.max(key.get(k), edge - left(k));
-          px.set(k, x);
-          edge = x + right(k) + GRID;
-        }
-      };
-      const ctrlRows = rowIds.filter((r) => r < 0), synthRows = rowIds.filter((r) => r > 0);
-      const outward = () => {
-        for (const r of [...ctrlRows].reverse()) orderRow(r, (q) => q > r);
-        for (const r of synthRows) orderRow(r, (q) => q < r);
-      };
-      const inward = () => {
-        for (const r of ctrlRows) orderRow(r, (q) => q < r);
-        for (const r of [...synthRows].reverse()) orderRow(r, (q) => q > r);
-        if (rows.has(0)) orderRow(0, (q) => q !== 0);
-      };
-      for (let i = 0; i < 4; i++) { outward(); inward(); }
-      outward();
-
-      // Vertical chains: outlet 0 → inlet 0 between neighbouring rows, at
-      // most one each way per node, never crossing another.
-      const idx = new Map();
-      for (const [, row] of rows) row.forEach((k, i) => idx.set(k, i));
-      let down = new Map(), up = new Map();
-      for (const r of rowIds) {
-        if (!rows.has(r + 1)) continue;
-        let last = -1;
-        for (const v of rows.get(r + 1)) {
-          let best = null;
-          for (const a of adj.get(v)) {
-            const e = a.e, u = e.s;
-            if (e.back || e.d !== v || e.so !== 0 || e.di !== 0 || !e.sBottom || !e.dTop) continue;
-            if (rowOf(u) !== r || down.has(u) || idx.get(u) <= last) continue;
-            if (best === null || Math.abs(px.get(u) - px.get(v)) < Math.abs(px.get(best) - px.get(v))) best = u;
-          }
-          if (best !== null) { down.set(best, v); up.set(v, best); last = idx.get(best); }
-        }
-      }
-
-      // Blocks (a chain shares one x) and the order constraints between them.
-      const blockOf = new Map();
-      const graph = () => {
-        blockOf.clear();
-        for (const k of keys) if (!up.has(k)) for (let m = k; m !== undefined; m = down.get(m)) blockOf.set(m, k);
-        const preds = new Map(), succs = new Map(), indeg = new Map();
-        for (const k of keys) if (blockOf.get(k) === k) { preds.set(k, new Map()); succs.set(k, new Set()); indeg.set(k, 0); }
-        for (const [, row] of rows) {
-          for (let i = 1; i < row.length; i++) {
-            const a = blockOf.get(row[i - 1]), b = blockOf.get(row[i]), w = right(row[i - 1]) - left(row[i]) + GRID;
-            if (!succs.get(a).has(b)) { succs.get(a).add(b); indeg.set(b, indeg.get(b) + 1); }
-            preds.get(b).set(a, Math.max(preds.get(b).get(a) ?? -Infinity, w));
-          }
-        }
-        const topo = [...indeg].filter(([, d]) => d === 0).map(([k]) => k);
-        for (let i = 0; i < topo.length; i++) {
-          for (const b of succs.get(topo[i])) { indeg.set(b, indeg.get(b) - 1); if (indeg.get(b) === 0) topo.push(b); }
-        }
-        return topo.length === preds.size ? { preds, topo } : null;
-      };
-      let g = graph();
-      if (!g) { down = new Map(); up = new Map(); g = graph(); }
-      const members = new Map();
-      for (const k of keys) { const b = blockOf.get(k); if (!members.has(b)) members.set(b, []); members.get(b).push(k); }
-
-      // x: each block at its sources' barycentre (its targets' if it has no
-      // sources); row neighbours that come closer than a unit are pushed
-      // apart evenly, then exactly (rightward, in order); repeated to a
-      // standstill.
-      const cons = [];
-      for (const b of g.topo) for (const [a, w] of g.preds.get(b)) cons.push([a, b, w]);
-      let bx = new Map(g.topo.map((b) => [b, snapPos(px.get(b))]));
-      const target = (b) => {
-        const par = [], kid = [];
-        for (const k of members.get(b)) {
-          for (const a of adj.get(k)) {
-            const ob = blockOf.get(a.other);
-            if (ob === b || a.e.back) continue;
-            (rowOf(a.other) < rowOf(k) ? par : kid).push(bx.get(ob) + a.theirs - a.mine);
-          }
-        }
-        const ts = par.length > 0 ? par : kid;
-        return ts.length > 0 ? snapPos(ts.reduce((s, t) => s + t, 0) / ts.length) : bx.get(b);
-      };
-      for (let it = 0; it < 100; it++) {
-        const x = new Map(g.topo.map((b) => [b, target(b)]));
-        for (let pass = 0; pass < 100; pass++) {
-          let pushed = false;
-          for (const [a, b, w] of cons) {
-            const v = x.get(a) + w - x.get(b);
-            if (v > 0.5) { x.set(a, x.get(a) - v / 2); x.set(b, x.get(b) + v / 2); pushed = true; }
-          }
-          if (!pushed) break;
-        }
-        for (const b of g.topo) {
-          let v = snapPos(x.get(b));
-          for (const [a, w] of g.preds.get(b)) v = Math.max(v, x.get(a) + w);
-          x.set(b, v);
-        }
-        const same = g.topo.every((b) => x.get(b) === bx.get(b));
-        bx = x;
-        if (same) break;
-      }
-      const xs = new Map(keys.map((k) => [k, bx.get(blockOf.get(k))]));
-      const minL = Math.min(...keys.map((k) => xs.get(k) + left(k)));
-      const maxR = Math.max(...keys.map((k) => xs.get(k) + right(k)));
-      const lx = new Map(keys.map((k) => [k, xs.get(k) - minL]));
-      const hasRouter = keys.some((k) => nodes.get(k).side === "border");
-      return {
-        keys, lx, width: maxR - minL,
-        type: hasRouter ? "R" : nodes.get(keys[0]).side,
-        cx: Math.min(...keys.map((k) => nodes.get(k).x0 + left(k))),
-        cy0: Math.min(...keys.map((k) => nodes.get(k).y0 + nodes.get(k).ext.t)),
-        cy1: Math.max(...keys.map((k) => nodes.get(k).y0 + nodes.get(k).ext.b)),
-      };
-    };
-    const pieces = [...byPiece.values()].map(layoutPiece);
-
-    // Reading order, kept from the arrangement: pieces whose extents overlap
-    // vertically form a line, lines from the border outward, each by x.
-    const lines = (ps, ctrl) => {
-      ps.sort((a, b) => (ctrl ? b.cy1 - a.cy1 : a.cy0 - b.cy0) || a.cx - b.cx);
-      const out = [];
-      let cur = null, lo = 0, hi = 0;
-      for (const p of ps) {
-        if (cur && p.cy0 < hi && p.cy1 > lo) { cur.push(p); lo = Math.min(lo, p.cy0); hi = Math.max(hi, p.cy1); }
-        else { cur = [p]; out.push(cur); lo = p.cy0; hi = p.cy1; }
-      }
-      return out.flatMap((l) => l.sort((a, b) => a.cx - b.cx));
-    };
-    const W = this.viewWidth(), PIECE_GAP = 3 * GRID, SHELF_GAP = 2 * GRID;
-    const R = pieces.filter((p) => p.type === "R").sort((a, b) => a.cx - b.cx);
-    let rEnd = 0;
-    for (const p of R) rEnd += p.width + PIECE_GAP;
-    const shelve = (ps) => {
-      const shelves = [{ ps: [], end: rEnd }];
-      for (const p of ps) {
-        let s = shelves[shelves.length - 1];
-        if (s.end > 0 && s.end + p.width > W) { s = { ps: [], end: 0 }; shelves.push(s); }
-        p.shelf = shelves.length - 1;
-        s.ps.push(p);
-        s.end += p.width + PIECE_GAP;
-      }
-      return shelves;
-    };
-    for (const p of R) p.shelf = 0;
-    const ctrlShelves = shelve(lines(pieces.filter((p) => p.type === "ctrl"), true));
-    const synthShelves = shelve(lines(pieces.filter((p) => p.type === "synth"), false));
-
-    // Rows per shelf: y of each rank relative to the shelf's base (ctrl: its
-    // bottom, rows going up; synth: its top, rows going down), and the
-    // shelf's far edge.
-    const shelfRows = (shelf, i, side) => {
-      const ext = new Map();
-      for (const p of i === 0 ? [...R, ...shelf.ps] : shelf.ps) {
-        for (const k of p.keys) {
-          const n = nodes.get(k);
-          if (n.side !== side) continue;
-          const e = ext.get(rank.get(k)) ?? { t: 0, b: 0 };
-          e.t = Math.min(e.t, n.ext.t);
-          e.b = Math.max(e.b, n.ext.b);
-          ext.set(rank.get(k), e);
-        }
-      }
-      const ys = new Map();
-      let edge = 0;
-      for (const r of [...ext.keys()].sort((a, b) => a - b)) {
-        const e = ext.get(r);
-        if (side === "ctrl") { ys.set(r, edge - e.b); edge = edge - e.b + e.t - gap; }
-        else { ys.set(r, edge - e.t); edge = edge - e.t + e.b + gap; }
-      }
-      const far = ys.size === 0 ? 0 : side === "ctrl" ? edge + gap : edge - gap;
-      return { ys, far };
-    };
-    const stack = (shelves, side) => {
-      const out = [];
-      let base = 0;
-      shelves.forEach((s, i) => {
-        const r = shelfRows(s, i, side);
-        out.push({ base, ys: r.ys });
-        if (r.far !== 0) base = side === "ctrl" ? base + r.far - SHELF_GAP : base + r.far + SHELF_GAP;
-      });
-      return { shelves: out, far: base === 0 ? 0 : side === "ctrl" ? base + SHELF_GAP : base - SHELF_GAP };
-    };
-    const ctrlStack = stack(ctrlShelves, "ctrl"), synthStack = stack(synthShelves, "synth");
-
-    // Anchor: at the scope's top-left; with routers, the rows hang off the
-    // border row. The border moves down for room above, never up.
-    const top0 = (side) => Math.min(...[...nodes.values()].filter((n) => n.side === side).map((n) => n.y0 + n.ext.t));
-    const hasCtrl = [...nodes.values()].some((n) => n.side === "ctrl");
-    let border = border0, ctrlBase = 0;
-    if (hasCtrl) {
-      if (R.length > 0) {
-        ctrlBase = routerY(border) - gap;
-        const need = top0("ctrl") - (ctrlBase + ctrlStack.far);
-        if (need > 0) { border += Math.ceil(need / GRID) * GRID; ctrlBase += border - border0; }
-      } else {
-        ctrlBase = top0("ctrl") - ctrlStack.far;
-        if (this.showBorder && ctrlBase > border) border = Math.ceil(ctrlBase / GRID) * GRID;
-      }
-    }
-    const synthBase = R.length > 0 ? routerY(border) + BOX_HEIGHT + gap
-      : Math.max(top0("synth"), this.showBorder ? border : -Infinity);
-
-    // The border moved: routers ride it, boxes that stay and that it now
-    // crosses are pushed down, as a border drag pushes them.
-    if (border !== border0) {
-      this.borderY = border;
-      const stays = (id) => !rebuilt.has(id) && !riding.has(id);
-      const moved = new Set();
-      for (const [id, b] of this.boxes) {
-        if (this.isRouterType(b.text)) { b.y = routerY(border); continue; }
-        if (stays(id) && this.sideOf(b, border0) === "synth" && b.y < border) { b.y = border; moved.add(id); }
-      }
-      this.cascadeOverlaps("down", 0, "synth", border0, moved, null, stays);
-    }
-
-    // y of each node.
-    const nodeY = (p, k) => {
-      const n = nodes.get(k);
-      if (n.side === "border") return routerY(border);
-      const st = n.side === "ctrl" ? ctrlStack : synthStack, s = st.shelves[p.shelf];
-      return (n.side === "ctrl" ? ctrlBase : synthBase) + s.base + s.ys.get(rank.get(k));
+    const ids = [...this.boxes.keys()];
+    const w = new Map(ids.map((id) => [id, this.boxWidth(this.boxes.get(id), id)]));
+    const h = new Map(ids.map((id) => [id, this.boxHeight(this.boxes.get(id), id)]));
+    // The side a box may move away from the line on, or null (a router, a
+    // box outside the scope, one straddling the line, or no border).
+    const away = (id) => {
+      if (!scope.has(id) || isRouter(id)) return null;
+      if (!this.showBorder) return "synth";
+      return wholeSide(this.boxes.get(id), this.borderY, h.get(id));
     };
 
-    // x: pieces left to right along their shelves, from the scope's left
-    // edge, each moved right past any box that stays which it would land on.
-    const obstacles = [];
-    for (const [id, b] of this.boxes) {
-      if (!rebuilt.has(id) && !riding.has(id)) obstacles.push({ x0: b.x, y0: b.y, x1: b.x + wOf(id), y1: b.y + hOf(id) });
-    }
-    const rects = (p, x) => {
-      const out = [];
-      for (const k of p.keys) {
-        const n = nodes.get(k), nx = x + p.lx.get(k), ny = nodeY(p, k);
-        for (const m of n.members) out.push({ x0: nx, y0: ny + m.dy, x1: nx + wOf(m.id), y1: ny + m.dy + hOf(m.id) });
-        for (const r of n.riders) out.push({ x0: nx + r.ox, y0: ny + r.oy, x1: nx + r.ox + wOf(r.id), y1: ny + r.oy + hOf(r.id) });
-      }
-      return out;
+    // The smallest push that clears a pair, or null if neither may move.
+    const push = (a, b) => {
+      const A = this.boxes.get(a), B = this.boxes.get(b);
+      const gx = Math.max(B.x - (A.x + w.get(a)), A.x - (B.x + w.get(b)));
+      const gy = Math.max(B.y - (A.y + h.get(a)), A.y - (B.y + h.get(b)));
+      if (gx >= SNAP || gy >= SNAP) return null;
+      const options = [];
+      // Across: keep the order (left edge, then id). A box moves across one
+      // way only: one already pushed the other way (squeezed between boxes
+      // that stay) jumps past instead, so pushes can't go back and forth.
+      const [l, r] = A.x < B.x || (A.x === B.x && a < b) ? [a, b] : [b, a];
+      const L = this.boxes.get(l), R = this.boxes.get(r), nx = SNAP - gx;
+      if (scope.has(r)) options.push({ id: r, dx: dir.get(r) === -1 ? L.x - SNAP - w.get(r) - R.x : nx, dy: 0 });
+      if (scope.has(l)) options.push({ id: l, dx: dir.get(l) === 1 ? R.x + w.get(r) + SNAP - L.x : -nx, dy: 0 });
+      // Down the page: the one farther from the line moves farther away.
+      const [t, u] = A.y < B.y || (A.y === B.y && a < b) ? [a, b] : [b, a];
+      const ny = SNAP - gy;
+      if (away(t) === "ctrl") options.push({ id: t, dx: 0, dy: -ny });
+      if (away(u) === "synth") options.push({ id: u, dx: 0, dy: ny });
+      if (options.length === 0) return null;
+      return options.reduce((p, q) => (Math.abs(q.dx) + Math.abs(q.dy) < Math.abs(p.dx) + Math.abs(p.dy) ? q : p));
     };
-    const place = (p, x) => {
-      for (let guard = 0; guard < 500; guard++) {
-        let shift = 0;
-        for (const r of rects(p, x)) {
-          for (const o of obstacles) {
-            if (r.x0 < o.x1 + SNAP && o.x0 < r.x1 + SNAP && r.y0 < o.y1 + SNAP && o.y0 < r.y1 + SNAP) shift = Math.max(shift, o.x1 + GRID - r.x0);
-          }
+
+    const dir = new Map(); // id → the way it has been pushed across (±1)
+    let moved = false;
+    for (let round = 0; round < 200; round++) {
+      let any = false;
+      const order = ids.slice().sort((a, b) => this.boxes.get(a).y - this.boxes.get(b).y || this.boxes.get(a).x - this.boxes.get(b).x || a - b);
+      for (let i = 0; i < order.length; i++) {
+        for (let j = i + 1; j < order.length; j++) {
+          const a = order[i], b = order[j];
+          if (!scope.has(a) && !scope.has(b)) continue;
+          const p = push(a, b);
+          if (!p) continue;
+          const box = this.boxes.get(p.id);
+          box.x += p.dx;
+          box.y += p.dy;
+          if (p.dx !== 0) dir.set(p.id, Math.sign(p.dx));
+          any = true;
         }
-        if (shift <= 0) break;
-        x += shift;
       }
-      p.ax = x;
-      return x + p.width + PIECE_GAP;
-    };
-    const X0 = Math.min(...[...nodes.values()].map((n) => n.x0 + n.ext.l));
-    let rCursor = X0;
-    for (const p of R) rCursor = place(p, rCursor);
-    for (const shelves of [ctrlShelves, synthShelves]) {
-      shelves.forEach((s, i) => {
-        let cursor = i === 0 && R.length > 0 ? rCursor : X0;
-        for (const p of s.ps) cursor = place(p, cursor);
-      });
+      if (!any) break;
+      moved = true;
     }
 
-    // Write the positions; comments follow their boxes, kept on their side.
-    for (const p of pieces) {
-      for (const k of p.keys) {
-        const n = nodes.get(k), x = p.ax + p.lx.get(k), y = nodeY(p, k);
-        for (const m of n.members) { B(m.id).x = x; B(m.id).y = y + m.dy; }
-        for (const r of n.riders) {
-          const c = B(r.id), h = hOf(r.id);
-          c.x = x + r.ox;
-          c.y = y + r.oy;
-          if (this.showBorder) c.y = r.side === "ctrl" ? Math.min(c.y, border - h) : Math.max(c.y, border);
-        }
-      }
-    }
+    if (this.serialize() === before) return;
+    this.pushUndo(before);
+    if (moved) this.showAll();
+    this.render();
   }
 
-  // The patch width the window shows at the current zoom, less zoomToFit's
-  // margins: the width `l` packs pieces into.
-  viewWidth() {
+  // Zoom out (never in) and pan just enough that every box is in view,
+  // a margin from the edges.
+  showAll() {
     const dpr = globalThis.devicePixelRatio || 1;
-    const vw = this.canvas?.width ? this.canvas.width / dpr : 0;
-    return Math.max(10 * GRID, vw / (this.zoom || 1) - 2 * FIT_MARGIN);
+    const vw = (this.canvas?.width ?? 0) / dpr, vh = (this.canvas?.height ?? 0) / dpr;
+    const M = 20;
+    if (!(vw > 2 * M && vh > 2 * M) || this.boxes.size === 0) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [id, box] of this.boxes) {
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxX = Math.max(maxX, box.x + this.boxWidth(box, id));
+      maxY = Math.max(maxY, box.y + this.boxHeight(box, id));
+    }
+    const zoom = Math.min(this.zoom, (vw - 2 * M) / Math.max(1, maxX - minX), (vh - 2 * M) / Math.max(1, maxY - minY));
+    if (!(zoom > 0)) return;
+    this.zoom = zoom;
+    if (minX < this.panX + M / zoom) this.panX = minX - M / zoom;
+    else if (maxX > this.panX + (vw - M) / zoom) this.panX = maxX - (vw - M) / zoom;
+    if (minY < this.panY + M / zoom) this.panY = minY - M / zoom;
+    else if (maxY > this.panY + (vh - M) / zoom) this.panY = maxY - (vh - M) / zoom;
   }
 
   // --- Geometry ---
@@ -885,12 +472,11 @@ class PatchEditor {
   // are anchored to the border and skipped. `orderY` (id → y, the gesture's
   // start) keeps the stack's order: boxes the piston leaves level are taken
   // nearest the line first, so the one that began farther from it is pushed
-  // farther, whatever the ids. `only` (id → bool), if given, limits it to
-  // those boxes (`l` pushes only the boxes that stay).
-  cascadeOverlaps(direction, PAD, side, lineY, moved, orderY = null, only = null) {
+  // farther, whatever the ids.
+  cascadeOverlaps(direction, PAD, side, lineY, moved, orderY = null) {
     const ids = [];
     for (const [id, box] of this.boxes) {
-      if (!this.isRouterType(box.text) && this.sideOf(box, lineY) === side && (!only || only(id))) ids.push(id);
+      if (!this.isRouterType(box.text) && this.sideOf(box, lineY) === side) ids.push(id);
     }
     if (orderY) {
       const y = (id) => orderY.get(id) ?? this.boxes.get(id).y;
@@ -2444,9 +2030,10 @@ class PatchEditor {
   zoomToFit() {
     if (this.boxes.size === 0) return;
     const margin = FIT_MARGIN;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = globalThis.devicePixelRatio || 1;
     const vw = this.canvas.width / dpr;
     const vh = this.canvas.height / dpr;
+    if (!(vw > 0 && vh > 0)) return; // no window yet: leave the view
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [id, box] of this.boxes) {

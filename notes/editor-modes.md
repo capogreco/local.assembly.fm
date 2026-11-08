@@ -42,7 +42,7 @@ gives them Pd's look.
 
 - **Each box's top-left corner sits on a grid dot, or halfway between dots
   on either axis** (`SNAP`, 10px; decided 2026-11-08, so routers can sit
-  on both sides of the membrane). Creating, dragging, pasting, neatening and
+  on both sides of the membrane). Creating, dragging, pasting, `l` and
   arrow-key nudges all move in half units. Old patches snap when they load.
   Sizes stay whole units (heights, widths, faces) and the dots are still
   drawn every 20px.
@@ -84,52 +84,23 @@ gives them Pd's look.
   router crossing the line, naming it: a backstop for patches that didn't
   come through the editor.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
-- **`l` rebuilds the layout** (decided 2026-11-08, second round, replacing
-  the in-place neaten, which did too little). From a Fable survey of Pd's
-  Tidy Up (`canvas_tidy`), Max, vvvv, Unreal, ELK and Sugiyama layouts, and
-  measurements of the patches. With a selection, `l` rebuilds that
-  selection's flow where it is; with none, the whole patch. Ctrl editor,
-  edit mode, one undo step.
-  - **Flows, not components.** Routers are the spine: one graph including
-    routers, which stay on the border row (x may move, y never). Ctrl boxes
-    layer upward from the router inlets they feed, synth boxes downward from
-    router outlets. Columns are ordered by the router port they feed or hang
-    from, ties broken by current x, so the arrangement's order survives.
-    The old auto-layout cut the graph at the border and laid every piece
-    (each comment included) side by side in one row. Built: a box no router
-    reaches sits just above (synth: below) what it feeds; a piece with no
-    router layers from its own ends.
-  - **Both axes move.** Rows level, columns are evenly spaced. Built: rows
-    are as tall as their tallest box (faces); columns are not a fixed pitch
-    but at their barycentres, at least a unit apart.
-  - **Vertical cables preferred:** an outlet 0 → inlet 0 chain becomes one
-    straight vertical line; other boxes sit at their sources' barycentre,
-    then are pushed apart. Built: only between neighbouring rows (a cable
-    skipping rows stays slanted, so no vertical line runs through a box).
-  - **Spacing:** the vertical gap is read from the patch (its most common
-    gap), defaulting to half a unit; flush-stacked boxes stay flush. At
-    least a unit between boxes in a row. Built: the most common gap over
-    cables up to three units long; a flush stack (outlet 0 into inlet 0,
-    touching) moves as one tall box.
-  - **Comments ride with the box they sit over** (nearest box within three
-    units, same side, keeping their offset); otherwise they stay. Built:
-    routers carry none; the rows make room for a comment above or below its
-    box, and only one beside it widens it.
-  - **Unconnected boxes stay where they are.** Built: with a selection,
-    unconnected means no cable to another selected box; a piece that would
-    land on a box that stays moves right past it.
-  - **Width:** separate pieces are packed into rows that fit the window's
-    width at the current zoom, never strung out in one row. Built: the
-    pieces through the routers share the border row and can't wrap, so a
-    wide one is wider than the window; ctrl shelves stack up from it, synth
-    shelves down, in the arrangement's reading order.
-  - **The border** may move down to make room above, never up. Built: the
-    ctrl rows keep the scope's top; the border steps in whole units and
-    pushes boxes that stay as a border drag does.
-  - **View:** afterwards, pan and zoom to fit the result in the window.
-  - Built: a pass is seeded by current x, so it repeats (up to four) until
-    it reproduces itself; on the bundled patches a second `l` changes
-    nothing.
+- **`l` nudges overlapping boxes apart** (decided 2026-11-08, third round:
+  the rebuild of the second round, `87653a1`, did too much, and before it
+  the in-place neaten too little). Boxes closer than half a unit on both
+  axes are pushed apart until every pair is at least half a unit apart
+  across or down; boxes already clear don't move. Each conflict takes the
+  smallest push, in half units, keeping the pair's order on that axis;
+  down the page, boxes only move away from the line (up on the ctrl side,
+  down on the synth side), so the border never moves, no box crosses it,
+  and routers move only across, on the border row. With a selection, only
+  its boxes move and the rest are in the way; with none, the whole patch.
+  Ctrl editor, edit mode, one undo step (none if nothing moves). If the
+  patch then doesn't fit the view, the view zooms out (never in) and pans
+  just enough.
+  - Built: a box pushed across one way and then squeezed the other way (by
+    boxes that stay) jumps past instead, so pushes never go back and forth;
+    a Pd-style flush column (touching, one under another) is spaced out
+    too.
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
