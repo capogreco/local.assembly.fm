@@ -10,6 +10,11 @@ const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 
+// A knob's value as its label shows it.
+function formatKnobValue(v) {
+  return typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+}
+
 // --- editor modes ---
 
 // The platform's command key: Cmd on macOS, Ctrl elsewhere. Cmd+E toggles the
@@ -626,11 +631,26 @@ class PatchEditor {
       const v = this.boxValues.get(id);
       text = _type + " " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
+    // A knob's value is drawn inside the box, right-aligned after the text,
+    // so the box has room for the widest value it shows.
+    const label = boxTypeName(text) === "knob" ? BOX_PAD_X + this.knobLabelWidth(text) : 0;
     // Room for the ports with a gap between each, and at least two units.
     // Rounded up to whole units, so the right edge is on the grid too.
     const ports = Math.max(box.inlets, box.outlets);
-    const w = Math.max(this.measureText(text) + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
+    const w = Math.max(this.measureText(text) + label + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
     return Math.ceil(w / GRID) * GRID;
+  }
+
+  // Width of the widest value label a knob shows (formatKnobValue): its init,
+  // min and max, and a non-integer as wide as either end of the range. Fixed
+  // for the knob's text, so the box doesn't change width as the value moves.
+  knobLabelWidth(text) {
+    const { init, min, max } = this.knobArgs({ text });
+    const samples = [init, min, max].filter(Number.isFinite);
+    const labels = samples.map(formatKnobValue);
+    for (const v of samples) labels.push((v < 0 ? "-" : "") + String(Math.floor(Math.abs(v))).replace(/\d/g, "0") + ".0000");
+    this.ctx.font = SMALL_FONT;
+    return Math.max(0, ...labels.map((l) => this.ctx.measureText(l).width));
   }
 
   // Port centre x, as in Pd: port 0 flush with the left edge, the last port
@@ -1153,15 +1173,15 @@ class PatchEditor {
       }
     }
 
-    // Knob value labels (below the box)
+    // Knob value labels: inside the box, right-aligned (boxWidth leaves room).
     for (const [id, box] of this.boxes) {
-      if (boxTypeName(box.text) !== "knob" || !this.boxValues.has(id)) continue;
-      const v = this.boxValues.get(id);
-      const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+      if (boxTypeName(box.text) !== "knob" || !this.boxValues.has(id) || this.editingBoxId === id) continue;
       this.ctx.font = SMALL_FONT;
       this.ctx.fillStyle = COLORS.valueText;
-      this.ctx.textBaseline = "top";
-      this.ctx.fillText(display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT + 2);
+      this.ctx.textBaseline = "middle";
+      this.ctx.textAlign = "right";
+      this.ctx.fillText(formatKnobValue(this.boxValues.get(id)), box.x + this.boxWidth(box, id) - BOX_PAD_X, box.y + BOX_HEIGHT / 2);
+      this.ctx.textAlign = "left";
     }
 
     // Draw overlays in screen space (reset pan/zoom)
