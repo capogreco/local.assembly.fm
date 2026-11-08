@@ -315,11 +315,10 @@ export function expandAbstractions(
         localToGlobal.set(localId, globalId);
 
         // Argument substitution: $0=instanceId, $1=args[0], $2=args[1], ...
-        let text = intBox.text;
-        text = text.replace(/\$0/g, instanceId);
-        for (let i = 0; i < args.length; i++) {
-          text = text.replace(new RegExp("\\$" + (i + 1) + "(?!\\d)", "g"), args[i]);
-        }
+        // One pass with a function, so an arg is inserted as written: its own
+        // `$&`, `$$` or `$1` is neither a replacement pattern nor substituted again.
+        const text = intBox.text.replace(ARG_REF, (ref: string, n: string) =>
+          n === "0" ? instanceId : args[Number(n) - 1] ?? ref);
 
         // Side inheritance: cloned boxes get Y of instance box
         const clonedBox = { ...intBox, text, x: intBox.x, y: box.y };
@@ -526,6 +525,12 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   // Files can be edited by hand, so the abstractions are checked again here.
   const errors: string[] = [];
   for (const name of [...used].sort()) errors.push(...checkAbstraction(loaded.get(name)!, loaded));
+  if (errors.length > 0) return result(errors);
+
+  // `$n` means an abstraction's arg; in the patch itself there is none to fill in.
+  for (const [, box] of boxes) {
+    if (/\$\d/.test(box.text ?? "")) errors.push(`"${box.text}": $n is an abstraction's arg; the patch has none`);
+  }
   if (errors.length > 0) return result(errors);
 
   // An instance sits on its declared side; its contents take their side from it.
