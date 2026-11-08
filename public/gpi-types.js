@@ -962,6 +962,23 @@ function guiKind(text, lookup = defaultLookup) {
   return faceOf(text, lookup) ? "face" : null;
 }
 
+// Abstraction `name` and every abstraction that contains it, at any depth.
+// `defs` iterates the headers (each with `name` and `boxes`, [id, box] pairs).
+function abstractionsUsing(name, defs) {
+  const all = [...defs];
+  const out = new Set([name]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const d of all) {
+      if (out.has(d.name)) continue;
+      for (const [, b] of d.boxes) {
+        if (out.has(boxTypeName(b.text ?? ""))) { out.add(d.name); grew = true; break; }
+      }
+    }
+  }
+  return out;
+}
+
 // The GUI boxes of abstraction `def` its face shows: every one lying wholly
 // inside the rectangle, positioned relative to the face's top-left
 // (`shown`), and the ones crossing its edge (`crossing`, an error at save).
@@ -1140,5 +1157,5 @@ function cableTypeProblem(src, dstText, dstDef) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
+export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, abstractionsUsing, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
 

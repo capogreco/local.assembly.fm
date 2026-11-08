@@ -9,7 +9,7 @@
 
 import { boxes, cables, clearPatchState, ctrlState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, checkSave, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { boxSize, cableTypeProblem, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
+import { abstractionsUsing, boxSize, cableTypeProblem, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const CTRL_Y = 100, SYNTH_Y = 600;
@@ -346,6 +346,14 @@ console.log("cable types: one rule for the editor and apply");
   check("audio into adsr~ gate refused", cableTypeProblem("audio", "adsr~", getInletDef("adsr~", 0)) !== null);
   check("audio into an abstraction's number inlet refused", (useAbstractions(loaded), cableTypeProblem("audio", "t/x", getInletDef("t/x", 0)) !== null));
   useAbstractions(new Map());
+}
+
+console.log("abstractionsUsing: a saved abstraction and everything containing it");
+{
+  const d = (name: string, texts: string[]) => ({ name, boxes: texts.map((text, i) => [i + 1, { text }]) });
+  const defs = [d("t/leaf", ["knob"]), d("t/mid", ["t/leaf 1"]), d("t/top", ["t/mid"]), d("t/other", ["+ 1"])];
+  check("transitive", JSON.stringify([...abstractionsUsing("t/leaf", defs)].sort()) === JSON.stringify(["t/leaf", "t/mid", "t/top"]));
+  check("unused: itself only", JSON.stringify([...abstractionsUsing("t/other", defs)]) === JSON.stringify(["t/other"]));
 }
 
 console.log("editor lookups (useAbstractions)");

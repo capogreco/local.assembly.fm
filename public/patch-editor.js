@@ -284,6 +284,16 @@ class PatchEditor {
     return { minX, minY, maxX, maxY };
   }
 
+  // Forget the instance maps of every instance of these abstractions (names),
+  // nested ones too: after a save their layout may not match the ids the
+  // running patch was built with, so their faces grey out until the next
+  // apply.
+  forgetInstancesOf(names) {
+    for (const [id, m] of this.instances) {
+      if (names.has(boxTypeName(m.text))) this.instances.delete(id);
+    }
+  }
+
   // Take the server's instance maps (JSON: string keys).
   setInstances(record) {
     this.instances = new Map(Object.entries(record ?? {}).map(([id, m]) => [Number(id), m]));

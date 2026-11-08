@@ -6,7 +6,7 @@
  * Also hosts ctrl-side engines (above the border) with audio output to laptop speakers.
  */
 
-import { ABS_NAME, GRID, boxTypeName, getBoxPorts, snapToGrid } from "./gpi-types.js";
+import { ABS_NAME, GRID, abstractionsUsing, boxTypeName, getBoxPorts, snapToGrid } from "./gpi-types.js";
 import { PatchEditor, platformMod, COLORS, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
 import { currentTheme, toggleTheme, onThemeChange } from "./theme.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput, syncBuffers } from "./engine-factory.js";
@@ -659,7 +659,12 @@ async function reloadAbstractions() {
 
 // Refresh abstractions when abs-editor saves
 window.addEventListener("message", async (e) => {
-  if (e.data?.type === "abs-saved") await reloadAbstractions();
+  if (e.data?.type !== "abs-saved") return;
+  await reloadAbstractions();
+  // The running patch was built from the old file: faces of the saved
+  // abstraction, and of any containing it, stop playing until the next apply.
+  mainEditor.forgetInstancesOf(abstractionsUsing(e.data.name, abstractionTypes.values()));
+  mainEditor.render();
 });
 
 // --- Keyboard ---
