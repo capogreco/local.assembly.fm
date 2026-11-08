@@ -472,7 +472,7 @@ const cases: Case[] = [
     name: "panharmonium: laptop gets minHz and max at build, trigger on the metro, replay",
     run: () => {
       reset();
-      const r = applyPatch(JSON.parse(Deno.readTextFileSync("patches/panharmonium.json")), new Map());
+      const r = applyPatch(JSON.parse(Deno.readTextFileSync("tests/fixtures/panharmonium.json")), new Map());
       if (r.errors.length > 0) throw new Error(r.errors.join("; "));
       buildServerGraph();
       ticks(6); // metro 0.05, switched on at build: one fire, on the first tick

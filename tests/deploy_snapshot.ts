@@ -27,7 +27,7 @@ for (const lib of Deno.readDirSync("libs")) {
 function runAll(): Record<string, string> {
   const results: Record<string, string> = {};
   for (const name of PATCHES) {
-    const r = applyPatch(JSON.parse(Deno.readTextFileSync(`patches/${name}.json`)), loaded);
+    const r = applyPatch(JSON.parse(Deno.readTextFileSync(`${name.startsWith("granular_") ? "patches" : "tests/fixtures"}/${name}.json`)), loaded);
     if (r.errors.length > 0) throw new Error(`${name}: ${r.errors.join("; ")}`);
     results[`${name} phone`] = JSON.stringify(serializeSynthPatch());
     results[`${name} laptop`] = JSON.stringify(serializeLaptopPatch());
