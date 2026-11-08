@@ -652,21 +652,34 @@ class PatchEditor {
 
   // --- Hit Testing ---
 
+  // A port's zone: PORT_HIT either side of its centre across, and down its
+  // own box's half (inlets the top half, outlets the bottom) plus PORT_HIT
+  // outside the box. Boxes stack flush on the grid, so the outside margin
+  // counts only where no box is under the pointer: over a box, only that
+  // box's ports can be hit, and a box's own halves never overlap.
+  // `under` is the box under the pointer (hitTestBox), or null.
+  portHit(id, box, mx, my, p, inlet, under) {
+    if (under !== null && under !== id) return false;
+    if (Math.abs(mx - p.x) >= PORT_HIT) return false;
+    const mid = box.y + BOX_HEIGHT / 2;
+    return inlet ? my >= box.y - PORT_HIT && my < mid : my >= mid && my < box.y + BOX_HEIGHT + PORT_HIT;
+  }
+
   hitTestOutlet(mx, my) {
+    const under = this.hitTestBox(mx, my);
     for (const [id, box] of this.boxes) {
       for (let i = 0; i < box.outlets; i++) {
-        const p = this.outletPos(box, i, id);
-        if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
+        if (this.portHit(id, box, mx, my, this.outletPos(box, i, id), false, under)) return { boxId: id, index: i };
       }
     }
     return null;
   }
 
   hitTestInlet(mx, my) {
+    const under = this.hitTestBox(mx, my);
     for (const [id, box] of this.boxes) {
       for (let i = 0; i < box.inlets; i++) {
-        const p = this.inletPos(box, i, id);
-        if (Math.abs(mx - p.x) < PORT_HIT && Math.abs(my - p.y) < PORT_HIT) return { boxId: id, index: i };
+        if (this.portHit(id, box, mx, my, this.inletPos(box, i, id), true, under)) return { boxId: id, index: i };
       }
     }
     return null;
