@@ -490,10 +490,25 @@ const BOX_TYPES = {
                     inlets: [
                       { name: "period", type: "number", description: "Cycle period in seconds" }],
                     outlets: [{ name: "out", type: "audio", description: "LFO signal" }] },
-  "phasor~":      { description: "Audio-rate ramp 0-1.", args: "period [once]", example: "phasor~ 4",
+  "phasor~":      { description: "Audio-rate ramp 0-1. Optional starting phase (0-1); reset returns to it. 'once' = one-shot (holds at 1 until reset).", args: "period [phase] [once]", example: "phasor~ 4 0.5",
                     inlets: [
-                      { name: "period", type: "number", description: "Cycle period in seconds" }],
+                      { name: "period", type: "number", description: "Cycle period in seconds" },
+                      { name: "reset", type: "event", description: "Jump back to the starting phase (restarts a finished one-shot)" }],
                     outlets: [{ name: "out", type: "audio", description: "Ramp signal" }] },
+  "hann~":        { description: "Hann window phase shaper: 0.5 - 0.5cos(2πx). 0-1 in, 0-1-0 hump out.",
+                    inlets: [{ name: "in", type: "audio", description: "Phase (0-1)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Window (0-1)" }] },
+  "samphold~":    { description: "Sample and hold, as in Pd: samples the left inlet whenever the right decreases (a phasor wrap). Samples once on the first frame.",
+                    inlets: [
+                      { name: "in", type: "audio", description: "Signal to sample" },
+                      { name: "trig", type: "audio", description: "Control signal (samples on a decrease)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Held value" }] },
+  "buffer~":      { description: "Named mono sample buffer, loaded from /media/<file> (wav, mp3, m4a or aiff; stereo is mixed down) or silent for a length in seconds. Phones load it before the patch starts. play~ reads it by name.", args: "name file | name seconds", example: "buffer~ voice voice.wav",
+                    inlets: [],
+                    outlets: [{ name: "length", type: "number", description: "Length in seconds, once loaded" }] },
+  "play~":        { description: "Reads a named buffer~ at a position signal (0-1 of the buffer, wrapping), 4-point interpolation. Silent until the buffer is loaded.", args: "name", example: "play~ voice",
+                    inlets: [{ name: "position", type: "audio", description: "Position (0-1, wraps)" }],
+                    outlets: [{ name: "out", type: "audio", description: "Audio output" }] },
   "noise~":       { description: "Noise source. White by default; arg `pink` for -3 dB/octave pink noise.", args: "[pink]", example: "noise~ pink",
                     inlets: [],
                     outlets: [{ name: "out", type: "audio", description: "Noise signal" }] },
@@ -766,6 +781,24 @@ function groupArgs(text) {
   const bad = args.find((a) => !(Number(a) > 0 && Number.isFinite(Number(a))));
   if (bad !== undefined) return { n: args.length, weights: Array(args.length).fill(1), error: `"${text}": group weights must be positive numbers, got "${bad}"` };
   return { n: args.length, weights: args.map(Number), error: null };
+}
+
+// A `buffer~` box's args, the one parse apply and the deploy share.
+// `buffer~ name file` loads /media/<file>; `buffer~ name seconds` is silent.
+// Returns { name, file } or { name, seconds }, with `error` set on bad args.
+function bufferArgs(text) {
+  const [, name, src, ...rest] = text.split(/\s+/).filter((a) => a !== "");
+  if (!name || src === undefined) return { name: name ?? "", error: `"${text}": buffer~ needs a name and a file (or a length in seconds)` };
+  if (rest.length > 0) return { name, error: `"${text}": buffer~ takes a name and one file or length` };
+  const n = Number(src);
+  if (Number.isFinite(n)) {
+    if (n <= 0) return { name, error: `"${text}": a silent buffer~ needs a positive length in seconds` };
+    return { name, seconds: n, error: null };
+  }
+  // Letters, digits, dot, underscore, hyphen; no leading dot. Apply checks the
+  // same name the phones fetch, so nothing needs escaping between the two.
+  if (!/^[A-Za-z0-9._-]+$/.test(src) || src.startsWith(".")) return { name, error: `"${text}": the file is a name under /media/ (letters, digits, . _ -), not a path` };
+  return { name, file: src, error: null };
 }
 
 function getBoxDef(text) {
@@ -1107,5 +1140,5 @@ function cableTypeProblem(src, dstText, dstDef) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
+export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
 

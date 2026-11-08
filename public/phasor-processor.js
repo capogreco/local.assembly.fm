@@ -1,6 +1,9 @@
 /**
  * Phasor — audio-rate ramp 0→1 over period.
  * Supports loop/once modes and pause.
+ * processorOptions: { phase: starting phase 0–1, loop }.
+ * A "reset" message sets the phase back to the starting phase (and resumes a
+ * finished one-shot).
  * Posts { type: "wrap" } event back on cycle end.
  */
 class PhasorProcessor extends AudioWorkletProcessor {
@@ -11,13 +14,16 @@ class PhasorProcessor extends AudioWorkletProcessor {
     ];
   }
 
-  constructor() {
+  constructor(options) {
     super();
-    this.phase = 0;
-    this.loop = true;
+    const opts = options?.processorOptions || {};
+    const start = Number(opts.phase) || 0;
+    this.startPhase = start - Math.floor(start);
+    this.phase = this.startPhase;
+    this.loop = opts.loop ?? true;
     this.paused = false;
     this.port.onmessage = (e) => {
-      if (e.data.type === "reset") { this.phase = 0; this.paused = false; }
+      if (e.data.type === "reset") { this.phase = this.startPhase; this.paused = false; }
       if (e.data.loop !== undefined) this.loop = e.data.loop;
     };
   }

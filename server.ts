@@ -173,11 +173,32 @@ function sendCtrl(msg: Record<string, unknown>): void {
   }
 }
 
+// --- Media loading (buffer~) ---
+// Each phone loads the deploy's buffers before its patch starts and reports
+// { type: "media", loaded, total, failed }. Ctrl is told how many of the
+// connected phones have them all; a deploy without buffers says files: 0.
+
+const mediaStatus = new Map<number, { loaded: number; total: number; failed: number }>();
+
+function sendMediaStatus(socket?: WebSocket): void {
+  const files = (getDeployedPatch()?.buffers as unknown[] | undefined)?.length ?? 0;
+  let ready = 0, failed = 0;
+  for (const s of mediaStatus.values()) {
+    if (s.total !== files || s.loaded < files) continue;
+    if (s.failed > 0) failed++;
+    else ready++;
+  }
+  const msg = { type: "media", files, ready, failed, clients: totalSynthClients() };
+  if (socket) socket.send(JSON.stringify(msg));
+  else sendCtrl(msg);
+}
+
 function broadcastClientCount(): void {
   const count = totalSynthClients();
   console.log(`  client count: ${count}`);
   broadcastSynth({ type: "count", clients: count });
   sendCtrl({ type: "count", clients: count });
+  sendMediaStatus();
   // Push the new count to every patch-side `clients` box
   evaluateAllClients();
 }
@@ -229,6 +250,9 @@ function handleApply(msg: any): void {
 
 function deployPatch(): void {
   setDeployedPatch(serializeSynthPatch());
+  // Every phone loads the new deploy's buffers afresh (or finds them held).
+  mediaStatus.clear();
+  sendMediaStatus();
   // rebuild uplink channel index
   uplinkIndex.clear();
   for (const [id, box] of boxes) {
@@ -259,6 +283,7 @@ function handleCtrlWs(req: Request): Response {
     drawStatus();
     socket.send(JSON.stringify(ctrlState()));
     socket.send(JSON.stringify({ type: "count", clients: totalSynthClients() }));
+    sendMediaStatus(socket);
     const gridInfo = getGridDeviceInfo();
     if (gridInfo) {
       socket.send(JSON.stringify({ type: "grid-connected", deviceType: gridInfo.deviceType, deviceId: gridInfo.deviceId }));
@@ -341,6 +366,9 @@ function handleCtrlWs(req: Request): Response {
         // Flash the event box briefly
         queueValueUpdate(msg.id, 1);
         setTimeout(() => queueValueUpdate(msg.id, 0), 100);
+      } else if (msg.type === "buffer-length") {
+        // A ctrl-side buffer~ loaded on the laptop: its length leaves its outlet.
+        if (boxTypeName(boxes.get(msg.box)?.text ?? "") === "buffer~") injectValue(msg.box, 0, msg.seconds);
       } else if (msg.type === "peaks") {
         // fftPeaks~ spectral analysis injected from the ctrl client (audio→control).
         // Propagate amps first (outlet 1) so a downstream `assign` stores them before
@@ -398,6 +426,14 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
           console.log(`\x1b[33m⚠ ${text}\x1b[0m`);
           sendCtrl({ type: "errors", errors: [text] });
         }
+      } else if (msg.type === "media") {
+        mediaStatus.set(id, { loaded: Number(msg.loaded) || 0, total: Number(msg.total) || 0, failed: Number(msg.failed) || 0 });
+        sendMediaStatus();
+        if (Array.isArray(msg.errors) && msg.errors.length > 0) {
+          const text = `client ${id}: ${msg.errors.join("; ")}`;
+          console.log(`\x1b[33m⚠ ${text}\x1b[0m`);
+          sendCtrl({ type: "errors", errors: [text] });
+        }
       } else if (msg.type === "build-error" && Array.isArray(msg.boxes)) {
         // A phone couldn't build some boxes. It sends once per patch load; group by
         // type and reason so 40 unbuildable adc~ boxes become one readable line.
@@ -427,6 +463,7 @@ function handleSynthWs(req: Request, info: Deno.ServeHandlerInfo): Response {
 
   socket.addEventListener("close", () => {
     synthWsClients.delete(id);
+    mediaStatus.delete(id);
     leaveGroups(id);
     drawStatus();
     broadcastClientCount();

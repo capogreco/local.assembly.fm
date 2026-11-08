@@ -1,6 +1,6 @@
 /**
  * Math processor — general-purpose audio-rate math operations.
- * Handles: +, -, *, /, **, %, scale, clip, mtof, sine, tri, quantize
+ * Handles: +, -, *, /, **, %, scale, clip, mtof, sine, tri, quantize, hann
  * Configured via processorOptions: { op, args }
  * Two audio inputs (input[0] = a, input[1] = b).
  * If input[1] not connected, uses `arg` value (set via message port).
@@ -39,6 +39,7 @@ class MathProcessor extends AudioWorkletProcessor {
         case "clip": out[i] = Math.max(this.arg, Math.min(this.arg2, x)); break;
         case "mtof": out[i] = 440 * Math.pow(2, (x - 69) / 12); break;
         case "sine": out[i] = Math.sin(x * Math.PI * 2) * 0.5 + 0.5; break;
+        case "hann": out[i] = 0.5 - 0.5 * Math.cos(x * Math.PI * 2); break;
         case "tri": {
           const yaw = this.arg || 0.5;
           out[i] = x < yaw ? (yaw > 0 ? x / yaw : 0) : (yaw < 1 ? (1 - x) / (1 - yaw) : 0);

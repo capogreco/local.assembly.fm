@@ -15,7 +15,7 @@ import {
   clearPatchState, getBorderY, setAuthoredPatch, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import {
-  ABS_NAME, LIB_NAME, MAX_DEPTH, PORT_TYPES, boxTypeName, boxBinding, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
+  ABS_NAME, LIB_NAME, MAX_DEPTH, PORT_TYPES, boxTypeName, boxBinding, bufferArgs, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
   boxHeight, faceContents, groupArgs, isOffSide, positionSide, routerY, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
@@ -498,6 +498,36 @@ function offSideProblem(box: Box, borderY: number, binding: string, h: number): 
   return `"${box.text}" is bound to the ${binding} side but ${where}`;
 }
 
+// Named buffers, on the expanded graph with sides stamped (names are per
+// side: each side's AudioContext has its own). A buffer~ needs good args and,
+// for a file, one that exists in public/media/; a name is defined once per
+// side; a play~ names a buffer~ on its own side.
+const MEDIA_DIR = "./public/media";
+
+function findBufferProblems(boxes: Map<number, Box>): string[] {
+  const problems = new Set<string>();
+  const defined = new Map<string, string>(); // "side name" → box text
+  for (const [, box] of boxes) {
+    if (boxTypeName(box.text) !== "buffer~") continue;
+    const b = bufferArgs(box.text);
+    if (b.error) { problems.add(b.error); continue; }
+    const key = `${box.side} ${b.name}`;
+    if (defined.has(key)) problems.add(`buffer~ "${b.name}" is defined twice on the ${box.side} side ("${defined.get(key)}", "${box.text}")`);
+    defined.set(key, box.text);
+    if (b.file !== undefined) {
+      try { Deno.statSync(`${MEDIA_DIR}/${b.file}`); }
+      catch { problems.add(`"${box.text}": no file public/media/${b.file}`); }
+    }
+  }
+  for (const [, box] of boxes) {
+    if (boxTypeName(box.text) !== "play~") continue;
+    const name = box.text.split(/\s+/)[1];
+    if (!name) problems.add(`"${box.text}": play~ needs a buffer name`);
+    else if (!defined.has(`${box.side} ${name}`)) problems.add(`"${box.text}": no buffer~ ${name} on the ${box.side} side`);
+  }
+  return [...problems];
+}
+
 // Rejections that need the expanded graph and stamped sides. Audio never
 // crosses the border, and routers carry events and values only: events and
 // values cross the border through a router, never on a bare cable. A bound box
@@ -586,7 +616,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   errors.push(...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`), ...findBadArgs(boxes));
   if (errors.length > 0) return result(errors);
   for (const [, box] of boxes) box.side = sideOf(box, borderY);
-  errors.push(...findTypeProblems(boxes, cables), ...findSideViolations(boxes, cables, borderY));
+  errors.push(...findTypeProblems(boxes, cables), ...findSideViolations(boxes, cables, borderY), ...findBufferProblems(boxes));
   return result(errors);
 }
 

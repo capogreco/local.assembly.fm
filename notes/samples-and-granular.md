@@ -41,11 +41,40 @@ SharedArrayBuffer and no COOP/COEP headers.
 - `record~ name [once]`: writes while the gate is open; ring by default.
 - `hann~`: a phase shaper, 0–1 in, 0–1–0 hump out. (`cosine~` is a triggered
   envelope, not a shaper.)
-- `samphold~`: samples its right inlet when the left decreases (a phasor
+- `samphold~`: samples its left inlet when the right decreases (a phasor
   wrap), as in Pd.
 - `phasor~`: expose the existing `reset` message as an event inlet, and add a
   starting-phase argument. `phasor~ … once` into `play~` is then also the
   one-shot sampler.
+
+## Built (2026-11-08, feat/samples)
+
+`buffer~` (file or seconds), `play~`, `hann~`, `samphold~`, and `phasor~`'s
+reset inlet (appended after period) and starting phase (`phasor~ period
+[phase] [once]`; reset returns to it). Not `record~`.
+
+- All are free (ordinary worklets). Buffer names are per side: each side's
+  AudioContext has its own map. Apply rejects a name defined twice on one
+  side, a `play~` with no `buffer~` of its name on its side, and a file that
+  is not in `public/media/`.
+- The deploy carries `buffers: [{ id, name, file | seconds }]` when there are
+  any. Phones load them inside `loadPatchForVoice` (messages queue meanwhile;
+  the old patch keeps sounding until the new one's buffers and engines are
+  ready, then is swapped out), then each `buffer~` outlet emits its length.
+  A download or decode past 30 s counts as failed: the patch starts and that
+  `play~` is silent. Overlapping loads (double apply, reconnect) are numbered;
+  only the latest builds. A deploy with no buffers frees the last one's. Ctrl shows "N of M loaded"
+  under the client count. The laptop loads ctrl-side buffers and sends each
+  length back as `buffer-length`.
+- File names: letters, digits, `.`, `_`, `-`, no leading dot. Formats: wav,
+  mp3, m4a, aiff (iOS Safari does not decode ogg).
+- A re-deploy fetches only buffers whose name or file changed; a file edited
+  on disk under the same name is not refetched until the name or file changes
+  or the page reloads.
+- `samphold~` also samples on its first frame (Pd starts at 0), so a stream
+  that starts mid-cycle has a position at once.
+- Test sample: `public/media/test-phrase.wav` from `deno task media`.
+  Example: `patches/granular_example.json`.
 
 ## Open
 

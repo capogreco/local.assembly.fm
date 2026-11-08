@@ -11,8 +11,8 @@
 import { applyPatch, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
 import { serializeLaptopPatch, serializeSynthPatch } from "../deploy.ts";
 
-// Tomorrow's four, plus the ctrl-side audio and sall cases.
-const PATCHES = ["ks_arp", "frogs", "panharmonium", "epimetheus", "fftPeak_test", "cute-sine_keys", "archive/sall_test", "archive/symbiogenesis"];
+// Tomorrow's four, plus the ctrl-side audio, sall and buffer~ cases.
+const PATCHES = ["ks_arp", "frogs", "panharmonium", "epimetheus", "fftPeak_test", "cute-sine_keys", "archive/sall_test", "archive/symbiogenesis", "granular_example"];
 
 const loaded = new Map<string, AbstractionDef>();
 for (const lib of Deno.readDirSync("libs")) {

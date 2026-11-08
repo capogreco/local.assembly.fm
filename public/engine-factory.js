@@ -27,11 +27,13 @@ const SIGNAL_WORKLETS = {
   "step~":    { module: "step-processor.js",    worklet: "step-processor" },
   "trig~":    { module: "trig-processor.js",    worklet: "trig-processor" },
   "slew~":    { module: "slew-processor.js",    worklet: "slew-processor" },
+  "samphold~": { module: "samphold-processor.js", worklet: "samphold-processor" },
+  "play~":    { module: "buffer-processor.js",  worklet: "play-processor" },
   "noise~-worklet": { module: "noise-signal-processor.js", worklet: "noise-signal-processor" },
   "noise~-pink-worklet": { module: "pink-noise-processor.js", worklet: "pink-noise-processor" },
 };
 
-const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~"]);
+const MATH_OPS = new Set(["+~", "-~", "*~", "/~", "**~", "scale~", "clip~", "mtof~", "hann~"]);
 
 const BASE_NATIVE_NODES = new Set([
   "oscillatorNode~", "gainNode~", "biquadFilterNode~",
@@ -155,7 +157,18 @@ async function createSignalWorklet(ctx, modulesLoaded, type, args) {
     return { type, worklet: node, splitter, outputs: [outX, outY, outZ], paramMap };
   }
 
-  const node = new AudioWorkletNode(ctx, def.worklet);
+  // Options the processor needs from its first render quantum.
+  let options = {};
+  if (type === "phasor~") {
+    // phasor~ period [phase] [once]
+    const phase = tokens[1] !== undefined && tokens[1] !== "once" ? parseFloat(tokens[1]) : 0;
+    options = { processorOptions: { phase: Number.isFinite(phase) ? phase : 0, loop: !tokens.includes("once") } };
+  } else if (type === "samphold~") {
+    options = { numberOfInputs: 2 };
+  } else if (type === "play~") {
+    options = { processorOptions: { name: tokens[0] ?? "" } };
+  }
+  const node = new AudioWorkletNode(ctx, def.worklet, options);
   const paramMap = {};
   for (const [name, param] of node.parameters) paramMap[name] = param;
 
@@ -275,5 +288,125 @@ async function createEngine(ctx, modulesLoaded, nativeNodes, type, args, special
   return { type, worklet };
 }
 
+// --- Named sample buffers (buffer~, play~) ---
+// A deploy lists its buffers: { id, name, file } loaded from /media/<file>, or
+// { id, name, seconds } silent. Each is decoded here, mixed to mono, and its
+// samples transferred once to the context's registry node, where every play~
+// in the context finds it by name (buffer-processor.js). Per context: one
+// registry node and what it holds, so a re-deploy fetches only what changed
+// and drops buffers it no longer lists. Syncs on one context run one after
+// another.
+
+const bufferStores = new WeakMap(); // AudioContext → { registry, held: Map<name, key>, lengths: Map<name, s>, chain }
+
+function bufferKey(b) {
+  return b.file !== undefined ? `file:${b.file}` : `silent:${b.seconds}`;
+}
+
+// A stalled download or decode must not hold the patch back: past these the
+// buffer counts as failed, the patch starts, and its play~ is silent.
+const FETCH_TIMEOUT_MS = 30000;
+const DECODE_TIMEOUT_MS = 30000;
+
+function withTimeout(promise, ms, what) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function decodeMono(ctx, file) {
+  // AbortController + setTimeout rather than AbortSignal.timeout, which older
+  // Safari lacks. The abort covers the body download as well as the headers.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
+  let data;
+  try {
+    const r = await fetch("/media/" + encodeURIComponent(file), { signal: abort.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    data = await r.arrayBuffer();
+  } catch (err) {
+    if (abort.signal.aborted) throw new Error(`download timed out after ${FETCH_TIMEOUT_MS / 1000} s`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+  const audio = await withTimeout(ctx.decodeAudioData(data), DECODE_TIMEOUT_MS, "decode");
+  const n = audio.numberOfChannels;
+  const mono = new Float32Array(audio.length);
+  for (let c = 0; c < n; c++) {
+    const ch = audio.getChannelData(c);
+    for (let i = 0; i < mono.length; i++) mono[i] += ch[i];
+  }
+  if (n > 1) for (let i = 0; i < mono.length; i++) mono[i] /= n;
+  return mono;
+}
+
+/**
+ * Make the context hold exactly the deploy's buffers.
+ * onProgress(loaded, total) runs after each buffer, loaded or failed.
+ * Resolves to { lengths: Map<boxId, seconds>, errors: string[] }; a buffer
+ * that fails stays missing (play~ is silent) and is named in `errors`.
+ * isStale() true means a newer sync is queued behind this one: stop between
+ * buffers rather than download what the newer one may drop (the result is
+ * then incomplete, and the caller discards it).
+ */
+function syncBuffers(ctx, modulesLoaded, list, onProgress, isStale) {
+  let store = bufferStores.get(ctx);
+  if (!store) {
+    store = { registry: null, held: new Map(), lengths: new Map(), chain: Promise.resolve() };
+    bufferStores.set(ctx, store);
+  }
+  const run = async () => {
+    const lengths = new Map(), errors = [];
+    const total = list.length;
+    if (total === 0 && store.held.size === 0) return { lengths, errors };
+    if (!modulesLoaded.has("buffer-processor.js")) {
+      await ctx.audioWorklet.addModule("buffer-processor.js");
+      modulesLoaded.add("buffer-processor.js");
+    }
+    if (!store.registry) store.registry = new AudioWorkletNode(ctx, "buffer-registry");
+    const port = store.registry.port;
+    const wanted = new Set(list.map((b) => b.name));
+    for (const name of store.held.keys()) {
+      if (wanted.has(name)) continue;
+      port.postMessage({ type: "delete", name });
+      store.held.delete(name);
+      store.lengths.delete(name);
+    }
+    let done = 0;
+    onProgress?.(0, total);
+    for (const b of list) {
+      if (isStale?.()) break;
+      const key = bufferKey(b);
+      try {
+        if (store.held.get(b.name) !== key) {
+          const samples = b.file !== undefined
+            ? await decodeMono(ctx, b.file)
+            : new Float32Array(Math.max(1, Math.round(b.seconds * ctx.sampleRate)));
+          // Read the length first: the transfer detaches `samples`.
+          const seconds = samples.length / ctx.sampleRate;
+          port.postMessage({ type: "set", name: b.name, samples }, [samples.buffer]);
+          store.held.set(b.name, key);
+          store.lengths.set(b.name, seconds);
+        }
+        lengths.set(b.id, store.lengths.get(b.name));
+      } catch (err) {
+        // A failed reload must not leave the old samples under the name.
+        if (store.held.has(b.name)) port.postMessage({ type: "delete", name: b.name });
+        store.held.delete(b.name);
+        store.lengths.delete(b.name);
+        errors.push(`buffer~ ${b.name}: ${b.file ?? b.seconds} failed to load: ${err?.message ?? err}`);
+      }
+      onProgress?.(++done, total);
+    }
+    return { lengths, errors };
+  };
+  const result = store.chain.then(run);
+  store.chain = result.catch(() => {});
+  return result;
+}
+
 // --- Exports ---
-export { ENGINES, SIGNAL_WORKLETS, MATH_OPS, BASE_NATIVE_NODES, createEngine, createNativeNode, createSignalWorklet, createMathNode, getEngineOutput };
+export { ENGINES, SIGNAL_WORKLETS, MATH_OPS, BASE_NATIVE_NODES, createEngine, syncBuffers, createNativeNode, createSignalWorklet, createMathNode, getEngineOutput };
