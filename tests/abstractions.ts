@@ -8,7 +8,7 @@
  */
 
 import { boxes, cables, clearPatchState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
-import { applyPatch, checkAbstraction, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
+import { applyPatch, checkAbstraction, checkSave, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
 import { cableTypeProblem, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
 
 const BORDER = 400;
@@ -140,6 +140,26 @@ console.log("save: nested ports and unknown types");
   check("unknown inner box type", typo.some((m) => /^"t\/x": unknown box type "mul"$/.test(m)), JSON.stringify(typo));
   const unsaved = errs({ boxes: [[1, { text: "inlet 0" }], [2, { text: "t/nope" }], [3, { text: "outlet 0" }]], cables: [] });
   check("unknown nested abstraction", unsaved.some((m) => /unknown box type "t\/nope"/.test(m)), JSON.stringify(unsaved));
+}
+
+console.log("save: the whole library is checked with the new version in");
+{
+  const user = def({
+    name: "t/user", inlets: [], outlets: [],
+    boxes: [[1, { text: "+ 1" }], [2, { text: "t/x" }], [3, { text: "print" }]],
+    cables: [[4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [5, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]],
+  });
+  const lib = new Map([["t/x", def()], ["t/user", user]]);
+  check("unchanged save accepted", checkSave(def(), lib).length === 0, JSON.stringify(checkSave(def(), lib)));
+  const noIn = def({ inlets: [], boxes: [[2, { text: "* 2" }], [3, { text: "outlet 0" }]], cables: [[5, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]] });
+  const e = checkSave(noIn, lib);
+  check("dropping an inlet a user wires refused", e.some((m) => /^saving "t\/x" would break "t\/user": cable into "t\/x" inlet 0: no such inlet \(it has 0\)$/.test(m)), JSON.stringify(e));
+  const toSynth = def({ side: "synth" });
+  const s = checkSave(toSynth, new Map(lib).set("t/user", { ...user, side: "ctrl" }));
+  check("changing side under a user refused", s.some((m) => /would break "t\/user": is declared ctrl but contains synth-bound "t\/x"/.test(m)), JSON.stringify(s));
+  const cyc = def({ boxes: [[1, { text: "inlet 0" }], [2, { text: "t/user" }], [6, { text: "* 2" }], [3, { text: "outlet 0" }]], cables: [[4, { srcBox: 1, srcOutlet: 0, dstBox: 6, dstInlet: 0 }], [5, { srcBox: 6, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]] });
+  const c = checkSave(cyc, lib);
+  check("a cycle through a user refused", c.some((m) => /contains itself/.test(m)), JSON.stringify(c));
 }
 
 console.log("save: $n needs a declared arg");

@@ -241,6 +241,20 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
   return errors;
 }
 
+// The checks for saving `def` over `loaded` (the registry): its own contents,
+// and every other abstraction against the registry with `def` in it, so a save
+// can't leave the library unloadable (a user of `def` wired to a port its new
+// header dropped, a cycle through it). Every problem is an error.
+export function checkSave(def: AbstractionDef, loaded: Map<string, AbstractionDef>): string[] {
+  const candidate = new Map(loaded).set(def.name, def);
+  const errors = checkAbstraction(def, candidate);
+  for (const name of [...candidate.keys()].sort()) {
+    if (name === def.name) continue;
+    for (const e of checkAbstraction(candidate.get(name)!, candidate)) errors.push(`saving "${def.name}" would break ${e}`);
+  }
+  return errors;
+}
+
 // Every abstraction the boxes use, nested ones included.
 function usedAbstractions(texts: Iterable<string>, loaded: Map<string, AbstractionDef>): Set<string> {
   const used = new Set<string>();

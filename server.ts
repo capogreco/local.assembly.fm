@@ -16,7 +16,7 @@ import {
 import { getLanIP, qrText } from "./onboarding.ts";
 import { boxTypeName } from "./public/gpi-types.js";
 import { serializeLaptopPatch, serializeSynthPatch } from "./deploy.ts";
-import { type AbstractionDef, LIB_NAME, applyPatch, checkAbstraction, isAbstractionName, parseAbstraction } from "./apply-check.ts";
+import { type AbstractionDef, LIB_NAME, applyPatch, checkAbstraction, checkSave, isAbstractionName, parseAbstraction } from "./apply-check.ts";
 
 // Workshop self-signed cert — distinct filenames so generation can never
 // clobber a hand-copied Let's Encrypt pair sitting in the repo root.
@@ -724,16 +724,29 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
     try { raw = JSON.parse(await req.text()); } catch (e) { return refuse(400, [String(e)]); }
     if (raw && typeof raw === "object") delete raw.borderY;
     const { def, errors } = parseAbstraction(name, raw);
-    const problems = def ? checkAbstraction(def, loadedAbstractions) : errors.map((e) => `"${name}": ${e}`);
+    // Checked against the whole library with it in, before anything is written.
+    const problems = def ? checkSave(def, loadedAbstractions) : errors.map((e) => `"${name}": ${e}`);
     if (problems.length > 0) {
       for (const p of problems) console.log(`\x1b[31m✗ abstraction ${name} rejected: ${p}\x1b[0m`);
       return refuse(400, problems);
     }
+    let previous: string | null = null;
+    try { previous = await Deno.readTextFile(file); } catch { /* a new abstraction */ }
     await Deno.mkdir(file.slice(0, file.lastIndexOf("/")), { recursive: true });
     await Deno.writeTextFile(file, JSON.stringify(raw, null, 1) + "\n");
+    // loadAbstractions replaces the registry only if the whole library loads.
+    // If it doesn't (a file edited by hand since the last load), the old file
+    // goes back, so the registry, the disk and the next boot all agree.
+    try {
+      await loadAbstractions();
+    } catch (e) {
+      if (previous === null) await Deno.remove(file); else await Deno.writeTextFile(file, previous);
+      const lines = [`"${name}" not saved: the library on disk doesn't load with it`, ...(e instanceof Error ? e.message : String(e)).split("\n")];
+      for (const p of lines) console.log(`\x1b[31m✗ ${p}\x1b[0m`);
+      return refuse(400, lines);
+    }
     event(`saved abstraction: ${name}`);
     // The running patch is untouched until the next apply.
-    await loadAbstractions();
     return new Response(JSON.stringify({ ok: true, name }), { headers });
   }
 
