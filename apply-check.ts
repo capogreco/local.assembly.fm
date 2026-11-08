@@ -276,6 +276,12 @@ export function checkSave(def: AbstractionDef, loaded: Map<string, AbstractionDe
   return errors;
 }
 
+// A create-only save (PUT /abstractions/<name>?create=1, used by
+// encapsulate): the name must be free, in the registry and on disk.
+export function createConflict(name: string, loaded: Map<string, AbstractionDef>, onDisk: boolean): string | null {
+  return loaded.has(name) || onDisk ? `"${name}" already exists` : null;
+}
+
 // Every abstraction the boxes use, nested ones included.
 function usedAbstractions(texts: Iterable<string>, loaded: Map<string, AbstractionDef>): Set<string> {
   const used = new Set<string>();

@@ -9,8 +9,8 @@
  */
 
 import { clearPatchState, setBorderY } from "../patch-state.ts";
-import { applyPatch, checkSave, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { BOX_HEIGHT, SNAP, getBoxPorts } from "../public/gpi-types.js";
+import { applyPatch, checkSave, createConflict, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
+import { BOX_HEIGHT, SNAP, getBoxPorts, textBoxWidth } from "../public/gpi-types.js";
 
 let pass = 0, fail = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -118,7 +118,7 @@ console.log("synth side: one grain voice of granular_example");
   check("inlet boxes on a row above the contents, outlet below", [0, 1, 2].every((i) => inBox(i).port.y === 20) &&
     f.boxes.every(([, x]: [number, { text: string; y: number }]) => /^(inlet|outlet) /.test(x.text) || x.y >= 60) &&
     f.boxes.find(([, x]: [number, { text: string }]) => x.text === "outlet 0")[1].y > 60, "");
-  check("inlet boxes don't overlap", inBox(0).port.x + 60 <= inBox(1).port.x || inBox(1).port.x >= inBox(0).port.x + SNAP, JSON.stringify([inBox(0).port.x, inBox(1).port.x]));
+  check("inlet boxes don't overlap", [0, 1].every((i) => inBox(i + 1).port.x >= inBox(i).port.x + textBoxWidth(`inlet ${i}`, 1)), JSON.stringify([0, 1, 2].map((i) => inBox(i).port.x)));
   check("everything inside on the half-unit grid", f.boxes.every(([, x]: [number, { x: number; y: number }]) => x.x % SNAP === 0 && x.y % SNAP === 0));
   // Relative layout kept: phasor~ 18 (20,480) and *~ 30 (20,640) are 160 apart.
   const at = (t: string) => f.boxes.filter(([, x]: [number, { text: string }]) => x.text === t).map(([, x]: [number, { x: number; y: number }]) => x);
@@ -259,6 +259,44 @@ console.log("refusals change nothing");
   ed2.boxes.get(1).x += 10;
   const snap = ed2.serialize();
   check("a stale plan isn't applied", ed2.applyEncapsulation(r.plan) === false && ed2.serialize() === snap && ed2.undoStack.length === 0);
+}
+
+console.log("stale selection ids: nothing selected");
+{
+  const ed = mk(granular);
+  ed.selection = new Set([999, 998]);
+  const r = ed.encapsulation("test/nope");
+  check("refused, no throw", ed.encapsulateRefusal() === "nothing selected" && r.error === "nothing selected", JSON.stringify(r));
+}
+
+console.log("a wider instance is nudged clear of its neighbours, in the same undo step");
+{
+  // `+ 1` is two units wide; the instance's long name is wider and would
+  // run into `print` just right of it.
+  const patch = {
+    boxes: [[1, b(20, 100, "const 1")], [2, b(20, 160, "+ 1")], [3, b(80, 160, "print")], [4, b(20, 220, "print")]],
+    cables: [[5, c(1, 0, 2, 0)], [6, c(2, 0, 4, 0)]], nextId: 7, borderY: 400,
+  };
+  const ed = mk(patch);
+  const before = ed.serialize();
+  const r = encapsulate(ed, [2], "test/a-rather-long-name");
+  if ("error" in r) throw new Error(r.error);
+  const id = instanceId(ed, "test/a-rather-long-name");
+  const inst = ed.boxes.get(id), pr = ed.boxes.get(3);
+  const gx = Math.max(pr.x - (inst.x + ed.boxWidth(inst, id)), inst.x - (pr.x + ed.boxWidth(pr, 3)));
+  const gy = Math.max(pr.y - (inst.y + BOX_HEIGHT), inst.y - (pr.y + BOX_HEIGHT));
+  check("instance clear of print", gx >= SNAP || gy >= SNAP, JSON.stringify({ inst, pr }));
+  check("neighbours didn't move", pr.x === 80 && pr.y === 160 && ed.boxes.get(4).y === 220);
+  check("still one undo step", r.undoSteps === 1, String(r.undoSteps));
+  ed.undo();
+  check("undo restores the patch", ed.serialize() === before);
+}
+
+console.log("create-only save (PUT ?create=1)");
+{
+  check("a free name passes", createConflict("test/fresh-name", loaded, false) === null);
+  check("a loaded name: taken", /already exists/.test(createConflict("common/double", loaded, false) ?? ""));
+  check("a file on disk not in the registry: taken", /already exists/.test(createConflict("test/fresh-name", loaded, true) ?? ""));
 }
 
 console.log("the server's save check rejects a bad encapsulation");

@@ -350,7 +350,7 @@ class PatchEditor {
 
   // Why the selection can't be encapsulated, or null.
   encapsulateRefusal() {
-    if (this.selection.size === 0) return "nothing selected";
+    if (![...this.selection].some((id) => this.boxes.has(id))) return "nothing selected";
     let side = null;
     for (const id of this.selection) {
       const box = this.boxes.get(id);
@@ -498,6 +498,9 @@ class PatchEditor {
     this.selection.clear();
     this.selection.add(id);
     this.cableSelection.clear();
+    // A wider instance may overlap its neighbours: nudge it alone clear of
+    // them, within this undo step.
+    this.nudgeApart({ undo: false });
     this.render();
     return true;
   }
@@ -518,7 +521,8 @@ class PatchEditor {
   // out of view, the view zooms out (never in) and pans just enough to show
   // the boxes that moved; otherwise it stays.
 
-  nudgeApart() {
+  // `undo: false` leaves the undo step to the caller (encapsulate).
+  nudgeApart({ undo = true } = {}) {
     if (this.boxes.size === 0) return;
     const before = this.serialize();
     const scope = new Set(this.selection.size > 0 ? [...this.selection].filter((id) => this.boxes.has(id)) : this.boxes.keys());
@@ -607,7 +611,7 @@ class PatchEditor {
     if (!settled) console.warn(`l: boxes still too close after ${rounds} sweeps`);
 
     if (this.serialize() === before) return;
-    this.pushUndo(before);
+    if (undo) this.pushUndo(before);
     this.showMoved(ids.filter((id) => { const [x, y] = startPos.get(id), b = this.boxes.get(id); return b.x !== x || b.y !== y; }));
     this.render();
   }

@@ -83,11 +83,14 @@ panel for editing the header. Help patches sit beside the abstraction.
   inlet, and one fed both audio and values is refused. Inside, the boxes keep
   their layout, moved near the origin, with `inlet i` boxes on a row above
   and `outlet i` boxes on a row below, each over its port. No args, no face,
-  empty description: added in the abstraction editor. Saved through PUT
-  `/abstractions`; only then the registry reloads and the instance replaces
-  the selection at its top-left (kept wholly on its side), outside cables on
-  its ports with their ids kept. One undo step; undo doesn't delete the
-  saved file. `PatchEditor.encapsulation`/`applyEncapsulation`,
+  empty description: added in the abstraction editor. The registry reloads
+  (and syncs ports) before the plan is made. Saved through PUT
+  `/abstractions/<name>?create=1`, which answers 409 if the name is loaded
+  or its file exists; only then the registry reloads and the instance
+  replaces the selection at its top-left (kept wholly on its side), outside
+  cables on its ports with their ids kept, then is nudged alone clear of
+  its neighbours (`l`'s logic). One undo step; undo doesn't delete the
+  saved file. A second press while one is saving is ignored. `PatchEditor.encapsulation`/`applyEncapsulation`,
   `tests/encapsulate.ts`.
 
 **Port changes to existing instances.**

@@ -647,29 +647,48 @@ function newAbstraction() {
 // Cmd+Shift+E: the selection becomes a new abstraction, library/name, on the
 // selection's side, and one instance of it (notes/abstractions.md, Editing).
 // The patch changes only after the server has saved it with every check.
+let encapsulating = false; // one at a time: a second press while saving is ignored
 async function encapsulateSelection() {
-  const refuse = (...lines) => notify(["✗ encapsulate: " + lines[0], ...lines.slice(1)]);
+  if (encapsulating) return;
+  encapsulating = true;
+  try { await encapsulate(); } finally { encapsulating = false; }
+}
+
+async function encapsulate() {
+  // The registry first, with its port sync: the plan's snapshot is then
+  // taken after any change the sync makes, and the name is checked against
+  // what the server has now. Lines about dropped cables go with every notice.
+  await loadAbstractions();
+  const synced = mainEditor.syncAbstractionPorts();
+  if (synced.length > 0) synced.unshift("abstraction headers changed:");
+  mainEditor.render();
+  const say = (lines) => notify([...lines, ...synced]);
+  const refuse = (...lines) => say(["✗ encapsulate: " + lines[0], ...lines.slice(1)]);
   if (mainEditor.mode === "text-editing") { refuse("finish the box being typed first"); return; }
   const refusal = mainEditor.encapsulateRefusal();
   if (refusal) { refuse(refusal); return; }
   const name = prompt("Encapsulate into, as library/name (e.g. common/voice):")?.trim();
-  if (!name) return;
+  if (!name) { if (synced.length > 0) say([]); return; }
   if (!ABS_NAME.test(name)) { refuse(`"${name}": write it as library/name (letters, digits, _ - ~)`); return; }
   if (abstractionTypes.has(name)) { refuse(`"${name}" already exists`); return; }
   const result = mainEditor.encapsulation(name);
   if (result.error) { refuse(result.error); return; }
-  const res = await fetch(`/abstractions/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(result.file) });
+  // create=1: the server refuses (409) a name that exists, whatever we hold.
+  const res = await fetch(`/abstractions/${encodeURIComponent(name)}?create=1`, { method: "PUT", body: JSON.stringify(result.file) });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 409) { refuse(`"${name}" already exists`); return; }
     refuse(`${name} not saved`, ...(body.errors ?? [body.error ?? String(res.status)]));
     return;
   }
-  await reloadAbstractions();
-  if (!mainEditor.applyEncapsulation(result.plan)) {
-    refuse(`${name} saved, but the patch changed meanwhile; place it by hand`);
-    return;
-  }
-  notify([`✓ encapsulated into ${name}`]);
+  await loadAbstractions();
+  const placed = abstractionTypes.has(name) && mainEditor.applyEncapsulation(result.plan);
+  // Anything else the reload changed (another window's save) syncs after.
+  const later = mainEditor.syncAbstractionPorts();
+  mainEditor.render();
+  if (later.length > 0) synced.push("abstraction headers changed:", ...later);
+  if (!placed) { refuse(`${name} saved, but the patch changed meanwhile; place it by hand`); return; }
+  say([`✓ encapsulated into ${name}`]);
 }
 
 // Instances take their header's ports; cables to ports that are gone are

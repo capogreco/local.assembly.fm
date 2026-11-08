@@ -14,7 +14,7 @@ import {
 import { getLanIP, qrText } from "./onboarding.ts";
 import { boxTypeName } from "./public/gpi-types.js";
 import { serializeLaptopPatch, serializeSynthPatch } from "./deploy.ts";
-import { type AbstractionDef, LIB_NAME, applyPatch, checkAbstraction, checkSave, isAbstractionName, parseAbstraction } from "./apply-check.ts";
+import { type AbstractionDef, LIB_NAME, applyPatch, checkAbstraction, checkSave, createConflict, isAbstractionName, parseAbstraction } from "./apply-check.ts";
 
 // Workshop self-signed cert — distinct filenames so generation can never
 // clobber a hand-copied Let's Encrypt pair sitting in the repo root.
@@ -742,6 +742,13 @@ async function handleAbstractionAPI(req: Request, url: URL): Promise<Response> {
     let raw;
     try { raw = JSON.parse(await req.text()); } catch (e) { return refuse(400, [String(e)]); }
     if (raw && typeof raw === "object") delete raw.borderY;
+    // ?create=1 (encapsulate): a new abstraction only, never over an existing one.
+    if (url.searchParams.get("create") === "1") {
+      let onDisk = false;
+      try { await Deno.stat(file); onDisk = true; } catch { /* free */ }
+      const taken = createConflict(name, loadedAbstractions, onDisk);
+      if (taken) return refuse(409, [taken]);
+    }
     const { def, errors } = parseAbstraction(name, raw);
     // Checked against the whole library with it in, before anything is written.
     const problems = def ? checkSave(def, loadedAbstractions) : errors.map((e) => `"${name}": ${e}`);
