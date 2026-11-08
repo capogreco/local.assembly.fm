@@ -495,10 +495,10 @@ const BOX_TYPES = {
   "hann~":        { description: "Hann window phase shaper: 0.5 - 0.5cos(2πx). 0-1 in, 0-1-0 hump out.",
                     inlets: [{ name: "in", type: "audio", description: "Phase (0-1)" }],
                     outlets: [{ name: "out", type: "audio", description: "Window (0-1)" }] },
-  "samphold~":    { description: "Sample and hold, as in Pd: samples the right inlet whenever the left decreases (a phasor wrap). Samples once on the first frame.",
+  "samphold~":    { description: "Sample and hold, as in Pd: samples the left inlet whenever the right decreases (a phasor wrap). Samples once on the first frame.",
                     inlets: [
-                      { name: "trig", type: "audio", description: "Trigger signal (samples on a decrease)" },
-                      { name: "in", type: "audio", description: "Signal to sample" }],
+                      { name: "in", type: "audio", description: "Signal to sample" },
+                      { name: "trig", type: "audio", description: "Control signal (samples on a decrease)" }],
                     outlets: [{ name: "out", type: "audio", description: "Held value" }] },
   "buffer~":      { description: "Named mono sample buffer, loaded from /media/<file> (stereo is mixed down) or silent for a length in seconds. Phones load it before the patch starts. play~ reads it by name.", args: "name file | name seconds", example: "buffer~ voice voice.wav",
                     inlets: [],

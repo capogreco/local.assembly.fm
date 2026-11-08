@@ -41,7 +41,7 @@ SharedArrayBuffer and no COOP/COEP headers.
 - `record~ name [once]`: writes while the gate is open; ring by default.
 - `hann~`: a phase shaper, 0–1 in, 0–1–0 hump out. (`cosine~` is a triggered
   envelope, not a shaper.)
-- `samphold~`: samples its right inlet when the left decreases (a phasor
+- `samphold~`: samples its left inlet when the right decreases (a phasor
   wrap), as in Pd.
 - `phasor~`: expose the existing `reset` message as an event inlet, and add a
   starting-phase argument. `phasor~ … once` into `play~` is then also the
