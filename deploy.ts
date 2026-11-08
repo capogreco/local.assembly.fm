@@ -5,7 +5,7 @@
 
 import { type Box, boxes, cables, cablesFromOutlet } from "./patch-state.ts";
 import { sideStamped } from "./eval-engine.ts";
-import { boxTypeName, deployInletDefs, getBoxDef, isAudioBox, isDac } from "./public/gpi-types.js";
+import { boxTypeName, bufferArgs, deployInletDefs, getBoxDef, isAudioBox, isDac } from "./public/gpi-types.js";
 
 // One deployed box, or null (logged) for a type with no definition.
 // deno-lint-ignore no-explicit-any
@@ -56,6 +56,22 @@ function deployPartition(inPartition: (box: Box) => boolean) {
   return { ids, patchBoxes, patchCables, audioCables };
 }
 
+// The named buffers one side loads before its patch starts: one per buffer~,
+// after abstraction expansion (names and files have their $1 filled in).
+// Apply has checked the args. The key is left out when there are none, so a
+// patch without samples deploys as before.
+// deno-lint-ignore no-explicit-any
+function deployBuffers(side: "ctrl" | "synth"): Record<string, any> {
+  // deno-lint-ignore no-explicit-any
+  const list: any[] = [];
+  for (const [id, box] of boxes) {
+    if (boxTypeName(box.text) !== "buffer~" || sideStamped(box) !== side) continue;
+    const { name, file, seconds } = bufferArgs(box.text);
+    list.push(file !== undefined ? { id, name, file } : { id, name, seconds });
+  }
+  return list.length > 0 ? { buffers: list } : {};
+}
+
 export function serializeSynthPatch(): Record<string, unknown> {
   // deno-lint-ignore no-explicit-any
   const entries: any[] = [];
@@ -87,7 +103,7 @@ export function serializeSynthPatch(): Record<string, unknown> {
     }
   }
 
-  return { type: "patch", boxes: patchBoxes, cables: patchCables, audioCables, entries };
+  return { type: "patch", boxes: patchBoxes, cables: patchCables, audioCables, entries, ...deployBuffers("synth") };
 }
 
 // The laptop deploy: ctrl-side audio boxes and the audio cables among them.
@@ -104,5 +120,5 @@ export function serializeLaptopPatch(): Record<string, unknown> {
       if (p !== null) entries.push({ routerId: b.id, routerOutlet: i, targetBox: b.id, targetInlet: i });
     });
   }
-  return { type: "patch", boxes: patchBoxes, cables: [], audioCables, entries };
+  return { type: "patch", boxes: patchBoxes, cables: [], audioCables, entries, ...deployBuffers("ctrl") };
 }
