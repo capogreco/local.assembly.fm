@@ -58,10 +58,16 @@ reset inlet (appended after period) and starting phase (`phasor~ period
   side, a `play~` with no `buffer~` of its name on its side, and a file that
   is not in `public/media/`.
 - The deploy carries `buffers: [{ id, name, file | seconds }]` when there are
-  any. Phones load them inside `loadPatchForVoice` (messages queue meanwhile),
-  then each `buffer~` outlet emits its length. Ctrl shows "N of M loaded"
+  any. Phones load them inside `loadPatchForVoice` (messages queue meanwhile;
+  the old patch keeps sounding until the new one's buffers and engines are
+  ready, then is swapped out), then each `buffer~` outlet emits its length.
+  A download or decode past 30 s counts as failed: the patch starts and that
+  `play~` is silent. Overlapping loads (double apply, reconnect) are numbered;
+  only the latest builds. A deploy with no buffers frees the last one's. Ctrl shows "N of M loaded"
   under the client count. The laptop loads ctrl-side buffers and sends each
   length back as `buffer-length`.
+- File names: letters, digits, `.`, `_`, `-`, no leading dot. Formats: wav,
+  mp3, m4a, aiff (iOS Safari does not decode ogg).
 - A re-deploy fetches only buffers whose name or file changed; a file edited
   on disk under the same name is not refetched until the name or file changes
   or the page reloads.
