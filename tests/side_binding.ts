@@ -247,6 +247,11 @@ console.log("buffer~ and play~ names are per side");
   reset();
   const path = applyPatch(msg([box(1, "buffer~ a ../server.ts", SYNTH_Y)]), loaded);
   check("path as file rejected", path.errors.some((e) => /not a path/.test(e)), JSON.stringify(path.errors));
+  for (const bad of ["my%20file.wav", "café.wav", ".hidden.wav", "a?b.wav"]) {
+    reset();
+    const r = applyPatch(msg([box(1, `buffer~ a ${bad}`, SYNTH_Y)]), loaded);
+    check(`file name ${JSON.stringify(bad)} rejected`, r.errors.some((e) => /not a path/.test(e)), JSON.stringify(r.errors));
+  }
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);

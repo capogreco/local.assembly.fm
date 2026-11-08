@@ -792,7 +792,9 @@ function bufferArgs(text) {
     if (n <= 0) return { name, error: `"${text}": a silent buffer~ needs a positive length in seconds` };
     return { name, seconds: n, error: null };
   }
-  if (src.includes("/") || src.includes("\\") || src.startsWith(".")) return { name, error: `"${text}": the file is a name under /media/, not a path` };
+  // Letters, digits, dot, underscore, hyphen; no leading dot. Apply checks the
+  // same name the phones fetch, so nothing needs escaping between the two.
+  if (!/^[A-Za-z0-9._-]+$/.test(src) || src.startsWith(".")) return { name, error: `"${text}": the file is a name under /media/ (letters, digits, . _ -), not a path` };
   return { name, file: src, error: null };
 }
 
