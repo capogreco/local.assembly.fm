@@ -834,6 +834,10 @@ function routerY(borderY) {
   return borderY - BOX_HEIGHT;
 }
 
+// How deep abstractions may nest: expansion at apply, and faces drawn
+// inside faces, stop here.
+const MAX_DEPTH = 16;
+
 // --- Box geometry ---
 // Shared by the editor (drawing, hit-testing) and the server (face and side
 // checks), so both agree on every box's extent without a canvas.
@@ -1046,5 +1050,5 @@ function isAudioBox(text) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
+export { BOX_TYPES, PORT_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, faceOf, boxHeight, boxSize, guiKind, faceContents, boxTypeName, getBoxPorts, groupArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox };
 

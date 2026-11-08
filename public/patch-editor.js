@@ -1,11 +1,11 @@
-import { BOX_TYPES, GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, faceOf, faceContents, boxTypeName, boxBinding, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
 
 // Colours come from the active theme (theme.js); COLORS is that live palette.
 // GRID and BOX_HEIGHT come from gpi-types.js: the side rule needs them.
-const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_GAP = 4, PORT_HIT = 8, BORDER_HANDLE = 8;
+const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
 const COMMENT_FONT = 'italic 12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
@@ -25,9 +25,10 @@ const INTERACTIVE_TYPES = new Set(Object.entries(BOX_TYPES).filter(([, d]) => d.
 const KNOB_DRAG_STEP = 0.005, KNOB_DRAG_STEP_FINE = 0.0005;
 
 // --- abstraction registry ---
-// name ("lib/name") → header { name, side, description, args, inlets, outlets },
-// straight from the file. gpi-types reads it too (useAbstractions), so an
-// instance's ports, port types and side resolve as for a built-in box.
+// name ("lib/name") → header { name, side, description, args, inlets, outlets,
+// face }, straight from the file, plus `boxes` (a Map) for drawing the face.
+// gpi-types reads it too (useAbstractions), so an instance's ports, port
+// types, side and size resolve as for a built-in box.
 
 const abstractionTypes = new Map();
 useAbstractions(abstractionTypes);
@@ -39,8 +40,8 @@ async function loadAbstractions() {
     const fresh = await Promise.all(names.map(async (name) => {
       const r = await fetch(`/abstractions/${encodeURIComponent(name)}`);
       if (!r.ok) throw new Error(`${name}: ${r.status}`);
-      const { side, description, args, inlets, outlets } = await r.json();
-      return { name, side, description, args, inlets, outlets };
+      const { side, description, args, inlets, outlets, face, boxes } = await r.json();
+      return { name, side, description, args, inlets, outlets, face: face ?? null, boxes: new Map(boxes) };
     }));
     abstractionTypes.clear();
     for (const def of fresh) abstractionTypes.set(def.name, def);
@@ -64,6 +65,21 @@ function getDef(text) {
 }
 
 // --- utility ---
+
+function formatValue(v) {
+  return typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
+}
+
+// An instance's args, from its text.
+function instanceArgs(text) {
+  return text.trim().split(/\s+/).slice(1);
+}
+
+// A box inside an abstraction, with the instance's args for $1, $2, ... as
+// expansion fills them in ($0 stays: only the server knows it).
+function fillArgs(text, args) {
+  return text.replace(/\$(\d+)/g, (ref, n) => (n !== "0" && args[n - 1] !== undefined ? args[n - 1] : ref));
+}
 
 function distToSeg(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, lenSq = dx * dx + dy * dy;
@@ -526,7 +542,7 @@ class PatchEditor {
     const aW = this.boxWidth(a, aId);
     const bW = this.boxWidth(b, bId);
     const xOverlap = a.x < b.x + bW && b.x < a.x + aW;
-    const yOverlap = a.y < b.y + BOX_HEIGHT && b.y < a.y + BOX_HEIGHT;
+    const yOverlap = a.y < b.y + this.boxHeight(b, bId) && b.y < a.y + this.boxHeight(a, aId);
     return xOverlap && yOverlap;
   }
 
@@ -548,14 +564,15 @@ class PatchEditor {
         for (let j = i + 1; j < ids.length; j++) {
           const b = this.boxes.get(ids[j]);
           if (!this.boxesAABBOverlap(ids[i], a, ids[j], b)) continue;
+          const ha = this.boxHeight(a, ids[i]), hb = this.boxHeight(b, ids[j]);
           if (direction === "down") {
             // Push the lower of the two further down
-            if (a.y >= b.y) { a.y = b.y + BOX_HEIGHT + PAD; }
-            else { b.y = a.y + BOX_HEIGHT + PAD; }
+            if (a.y >= b.y) { a.y = b.y + hb + PAD; }
+            else { b.y = a.y + ha + PAD; }
           } else {
             // Push the upper of the two further up
-            if (a.y <= b.y) { a.y = b.y - BOX_HEIGHT - PAD; }
-            else { b.y = a.y - BOX_HEIGHT - PAD; }
+            if (a.y <= b.y) { a.y = b.y - ha - PAD; }
+            else { b.y = a.y - hb - PAD; }
           }
           moved = true;
         }
@@ -600,7 +617,22 @@ class PatchEditor {
     return this.ctx.measureText(text).width;
   }
 
+  // A faced abstraction instance's face { x, y, w, h, hideName }, or null.
+  // While its text is being edited the instance is an ordinary text box.
+  faceOfBox(box, id) {
+    if (id !== undefined && id === this.editingBoxId) return null;
+    return faceOf(box.text);
+  }
+
+  // Height of a box: one unit, or a faced instance's face height.
+  boxHeight(box, id) {
+    const face = this.faceOfBox(box, id);
+    return face ? face.h * GRID : BOX_HEIGHT;
+  }
+
   boxWidth(box, id) {
+    const face = this.faceOfBox(box, id);
+    if (face) return face.w * GRID;
     let text = (id !== undefined && id === this.editingBoxId && this.input)
       ? (this.input.value || " ") : (box.text || " ");
     const _type = boxTypeName(box.text);
@@ -611,11 +643,8 @@ class PatchEditor {
       const v = this.boxValues.get(id);
       text = _type + " " + (typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v));
     }
-    // Room for the ports with a gap between each, and at least two units.
-    // Rounded up to whole units, so the right edge is on the grid too.
-    const ports = Math.max(box.inlets, box.outlets);
-    const w = Math.max(this.measureText(text) + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
-    return Math.ceil(w / GRID) * GRID;
+    // gpi-types' formula, which the server's face check uses too.
+    return textBoxWidth(text, Math.max(box.inlets, box.outlets));
   }
 
   // Port centre x, as in Pd: port 0 flush with the left edge, the last port
@@ -632,7 +661,7 @@ class PatchEditor {
   }
 
   outletPos(box, i, id) {
-    return { x: this.portX(box, i, box.outlets, id), y: box.y + BOX_HEIGHT };
+    return { x: this.portX(box, i, box.outlets, id), y: box.y + this.boxHeight(box, id) };
   }
 
   // --- Hit Testing ---
@@ -660,7 +689,7 @@ class PatchEditor {
   hitTestBox(mx, my) {
     for (const [id, box] of [...this.boxes.entries()].reverse()) {
       const w = this.boxWidth(box, id);
-      if (mx >= box.x && mx <= box.x + w && my >= box.y && my <= box.y + BOX_HEIGHT) return id;
+      if (mx >= box.x && mx <= box.x + w && my >= box.y && my <= box.y + this.boxHeight(box, id)) return id;
     }
     return null;
   }
@@ -776,7 +805,7 @@ class PatchEditor {
     if (!this.showBorder) return;
     if (this.isRouterType(box.text)) { box.y = routerY(this.borderY); return; }
     if (!isOffSide(box, this.borderY)) return;
-    box.y = this.sideOfBox(box) === "synth" ? this.borderY + GRID : this.borderY - BOX_HEIGHT - GRID;
+    box.y = this.sideOfBox(box) === "synth" ? this.borderY + GRID : this.borderY - this.boxHeight(box) - GRID;
   }
 
   isRouterType(text) { return boxBinding(text) === "border"; }
@@ -1006,122 +1035,45 @@ class PatchEditor {
     }
 
     // Boxes
-    this.ctx.font = FONT;
     for (const [id, box] of this.boxes) {
-      const bw = this.boxWidth(box, id);
       const selected = this.selection.has(id);
+      const face = this.faceOfBox(box, id);
+      if (face) {
+        this.drawFace(box.text, box.x, box.y, face, this.liveInstance(id, box.text), 0, selected);
+        this.drawPorts(box, id);
+        continue;
+      }
+      const bw = this.boxWidth(box, id);
       const def = getDef(box.text);
-      const isRouter = def?.binding === "border";
-      const isUnknown = !def && box.text.length > 0;
-      const isAbs = isAbstraction(box.text);
-      const isComment = def?.isComment;
 
       // Comment: just text
-      if (isComment) {
-        this.ctx.font = COMMENT_FONT;
-        this.ctx.fillStyle = selected ? COLORS.text : COLORS.commentText;
-        this.ctx.textBaseline = "middle";
-        const displayText = box.text.replace(/^comment\s*/, "");
-        if (this.editingBoxId !== id) {
-          this.ctx.fillText(displayText, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
-        }
+      if (def?.isComment) {
+        if (this.editingBoxId !== id) this.drawComment(box.text, box.x, box.y, selected);
         if (selected) {
           this.ctx.strokeStyle = COLORS.boxSelectedStroke;
           this.ctx.setLineDash([2, 2]);
           this.ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
           this.ctx.setLineDash([]);
         }
-        this.ctx.font = FONT;
         continue;
       }
 
-      // Box fill
-      this.ctx.fillStyle = selected ? COLORS.boxSelectedFill
-        : isRouter ? COLORS.routerFill
-        : isAbs ? COLORS.abstractionFill
-        : COLORS.boxFill;
-      this.ctx.fillRect(box.x, box.y, bw, BOX_HEIGHT);
-
-      // Box stroke
-      this.ctx.strokeStyle = selected ? COLORS.boxSelectedStroke
-        : isRouter ? COLORS.routerStroke
-        : isAbs ? COLORS.abstractionStroke
-        : COLORS.boxStroke;
-      if (isUnknown) this.ctx.setLineDash([4, 3]);
-      this.ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, BOX_HEIGHT - 1);
-      if (isUnknown) this.ctx.setLineDash([]);
-
-      // Value bar
-      if (this.boxValues.has(id)) {
-        const val = this.boxValues.get(id);
-        let barVal = val;
-        // Normalize scale box display to its own range
-        const _tn = boxTypeName(box.text);
-        if (_tn === "scale" && typeof val === "number") {
-          const _args = box.text.split(/\s+/).slice(1);
-          const sMin = parseFloat(_args[0]) || 0, sMax = parseFloat(_args[1]) || 1;
-          barVal = sMax !== sMin ? (val - sMin) / (sMax - sMin) : 0;
-        }
-        if (_tn === "knob" && typeof val === "number") {
-          const _args = box.text.split(/\s+/).slice(1).map(Number);
-          const kMin = _args[1] !== undefined ? _args[1] : 0, kMax = _args[2] !== undefined ? _args[2] : 1;
-          const kCurve = _args[3] || 1;
-          // Show linear position in normalised (pre-curve) space for intuitive bar
-          barVal = kMax !== kMin ? Math.pow(Math.max(0, Math.min(1, (val - kMin) / (kMax - kMin))), 1 / kCurve) : 0;
-        }
-        if (typeof barVal === "number" && barVal >= 0 && barVal <= 1) {
-          this.ctx.fillStyle = COLORS.valueBar;
-          this.ctx.fillRect(box.x + 1, box.y + 1, (bw - 2) * barVal, BOX_HEIGHT - 2);
-        }
-      }
-
-      // Text
-      if (this.editingBoxId !== id) {
-        this.ctx.fillStyle = COLORS.text;
-        this.ctx.textBaseline = "middle";
-        const _bt = boxTypeName(box.text);
-        const _isMon = _bt === "print"
-          || (_bt === "cc" && box.text.trim() === "cc")
-          || (_bt === "key" && box.text.split(/\s+/)[1] === "?");
-        if (_isMon && this.boxValues.has(id)) {
-          const v = this.boxValues.get(id);
-          const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
-          this.ctx.fillText(_bt + " " + display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
-        } else {
-          this.ctx.fillText(box.text, box.x + BOX_PAD_X, box.y + BOX_HEIGHT / 2);
-        }
-      }
-
-      // Ports
-      for (let i = 0; i < box.inlets; i++) {
-        const p = this.inletPos(box, i, id);
-        const iDef = getInletDef(box.text, i);
-        let iHasAudioCable = false;
-        if (iDef?.type === "number") {
-          for (const [, c] of this.cables) {
-            if (c.dstBox === id && c.dstInlet === i && this.isAudioCable(c)) { iHasAudioCable = true; break; }
-          }
-        }
-        this.ctx.fillStyle = (iDef?.type === "audio" || iHasAudioCable) ? COLORS.portAudio : iDef?.type === "event" ? COLORS.portEvent : COLORS.port;
-        this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
-      }
-      for (let i = 0; i < box.outlets; i++) {
-        const p = this.outletPos(box, i, id);
-        const oDef = getOutletDef(box.text, i);
-        this.ctx.fillStyle = oDef?.type === "audio" ? COLORS.portAudio : oDef?.type === "event" ? COLORS.portEvent : COLORS.port;
-        this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
-      }
+      const isRouter = def?.binding === "border";
+      const isAbs = isAbstraction(box.text);
+      this.drawBoxBody(box.text, box.x, box.y, bw, {
+        fill: selected ? COLORS.boxSelectedFill : isRouter ? COLORS.routerFill : isAbs ? COLORS.abstractionFill : COLORS.boxFill,
+        stroke: selected ? COLORS.boxSelectedStroke : isRouter ? COLORS.routerStroke : isAbs ? COLORS.abstractionStroke : COLORS.boxStroke,
+        dashed: !def && box.text.length > 0,
+        value: this.boxValues.has(id) ? this.boxValues.get(id) : undefined,
+        hideText: this.editingBoxId === id,
+      });
+      this.drawPorts(box, id);
     }
 
     // Knob value labels (below the box)
     for (const [id, box] of this.boxes) {
       if (boxTypeName(box.text) !== "knob" || !this.boxValues.has(id)) continue;
-      const v = this.boxValues.get(id);
-      const display = typeof v === "number" ? (Number.isInteger(v) ? v.toString() : v.toFixed(4)) : String(v);
-      this.ctx.font = SMALL_FONT;
-      this.ctx.fillStyle = COLORS.valueText;
-      this.ctx.textBaseline = "top";
-      this.ctx.fillText(display, box.x + BOX_PAD_X, box.y + BOX_HEIGHT + 2);
+      this.drawKnobLabel(this.boxValues.get(id), box.x, box.y);
     }
 
     // Draw overlays in screen space (reset pan/zoom)
@@ -1130,6 +1082,186 @@ class PatchEditor {
     this.renderOverlay(this.ctx, w, h);
 
     this.ctx.restore();
+  }
+
+  // --- Drawing pieces (top-level boxes and the boxes on a face) ---
+
+  // A one-unit text box: fill, stroke, value bar and text (a monitor shows
+  // its value). `value` undefined: no bar.
+  drawBoxBody(text, x, y, w, { fill, stroke, dashed = false, value, hideText = false }) {
+    const ctx = this.ctx;
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, y, w, BOX_HEIGHT);
+    ctx.strokeStyle = stroke;
+    if (dashed) ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, BOX_HEIGHT - 1);
+    if (dashed) ctx.setLineDash([]);
+
+    const type = boxTypeName(text);
+    if (value !== undefined) {
+      let barVal = value;
+      // Normalize scale box display to its own range
+      if (type === "scale" && typeof value === "number") {
+        const args = text.split(/\s+/).slice(1);
+        const sMin = parseFloat(args[0]) || 0, sMax = parseFloat(args[1]) || 1;
+        barVal = sMax !== sMin ? (value - sMin) / (sMax - sMin) : 0;
+      }
+      if (type === "knob" && typeof value === "number") {
+        // Show linear position in normalised (pre-curve) space for intuitive bar
+        const { min, max, curve } = this.knobArgs(text);
+        barVal = max !== min ? Math.pow(Math.max(0, Math.min(1, (value - min) / (max - min))), 1 / curve) : 0;
+      }
+      if (typeof barVal === "number" && barVal >= 0 && barVal <= 1) {
+        ctx.fillStyle = COLORS.valueBar;
+        ctx.fillRect(x + 1, y + 1, (w - 2) * barVal, BOX_HEIGHT - 2);
+      }
+    }
+
+    if (hideText) return;
+    ctx.font = FONT;
+    ctx.fillStyle = COLORS.text;
+    ctx.textBaseline = "middle";
+    const isMon = type === "print"
+      || (type === "cc" && text.trim() === "cc")
+      || (type === "key" && text.split(/\s+/)[1] === "?");
+    if (isMon && value !== undefined) {
+      ctx.fillText(type + " " + formatValue(value), x + BOX_PAD_X, y + BOX_HEIGHT / 2);
+    } else {
+      ctx.fillText(text, x + BOX_PAD_X, y + BOX_HEIGHT / 2);
+    }
+  }
+
+  drawComment(text, x, y, selected) {
+    this.ctx.font = COMMENT_FONT;
+    this.ctx.fillStyle = selected ? COLORS.text : COLORS.commentText;
+    this.ctx.textBaseline = "middle";
+    this.ctx.fillText(text.replace(/^comment\s*/, ""), x + BOX_PAD_X, y + BOX_HEIGHT / 2);
+  }
+
+  drawKnobLabel(value, x, y) {
+    this.ctx.font = SMALL_FONT;
+    this.ctx.fillStyle = COLORS.valueText;
+    this.ctx.textBaseline = "top";
+    this.ctx.fillText(formatValue(value), x + BOX_PAD_X, y + BOX_HEIGHT + 2);
+  }
+
+  // Inlets on the top edge, outlets on the bottom, coloured by port type.
+  drawPorts(box, id) {
+    for (let i = 0; i < box.inlets; i++) {
+      const p = this.inletPos(box, i, id);
+      const iDef = getInletDef(box.text, i);
+      let iHasAudioCable = false;
+      if (iDef?.type === "number") {
+        for (const [, c] of this.cables) {
+          if (c.dstBox === id && c.dstInlet === i && this.isAudioCable(c)) { iHasAudioCable = true; break; }
+        }
+      }
+      this.ctx.fillStyle = (iDef?.type === "audio" || iHasAudioCable) ? COLORS.portAudio : iDef?.type === "event" ? COLORS.portEvent : COLORS.port;
+      this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
+    }
+    for (let i = 0; i < box.outlets; i++) {
+      const p = this.outletPos(box, i, id);
+      const oDef = getOutletDef(box.text, i);
+      this.ctx.fillStyle = oDef?.type === "audio" ? COLORS.portAudio : oDef?.type === "event" ? COLORS.portEvent : COLORS.port;
+      this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
+    }
+  }
+
+  // --- Faces ---
+  // A faced instance draws at its face's size and shows the GUI boxes inside
+  // the face (gpi-types faceContents), translated and clipped. Each box on a
+  // face is driven by its live box: `live` is the instance's map from the
+  // server (local id → live id), null before the patch is applied, when the
+  // face shows its boxes' starting values, greyed, and doesn't play.
+
+  // The running instance behind top-level box `id`, if its text hasn't
+  // changed since the apply.
+  liveInstance(id, text) {
+    const m = this.instances.get(id);
+    return m && m.text === text ? m : null;
+  }
+
+  // A box on a face: the value it shows, from its live box, or (not yet
+  // applied) the value it starts at.
+  faceValue(text, liveId, applied) {
+    if (applied) return liveId !== undefined && this.boxValues.has(liveId) ? this.boxValues.get(liveId) : undefined;
+    const type = boxTypeName(text);
+    if (type === "knob") return this.knobArgs(text).init;
+    if (type === "toggle") return 0;
+    return undefined;
+  }
+
+  drawFace(text, x, y, face, live, depth, selected) {
+    const ctx = this.ctx;
+    const W = face.w * GRID, H = face.h * GRID;
+    ctx.fillStyle = selected ? COLORS.boxSelectedFill : COLORS.abstractionFill;
+    ctx.fillRect(x, y, W, H);
+    const def = getAbstractionDef(boxTypeName(text));
+    if (def && depth < MAX_DEPTH) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, W, H);
+      ctx.clip();
+      if (!live && depth === 0) ctx.globalAlpha *= 0.45;
+      const args = instanceArgs(text);
+      const knobs = [];
+      for (const item of faceContents(def).shown) {
+        const ix = x + item.x, iy = y + item.y;
+        const t = fillArgs(item.box.text, args);
+        const liveId = live ? live.ids[item.id] : undefined;
+        if (item.kind === "face") {
+          const inner = liveId !== undefined ? this.instances.get(liveId) ?? null : null;
+          this.drawFace(t, ix, iy, faceOf(t), inner, depth + 1, false);
+          continue;
+        }
+        if (item.kind === "label") { this.drawComment(t, ix, iy, false); continue; }
+        const value = this.faceValue(t, liveId, !!live);
+        this.drawBoxBody(t, ix, iy, item.w, { fill: COLORS.boxFill, stroke: COLORS.boxStroke, value });
+        if (boxTypeName(t) === "knob" && value !== undefined) knobs.push([value, ix, iy]);
+      }
+      for (const [v, kx, ky] of knobs) this.drawKnobLabel(v, kx, ky);
+      ctx.restore();
+    }
+    if (!face.hideName) {
+      ctx.font = SMALL_FONT;
+      ctx.fillStyle = COLORS.commentText;
+      ctx.textBaseline = "top";
+      ctx.fillText(text, x + 3, y + 2);
+    }
+    ctx.strokeStyle = selected ? COLORS.boxSelectedStroke : COLORS.abstractionStroke;
+    ctx.strokeRect(x + 0.5, y + 0.5, W - 1, H - 1);
+  }
+
+  // What a run press at patch point m plays: { id, text } — the live box id
+  // the server knows and its text (args filled in) — or null. On a face, the
+  // control under the pointer, through nested faces.
+  runTargetAt(m) {
+    const id = this.hitTestBox(m.x, m.y);
+    if (id === null) return null;
+    const box = this.boxes.get(id);
+    const face = this.faceOfBox(box, id);
+    if (!face) return INTERACTIVE_TYPES.has(boxTypeName(box.text)) ? { id, text: box.text } : null;
+    return this.faceTargetAt(box.text, box.x, box.y, this.liveInstance(id, box.text), m, 0);
+  }
+
+  faceTargetAt(text, x, y, live, m, depth) {
+    // Not applied yet: the face doesn't play.
+    if (!live || depth >= MAX_DEPTH) return null;
+    const def = getAbstractionDef(boxTypeName(text));
+    if (!def) return null;
+    const args = instanceArgs(text);
+    const shown = faceContents(def).shown;
+    for (let i = shown.length - 1; i >= 0; i--) {
+      const item = shown[i];
+      const ix = x + item.x, iy = y + item.y;
+      if (m.x < ix || m.x > ix + item.w || m.y < iy || m.y > iy + item.h) continue;
+      const liveId = live.ids[item.id];
+      const t = fillArgs(item.box.text, args);
+      if (item.kind === "face") return this.faceTargetAt(t, ix, iy, liveId !== undefined ? this.instances.get(liveId) ?? null : null, m, depth + 1);
+      if (item.kind !== "control" || liveId === undefined) return null;
+      return { id: liveId, text: t };
+    }
+    return null;
   }
 
   // --- Editor mode ---
@@ -1162,17 +1294,12 @@ class PatchEditor {
     return this.editorMode === "run" || platformMod(e);
   }
 
-  isInteractive(boxId) {
-    const box = this.boxes.get(boxId);
-    return !!box && INTERACTIVE_TYPES.has(boxTypeName(box.text));
-  }
-
   // Cursor for the pointer resting at patch point m (no gesture in progress).
   hoverCursor(m, runPress) {
     if (runPress || this.editorMode === "run") {
-      const id = this.hitTestBox(m.x, m.y);
-      if (id === null || !this.isInteractive(id)) return "default";
-      return boxTypeName(this.boxes.get(id).text) === "knob" ? "ns-resize" : "pointer";
+      const target = this.runTargetAt(m);
+      if (!target) return "default";
+      return boxTypeName(target.text) === "knob" ? "ns-resize" : "pointer";
     }
     if (this.hitTestBorderHandle(m.x, m.y)) return "ns-resize";
     if (this.hitTestOutlet(m.x, m.y) || this.hitTestInlet(m.x, m.y)) return "crosshair";
@@ -1181,8 +1308,8 @@ class PatchEditor {
 
   // --- Knob value (normalised 0-1 space, with the knob's curve) ---
 
-  knobArgs(box) {
-    const args = box.text.split(/\s+/).slice(1).map(Number);
+  knobArgs(text) {
+    const args = text.split(/\s+/).slice(1).map(Number);
     return {
       init: args[0] !== undefined ? args[0] : 0.5,
       min: args[1] !== undefined ? args[1] : 0,
@@ -1191,29 +1318,33 @@ class PatchEditor {
     };
   }
 
-  knobNorm(knobId) {
-    const { init, min, max, curve } = this.knobArgs(this.boxes.get(knobId));
+  // A knob is { id, text }: its live id and its text (runTargetAt), so a
+  // knob on a face works as one in the patch.
+  knobNorm(knob) {
+    const { init, min, max, curve } = this.knobArgs(knob.text);
     const range = max - min;
-    const current = this.boxValues.get(knobId) ?? init;
+    const current = this.boxValues.get(knob.id) ?? init;
     return range !== 0 ? Math.pow(Math.max(0, Math.min(1, (current - min) / range)), 1 / curve) : 0;
   }
 
-  setKnobNorm(knobId, norm) {
-    const { min, max, curve } = this.knobArgs(this.boxes.get(knobId));
+  setKnobNorm(knob, norm) {
+    const { min, max, curve } = this.knobArgs(knob.text);
     const clamped = Math.max(0, Math.min(1, norm));
     const value = min + Math.pow(clamped, curve) * (max - min);
-    this.boxValues.set(knobId, value);
-    this.onSend({ type: "knob", id: knobId, value });
+    this.boxValues.set(knob.id, value);
+    this.onSend({ type: "knob", id: knob.id, value });
     this.render();
   }
 
   // --- Run-mode press: toggles and events fire on mousedown, knobs start a drag ---
+  // The target may be a control on a face: its live id goes to the server.
 
   _onRunPress(e, m) {
     if (e.button !== 0) return;
-    const id = this.hitTestBox(m.x, m.y);
-    if (id === null || !this.isInteractive(id)) return;
-    const type = boxTypeName(this.boxes.get(id).text);
+    const target = this.runTargetAt(m);
+    if (!target) return;
+    const { id } = target;
+    const type = boxTypeName(target.text);
     if (type === "toggle") {
       const cur = this.boxValues.get(id) || 0;
       const next = cur > 0 ? 0 : 1;
@@ -1225,7 +1356,7 @@ class PatchEditor {
     } else if (type === "knob") {
       e.preventDefault();
       this.mode = "knob-dragging";
-      this.knobDrag = { id, lastY: e.clientY, norm: this.knobNorm(id) };
+      this.knobDrag = { knob: target, lastY: e.clientY, norm: this.knobNorm(target) };
       this.canvas.style.cursor = "ns-resize";
       // The button may come up off the canvas, where the canvas never hears it.
       globalThis.addEventListener("mouseup", this._endKnobDrag, { once: true });
@@ -1426,7 +1557,7 @@ class PatchEditor {
       const kd = this.knobDrag;
       kd.norm = Math.max(0, Math.min(1, kd.norm - (e.clientY - kd.lastY) * step));
       kd.lastY = e.clientY;
-      this.setKnobNorm(kd.id, kd.norm);
+      this.setKnobNorm(kd.knob, kd.norm);
       return;
     }
 
@@ -1442,14 +1573,14 @@ class PatchEditor {
       // touches, is pushed wholly clear of it, keeping its side (taken against
       // the old line). Then cascade-resolve overlaps in the sweep direction so
       // the push propagates through stacked boxes instead of squashing them.
-      for (const [, box] of this.boxes) {
+      for (const [id, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
           box.y = routerY(newY);
           continue;
         }
-        const side = this.sideOf(box, oldY);
+        const side = this.sideOf(box, oldY), h = this.boxHeight(box, id);
         if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
-        else if (newY < oldY && side === "ctrl" && box.y + BOX_HEIGHT > newY) box.y = newY - BOX_HEIGHT - PAD;
+        else if (newY < oldY && side === "ctrl" && box.y + h > newY) box.y = newY - h - PAD;
       }
       this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
@@ -1676,7 +1807,7 @@ class PatchEditor {
       const x1 = Math.max(this.dragStart.x, m.x), y1 = Math.max(this.dragStart.y, m.y);
       for (const [id, box] of this.boxes) {
         const bw = this.boxWidth(box, id);
-        if (box.x + bw > x0 && box.x < x1 && box.y + BOX_HEIGHT > y0 && box.y < y1) {
+        if (box.x + bw > x0 && box.x < x1 && box.y + this.boxHeight(box, id) > y0 && box.y < y1) {
           this.selection.add(id);
         }
       }
@@ -1798,7 +1929,7 @@ class PatchEditor {
       if (!srcBox) return true;
       this.pushUndo();
       const id = this.nextId++;
-      this.boxes.set(id, { x: srcBox.x, y: srcBox.y + BOX_HEIGHT + GRID, text: "", inlets: 1, outlets: 1 });
+      this.boxes.set(id, { x: srcBox.x, y: srcBox.y + this.boxHeight(srcBox, srcId) + GRID, text: "", inlets: 1, outlets: 1 });
       this.cables.set(this.nextId++, { srcBox: srcId, srcOutlet: 0, dstBox: id, dstInlet: 0 });
       this.selection.clear();
       this.selection.add(id);
@@ -1832,11 +1963,11 @@ class PatchEditor {
     const zoomGesture = e.ctrlKey || e.metaKey;
     if (this.editorMode === "run" && !zoomGesture) {
       const m = this.canvasCoords(e);
-      const knobId = this.hitTestBox(m.x, m.y);
-      if (knobId !== null && boxTypeName(this.boxes.get(knobId).text) === "knob") {
+      const knob = this.runTargetAt(m);
+      if (knob && boxTypeName(knob.text) === "knob") {
         const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
         const step = e.shiftKey ? 0.0005 : 0.005;
-        this.setKnobNorm(knobId, this.knobNorm(knobId) - delta * step);
+        this.setKnobNorm(knob, this.knobNorm(knob) - delta * step);
         return;
       }
     }
@@ -1874,7 +2005,7 @@ class PatchEditor {
       if (box.x < minX) minX = box.x;
       if (box.y < minY) minY = box.y;
       if (box.x + bw > maxX) maxX = box.x + bw;
-      if (box.y + BOX_HEIGHT > maxY) maxY = box.y + BOX_HEIGHT;
+      if (box.y + this.boxHeight(box, id) > maxY) maxY = box.y + this.boxHeight(box, id);
     }
 
     const pw = maxX - minX + margin * 2;

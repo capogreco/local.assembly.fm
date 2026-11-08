@@ -15,7 +15,7 @@ import {
   clearPatchState, getBorderY, setAuthoredPatch, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import {
-  BOX_HEIGHT, PORT_TYPES, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
+  MAX_DEPTH, PORT_TYPES, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
   boxHeight, faceContents, groupArgs, isAudioBox, isOffSide, positionSide, routerY, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
@@ -298,7 +298,6 @@ export function expandAbstractions(
   loaded: Map<string, AbstractionDef>, instances: Map<number, InstanceMap> = new Map(),
 ): string[] {
   const errors: string[] = [];
-  const MAX_DEPTH = 16;
   let globalIdCounter = 100000;
   let nextCableId = nextId + 50000;
 
