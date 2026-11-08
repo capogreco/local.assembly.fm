@@ -376,7 +376,7 @@ console.log("editor: a free box gets its zone when committed; tidy keeps every b
     [4, { x: 0, y: SYNTH_Y, text: "osc~ 440", inlets: 2, outlets: 1 }],
     [5, { x: 0, y: SYNTH_Y + 60, text: "dac~", inlets: 1, outlets: 0 }],
     [6, { x: 200, y: routerY(BORDER) - 1, text: "* 2", inlets: 2, outlets: 1 }],
-    [7, { x: 300, y: SYNTH_Y, text: "touch", inlets: 0, outlets: 1 }],
+    [7, { x: 300, y: CTRL_Y, text: "touch", inlets: 0, outlets: 1 }],
     [8, { x: 300, y: CTRL_Y, text: "comment a label", inlets: 0, outlets: 0 }],
   ]);
   ed.cables = new Map([[1, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [2, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }],
