@@ -1014,16 +1014,16 @@ function faceContents(def, lookup = defaultLookup) {
 }
 
 // Side a free box takes from its position: its centre against the border
-// (a centre exactly on the line counts as synth). `h` is its height.
+// (a centre exactly on the line counts as synth). `h` is its height. Only a
+// box straddling the line needs it: the editor places such a box wholly on
+// this side when its text is committed (placeOnSide).
 function positionSide(box, borderY, h = boxHeight(box)) {
   return box.y + h / 2 >= borderY ? "synth" : "ctrl";
 }
 
 // The side a box lies wholly on, or null if it straddles the border. A
-// bottom edge on the line is wholly ctrl; a top edge on the line, wholly synth.
-// The router row straddles the line: a box overlapping half of it (bottom
-// or top edge on the line) is still wholly on its side. The editor places
-// and pushes boxes clear of the whole row (routerY).
+// bottom edge on the line is wholly ctrl; a top edge on the line, wholly
+// synth (ports are drawn inside the box, so it sits snug against the line).
 function wholeSide(box, borderY, h = boxHeight(box)) {
   if (box.y + h <= borderY) return "ctrl";
   if (box.y >= borderY) return "synth";
@@ -1037,15 +1037,19 @@ function sideOf(box, borderY) {
   return binding === "free" ? positionSide(box, borderY) : binding;
 }
 
-// A bound box not wholly on its side: on the other side, or straddling the
-// border. Only routers straddle the line, so a straddling bound box is off side.
-function isOffSide(box, borderY) {
+// A box not where its side allows: any box but a router straddling the
+// border (no part of a box crosses the line), or a bound box wholly on the
+// other side. A free box wholly on either side is fine; that side is its
+// side. `h` is its height (a faced instance is taller than a unit).
+function isOffSide(box, borderY, h = boxHeight(box)) {
   const binding = boxBinding(box.text);
-  return (binding === "ctrl" || binding === "synth") && binding !== wholeSide(box, borderY);
+  if (binding === "border") return false;
+  const whole = wholeSide(box, borderY, h);
+  return whole === null || (binding !== "free" && binding !== whole);
 }
 
-// Does a move take a bound box off side? A move is judged by where it ends:
-// a box already off side at `from` (against fromY) moves freely, since it is
+// Does a move take a box off side? A move is judged by where it ends: a box
+// already off side at `from` (against fromY) moves freely, since it is
 // flagged and apply rejects it until it is back. `from` null is a new box,
 // judged by `to` alone.
 function movesOffSide(from, fromY, to, toY) {

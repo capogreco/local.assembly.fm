@@ -193,21 +193,44 @@ console.log("bound box overhanging the border");
   check("bottom on the line is ctrl, top on the line is synth", edge.errors.length === 0, JSON.stringify(edge.errors));
 }
 
-console.log("free box sided by its centre");
+console.log("no box but a router crosses the line");
 {
   reset();
-  // Top above the line but centre below: synth. Top above, centre above: ctrl.
-  // Off-grid positions: the editor never makes them, but apply doesn't refuse them.
+  // Free boxes straddling (centre below, above, on the line): each an error,
+  // named. Off-grid positions: the editor never makes them, but apply judges them.
   const r = applyPatch(msg([box(1, "+ 1", BORDER - H / 2 + 1), box(2, "+ 2", BORDER - H / 2 - 1), box(3, "+ 3", BORDER - H / 2)]), loaded);
-  check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
-  check("centre below → synth", boxes.get(1)!.side === "synth");
-  check("centre above → ctrl", boxes.get(2)!.side === "ctrl");
-  check("centre on the line → synth", boxes.get(3)!.side === "synth");
-  // On the grid (the border on a dot row): the row above the line is ctrl, the row on it synth.
+  check("free boxes straddling rejected, each named", r.errors.length === 3 && ["+ 1", "+ 2", "+ 3"].every((t) => r.errors.some((e) => e === `"${t}" crosses the border; only routers may`)), JSON.stringify(r.errors));
   reset();
-  const g = applyPatch(msg([box(1, "+ 1", BORDER - GRID), box(2, "+ 2", BORDER)]), loaded);
-  check("grid row above the line → ctrl", g.errors.length === 0 && boxes.get(1)!.side === "ctrl");
-  check("grid row on the line → synth", boxes.get(2)!.side === "synth");
+  const at = applyPatch(msg([box(1, "+ 1", routerY(BORDER))]), loaded);
+  check("free box where a router sits rejected", at.errors.length === 1 && /"\+ 1" crosses the border/.test(at.errors[0] ?? ""), JSON.stringify(at.errors));
+  reset();
+  const half = applyPatch(msg([box(1, "+ 1", BORDER - H + SNAP)]), loaded);
+  check("free box half a unit over the line rejected", half.errors.length === 1, JSON.stringify(half.errors));
+  reset();
+  const c = applyPatch(msg([box(1, "comment hello", routerY(BORDER))]), loaded);
+  check("a comment straddling rejected too", c.errors.length === 1 && /"comment hello" crosses the border/.test(c.errors[0] ?? ""), JSON.stringify(c.errors));
+  // Snug against the line: the row above it is ctrl, the row on it synth.
+  reset();
+  const g = applyPatch(msg([box(1, "+ 1", BORDER - GRID), box(2, "+ 2", BORDER), box(3, "key", BORDER - H, 100), box(4, "touch", BORDER, 100)]), loaded);
+  check("snug free and bound boxes accepted", g.errors.length === 0, JSON.stringify(g.errors));
+  check("snug above the line → ctrl", boxes.get(1)!.side === "ctrl");
+  check("snug below the line → synth", boxes.get(2)!.side === "synth");
+  reset();
+  const rt = applyPatch(msg([box(1, "+ 1", BORDER - GRID), box(2, "all 1", BORDER), box(3, "+ 2", BORDER)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]), loaded);
+  check("a router straddles, snug boxes either side", rt.errors.length === 0 && boxes.get(2)!.side === "border", JSON.stringify(rt.errors));
+}
+
+console.log("a faced instance is judged at its true height");
+{
+  // Face 7×2 units: one unit tall it would fit above the line, two units it overhangs.
+  const faced: AbstractionDef = { ...absDef("t/faced", "ctrl", ["knob 0.5", "outlet 0"]), face: { x: 0, y: 0, w: 7, h: 2, hideName: false } };
+  const withFaced = new Map([...loaded, [faced.name, faced]]);
+  reset();
+  const over = applyPatch(msg([box(1, "t/faced", BORDER - H - SNAP)]), withFaced);
+  check("faced instance overhanging rejected", over.errors.length === 1 && /"t\/faced".*ctrl.*overhangs/.test(over.errors[0] ?? ""), JSON.stringify(over.errors));
+  reset();
+  const snug = applyPatch(msg([box(1, "t/faced", BORDER - 2 * H)]), withFaced);
+  check("faced instance snug above the line accepted", snug.errors.length === 0, JSON.stringify(snug.errors));
 }
 
 console.log("router unchanged");
@@ -283,7 +306,11 @@ console.log("editor move judged by where it ends (movesOffSide)");
   check("off side moves freely while off side", !movesOffSide(at("key", SYNTH_Y), BORDER, at("key", SYNTH_Y + 30), BORDER));
   check("border moved onto a bound box refused", movesOffSide(at("touch", SYNTH_Y), BORDER, at("touch", SYNTH_Y), SYNTH_Y + 1));
   check("new box judged by where it lands", movesOffSide(null, BORDER, at("touch", CTRL_Y), BORDER) && !movesOffSide(null, BORDER, at("touch", SYNTH_Y), BORDER));
-  check("free box never off side", !movesOffSide(at("+ 1", CTRL_Y), BORDER, at("+ 1", SYNTH_Y), BORDER));
+  check("free box moved wholly across accepted", !movesOffSide(at("+ 1", CTRL_Y), BORDER, at("+ 1", SYNTH_Y), BORDER));
+  check("free box moved onto the line refused", movesOffSide(at("+ 1", CTRL_Y), BORDER, at("+ 1", routerY(BORDER)), BORDER));
+  check("free box snug against the line accepted", !movesOffSide(at("+ 1", CTRL_Y), BORDER, at("+ 1", BORDER - H), BORDER) && !movesOffSide(at("+ 1", SYNTH_Y), BORDER, at("+ 1", BORDER), BORDER));
+  check("free box already straddling moves freely", !movesOffSide(at("+ 1", routerY(BORDER)), BORDER, at("+ 1", routerY(BORDER) + SNAP), BORDER));
+  check("a router never off side", !movesOffSide(null, BORDER, at("all 1", routerY(BORDER)), BORDER));
 }
 
 console.log("buffer~ and play~ names are per side");

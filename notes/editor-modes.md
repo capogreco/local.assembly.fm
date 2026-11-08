@@ -51,20 +51,29 @@ gives them Pd's look.
 - **Widths round up to whole units**, so the right edge is on the grid too.
 - **Ports as in Pd:** inlet 0 and outlet 0 sit flush with the left edge, the
   last port flush with the right edge, and any others spread evenly between.
-  A box placed directly under another gets a vertical cable from left outlet
-  to left inlet.
+  They are drawn inside the box (inlets inside the top edge, outlets inside
+  the bottom), so nothing of a box protrudes and it can sit snug against the
+  line. A box placed directly under another gets a vertical cable from left
+  outlet to left inlet.
 - **The border sits on a row of dots** (whole units; border drags move in
   whole rows).
 - **Routers straddle the border**, their vertical centre on the line, half
   on each side: `routerY(borderY) = borderY - BOX_HEIGHT / 2` in
   `gpi-types.js`, used by the editor and by apply. Routers are bound
   `border`, so their position never decides their side.
-- **Side rule unchanged, judged against the line:** a bound box must lie
-  wholly on its side (bottom on the line is wholly ctrl, top on the line
-  wholly synth); a free box goes by its centre (on the line counts as
-  synth). The router row (`routerY` .. `routerY + BOX_HEIGHT`) is not
-  reserved: a box dragged next to the line may overlap it. Only two paths
-  clear it: moving a bound box that is off side, and the border piston.
+- **No box but a router crosses the line** (decided 2026-11-08). Every
+  other box, free ones, faced instances (at their face height) and comments
+  included, lies wholly on one side: bottom on the line is wholly ctrl, top
+  on the line wholly synth. A bound box must lie on its own side; a free
+  box on either, and that side is its side.
+- **A free box gets its zone when its text is committed** as an object: if
+  it straddles, it goes wholly to the side its centre is on (on the line
+  counts as synth), clear of the router row, as a bound box off side does
+  (`placeOnSide`; paste too). From then on the zone is checked: a drag or
+  nudge that would leave it straddling is cancelled, as one that takes a
+  bound box off side is; moved wholly across, it takes the other side. A
+  box already off side (an old patch) moves freely until it is back. Apply
+  refuses any box but a router crossing the line, naming it.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,

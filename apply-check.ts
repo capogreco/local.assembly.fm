@@ -16,7 +16,7 @@ import {
 } from "./patch-state.ts";
 import {
   ABS_NAME, LIB_NAME, MAX_DEPTH, PORT_TYPES, boxTypeName, boxBinding, bufferArgs, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
-  boxHeight, faceContents, groupArgs, isOffSide, positionSide, routerY, sideOf, wholeSide,
+  boxHeight, faceContents, groupArgs, isOffSide, routerY, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
 export interface PortSpec { name: string; type: string; description: string }
@@ -488,13 +488,17 @@ function findBadArgs(boxes: Map<number, Box>): string[] {
   return [...bad];
 }
 
-// A box bound to `binding` (a built-in or an abstraction instance) not wholly
-// on its side: the problem, or null.
-// `h` is the box's height (a faced instance is taller than a unit).
+// A box not where its side allows: the problem, or null. No part of any box
+// but a router crosses the line; a box bound to `binding` ("ctrl" or
+// "synth": a built-in or an abstraction instance) lies wholly on that side; a
+// free box ("free") may lie wholly on either. `h` is the box's true height (a
+// faced instance is taller than a unit).
 function offSideProblem(box: Box, borderY: number, binding: string, h: number): string | null {
-  if (binding !== "ctrl" && binding !== "synth") return null;
-  if (wholeSide(box, borderY, h) === binding) return null;
-  const where = positionSide(box, borderY, h) === binding ? "overhangs the border" : `is placed on the ${binding === "ctrl" ? "synth" : "ctrl"} side`;
+  if (binding === "border") return null;
+  const whole = wholeSide(box, borderY, h);
+  if (binding === "free") return whole === null ? `"${box.text}" crosses the border; only routers may` : null;
+  if (whole === binding) return null;
+  const where = whole === null ? "overhangs the border" : `is placed on the ${binding === "ctrl" ? "synth" : "ctrl"} side`;
   return `"${box.text}" is bound to the ${binding} side but ${where}`;
 }
 
@@ -531,7 +535,7 @@ function findBufferProblems(boxes: Map<number, Box>): string[] {
 // Rejections that need the expanded graph and stamped sides. Audio never
 // crosses the border, and routers carry events and values only: events and
 // values cross the border through a router, never on a bare cable. A bound box
-// must sit wholly on its own side. The editor refuses these and auto-routes the rest;
+// must sit wholly on its own side, and no box but a router crosses the line. The editor refuses these and auto-routes the rest;
 // this catches patch files edited by hand and anything else that bypasses it.
 // Port types on every cable of the expanded graph, by the editor's rule, so a
 // cable the editor refuses is refused here too (hand-edited files).
@@ -549,7 +553,9 @@ function findTypeProblems(boxes: Map<number, Box>, cables: Map<number, Cable>): 
 function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>, borderY: number): string[] {
   const problems = new Set<string>();
   for (const [, box] of boxes) {
-    if (isOffSide(box, borderY)) problems.add(offSideProblem(box, borderY, box.side!, boxHeight(box))!);
+    // Expanded boxes are built-ins, so gpi-types' own binding and height
+    // apply (contents of an instance sit at its y, which passed above).
+    if (isOffSide(box, borderY)) problems.add(offSideProblem(box, borderY, boxBinding(box.text), boxHeight(box))!);
   }
   for (const [, c] of cables) {
     const src = boxes.get(c.srcBox), dst = boxes.get(c.dstBox);
@@ -604,10 +610,13 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   }
   if (errors.length > 0) return result(errors);
 
-  // An instance sits on its declared side; its contents take their side from it.
+  // Every box of the patch as authored, at its true height (a faced instance
+  // from `loaded`): none but a router crosses the line, and a bound one (an
+  // instance on its declared side) lies wholly on its side. An instance's
+  // contents take their side from it.
+  const lookup = (n: string) => loaded.get(n) ?? null;
   for (const [, box] of boxes) {
-    const a = absOf(box.text, loaded);
-    const problem = a ? offSideProblem(box, borderY, a.side, boxHeight(box, (n: string) => loaded.get(n) ?? null)) : null;
+    const problem = offSideProblem(box, borderY, bindingOf(box.text, loaded), boxHeight(box, lookup));
     if (problem) errors.push(problem);
   }
   if (errors.length > 0) return result(errors);

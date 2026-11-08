@@ -717,7 +717,7 @@ window.addEventListener("keydown", (e) => {
       const newId = mainEditor.nextId++;
       idMap.set(oldId, newId);
       const pasted = { x: snapPos(box.x) + offset, y: snapPos(box.y) + offset, text: box.text, inlets: box.inlets, outlets: box.outlets };
-      mainEditor.placeOnSide(pasted);  // a paste has no drag to refuse, so bound boxes snap to their side
+      mainEditor.placeOnSide(pasted);  // a paste has no drag to refuse, so a box off side lands wholly on its side
       mainEditor.boxes.set(newId, pasted);
       newSel.add(newId);
     }

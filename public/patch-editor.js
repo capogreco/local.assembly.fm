@@ -855,32 +855,38 @@ class PatchEditor {
     return box ? this.sideOfBox(box) === "synth" : false;
   }
 
-  // A bound box the move just took off side (isOffSide: on the other side, or
-  // straddling the border). `before` holds each box's position (id → {x, y})
-  // when the move began, against beforeY; a box already off side then moves
-  // freely, so it can be brought back (movesOffSide). The abstraction editor
-  // has no border, so nothing is off side there.
+  // A box the move just took off side (isOffSide: a bound box on the other
+  // side, or any box but a router straddling the border). `before` holds
+  // each box's position (id → {x, y}) when the move began, against beforeY;
+  // a box already off side then moves freely, so it can be brought back
+  // (movesOffSide). A free box moved wholly across is fine: that side is now
+  // its side. The abstraction editor has no border, so nothing is off side
+  // there.
   boundSideViolation(before, beforeY = this.borderY) {
     if (!this.showBorder) return null;
     for (const [id, box] of this.boxes) {
       const prev = before.get(id);
       const from = prev ? { ...box, x: prev.x, y: prev.y } : null;
       if (movesOffSide(from, beforeY, box, this.borderY)) {
-        const binding = this.sideOfBox(box);
+        const binding = boxBinding(box.text);
+        if (binding === "free") return `"${box.text}" would cross the border; only routers do`;
         return `"${box.text}" is bound to the ${binding} side`;
       }
     }
     return null;
   }
 
-  // Put a newly placed box where its type belongs: routers on the border,
-  // bound boxes on their side, clear of the router row (which straddles the
-  // line). Used where a box lands without a drag to refuse (text commit, paste).
+  // Put a box where it belongs once its text is committed (or it is pasted):
+  // routers on the border; any other box that straddles the line, or a bound
+  // box on the wrong side, wholly on its side, clear of the router row (which
+  // straddles the line). A free box's side is the one its centre is on (on
+  // the line counts as synth): that is when it gets its zone. Used where a
+  // box lands without a drag to refuse (text commit, paste).
   placeOnSide(box) {
     if (!this.showBorder) return;
     const rowTop = routerY(this.borderY);
     if (this.isRouterType(box.text)) { box.y = rowTop; return; }
-    if (!isOffSide(box, this.borderY)) return;
+    if (!isOffSide(box, this.borderY, this.boxHeight(box))) return;
     box.y = this.sideOfBox(box) === "synth" ? rowTop + BOX_HEIGHT : rowTop - this.boxHeight(box);
   }
 
