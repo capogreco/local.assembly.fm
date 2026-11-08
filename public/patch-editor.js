@@ -323,6 +323,11 @@ class PatchEditor {
   }
 
   // --- Tidy Layout (Sugiyama-style layered DAG layout) ---
+  // `l` in the ctrl editor's edit mode; one undo step. Every box keeps its
+  // side (a free box straddling the line goes to its centre's side, as when
+  // its text is committed): ctrl boxes are laid out above the line, synth
+  // boxes from two units below it, routers on it, so nothing but a router
+  // crosses the line. Layers are as tall as their tallest box (faces).
 
   tidyLayout() {
     if (this.boxes.size === 0) return;

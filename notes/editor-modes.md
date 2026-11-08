@@ -80,7 +80,8 @@ Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
 units: positions) and `routerY` live in `gpi-types.js`. The editor snaps on
 load (x, y and `borderY`), live while dragging, on create (the cell under the pointer),
-paste, duplicate, Tab-create (one empty row below), tidy, and border drags
+paste, duplicate, Tab-create (one empty row below), tidy (`l` in edit
+mode, one undo step), and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
 land touching the router row). Arrow keys nudge half a unit per press, a
 whole unit with Shift; routers nudge sideways only.

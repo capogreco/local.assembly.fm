@@ -338,5 +338,61 @@ console.log("buffer~ and play~ names are per side");
   }
 }
 
+console.log("editor: a free box gets its zone when committed; tidy keeps every box on its side");
+{
+  // patch-editor.js reads a theme at import; give it just enough of a browser.
+  // deno-lint-ignore no-explicit-any
+  const g = globalThis as any;
+  g.matchMedia ??= () => ({ matches: false, addEventListener() {} });
+  g.document ??= { documentElement: { dataset: {} } };
+  const { PatchEditor } = await import("../public/patch-editor.js");
+  const ed = Object.create(PatchEditor.prototype);
+  Object.assign(ed, {
+    boxes: new Map(), cables: new Map(), selection: new Set(), cableSelection: new Set(), boxValues: new Map(),
+    undoStack: [], maxUndo: 50, borderY: BORDER, showBorder: true, editingBoxId: null, input: null, nextId: 1,
+    onDirty() {}, zoomToFit() {}, render() {},
+  });
+  const free = (y: number) => ({ x: 0, y, text: "+ 1", inlets: 2, outlets: 1 });
+  const up = free(BORDER - H / 2 - 1);  // off-grid: on the grid only routerY straddles
+  ed.placeOnSide(up);
+  check("straddler, centre above → wholly ctrl, clear of the router row", up.y === routerY(BORDER) - H, String(up.y));
+  const on = free(routerY(BORDER));
+  ed.placeOnSide(on);
+  check("straddler, centre on the line → wholly synth, clear of the router row", on.y === routerY(BORDER) + H, String(on.y));
+  const snug = free(BORDER - H);
+  ed.placeOnSide(snug);
+  check("snug box left where it is", snug.y === BORDER - H);
+  const before = new Map([[1, { x: 0, y: CTRL_Y }]]);
+  ed.boxes.set(1, free(routerY(BORDER)));
+  check("drag onto the line cancelled", /would cross the border/.test(ed.boundSideViolation(before) ?? ""));
+  ed.boxes.set(1, free(SYNTH_Y));
+  check("drag wholly across accepted", ed.boundSideViolation(before) === null);
+
+  // A ctrl chain into a synth chain through a router, a straddling free box, a bound one off side.
+  ed.boxes = new Map<number, unknown>([
+    [1, { x: 0, y: CTRL_Y, text: "key", inlets: 0, outlets: 1 }],
+    [2, { x: 13, y: CTRL_Y + 47, text: "+ 1", inlets: 2, outlets: 1 }],
+    [3, { x: 0, y: routerY(BORDER), text: "all 1", inlets: 1, outlets: 1 }],
+    [4, { x: 0, y: SYNTH_Y, text: "osc~ 440", inlets: 2, outlets: 1 }],
+    [5, { x: 0, y: SYNTH_Y + 60, text: "dac~", inlets: 1, outlets: 0 }],
+    [6, { x: 200, y: routerY(BORDER) - 1, text: "* 2", inlets: 2, outlets: 1 }],
+    [7, { x: 300, y: SYNTH_Y, text: "touch", inlets: 0, outlets: 1 }],
+    [8, { x: 300, y: CTRL_Y, text: "comment a label", inlets: 0, outlets: 0 }],
+  ]);
+  ed.cables = new Map([[1, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [2, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }],
+    [3, { srcBox: 3, srcOutlet: 0, dstBox: 4, dstInlet: 0 }], [4, { srcBox: 4, srcOutlet: 0, dstBox: 5, dstInlet: 0 }]]);
+  ed.undoStack = [];
+  const sidesBefore = [...ed.boxes].map(([id, b]: [number, { text: string }]) => [id, ed.sideOfBox(b)]);
+  ed.tidyLayout();
+  check("tidy is one undo step", ed.undoStack.length === 1);
+  const all = [...ed.boxes.values()] as { x: number; y: number; text: string }[];
+  check("tidy: nothing off side, nothing but a router straddling", all.every((b) => !isOffSide(b, ed.borderY)), JSON.stringify(all));
+  check("tidy: on half units", all.every((b) => b.x % SNAP === 0 && b.y % SNAP === 0));
+  check("tidy: border on a dot row", ed.borderY % GRID === 0);
+  check("tidy: router on the border", ed.boxes.get(3).y === routerY(ed.borderY));
+  const sidesAfter = [...ed.boxes].map(([id, b]: [number, { text: string }]) => [id, ed.sideOfBox(b)]);
+  check("tidy: every box keeps its side", JSON.stringify(sidesBefore) === JSON.stringify(sidesAfter), JSON.stringify(sidesAfter));
+}
+
 console.log(`\n${pass} pass, ${fail} fail`);
 if (fail > 0) Deno.exit(1);
