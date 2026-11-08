@@ -252,8 +252,13 @@ function updateParamDisplay() {
 // ready; only voice 0 sends the errors, which every voice on the device shares.
 // The voices share one AudioContext, so the first loads and the rest find the
 // buffers held. Resolves to boxId → length in seconds.
+// A deploy with no buffers still syncs, so the last patch's are freed.
 async function loadBuffers(voice, list) {
-  if (list.length === 0) return new Map();
+  if (list.length === 0) {
+    try { await syncBuffers(audioCtx, workletModulesLoaded, []); }
+    catch (err) { console.error(`buffers failed to free: ${err?.message ?? err}`); }
+    return new Map();
+  }
   const report = (loaded, total, errors) =>
     voice.conn?.send({ type: "media", loaded, total, failed: errors?.length ?? 0, ...(errors?.length && voice.index === 0 && { errors }) });
   let lengths = new Map(), errors;
