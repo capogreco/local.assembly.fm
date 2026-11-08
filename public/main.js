@@ -9,7 +9,7 @@
  * own graph, own engines. Server sees N clients either way.
  */
 
-import { createEngine as _createEngine, BASE_NATIVE_NODES, getEngineOutput } from "./engine-factory.js";
+import { createEngine as _createEngine, BASE_NATIVE_NODES, getEngineOutput, syncBuffers } from "./engine-factory.js";
 import { connect } from "./connection.js";
 import { initScope, setScopeParams } from "./scope.js";
 import { mergeUpdates } from "./graph-core.js";
@@ -247,6 +247,23 @@ function updateParamDisplay() {
 
 // --- Voice lifecycle ---
 
+// The deploy's buffers (buffer~), loaded before the patch starts. Every voice
+// reports its progress to the server, which shows ctrl how many phones are
+// ready; only voice 0 sends the errors, which every voice on the device shares.
+// The voices share one AudioContext, so the first loads and the rest find the
+// buffers held. Resolves to boxId → length in seconds.
+async function loadBuffers(voice, list) {
+  if (list.length === 0) return new Map();
+  const report = (loaded, total, errors) =>
+    voice.conn?.send({ type: "media", loaded, total, failed: errors?.length ?? 0, ...(errors?.length && voice.index === 0 && { errors }) });
+  const { lengths, errors } = await syncBuffers(audioCtx, workletModulesLoaded, list, (loaded, total) => {
+    if (loaded < total) report(loaded, total);
+  });
+  for (const e of errors) console.error(e);
+  report(list.length, list.length, errors);
+  return lengths;
+}
+
 async function loadPatchForVoice(voice, patch) {
   voice.patchLoading = true;
   voice.pendingMessages = [];
@@ -268,6 +285,7 @@ async function loadPatchForVoice(voice, patch) {
   // throw in here used to leave it true forever, queueing every later message
   // and leaving a connected, started, permanently silent client.
   try {
+    const bufferLengths = await loadBuffers(voice, patch.buffers ?? []);
     voice.graph = buildGraph({ ...patch, instanceIndex: voice.index, instanceCount: N });
 
     // Create all engines and effects (unconnected). One engine failing to load
@@ -320,6 +338,14 @@ async function loadPatchForVoice(voice, patch) {
         sendParams(engine, params);
       }
     }
+
+    // buffer~ outlets: the length of each loaded buffer, in seconds.
+    for (const [id, seconds] of bufferLengths) {
+      if (!voice.graph.boxes.has(id)) continue;
+      const updates = propagateValue(voice.graph, id, 0, seconds);
+      for (const [dst, params] of Object.entries(updates)) voiceSendParams(voice, Number(dst), params);
+    }
+    drainUplinks(voice);
   } finally {
     voice.patchLoading = false;
   }

@@ -9,7 +9,7 @@
 import { boxTypeName, getBoxPorts } from "./gpi-types.js";
 import { PatchEditor, platformMod, COLORS, BOX_PAD_X, PORT_W, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
 import { currentTheme, toggleTheme, onThemeChange } from "./theme.js";
-import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput } from "./engine-factory.js";
+import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput, syncBuffers } from "./engine-factory.js";
 
 // DOM elements
 const canvas = document.getElementById("c");
@@ -30,6 +30,7 @@ labelThemeToggle();
 
 let ws = null, wsConnected = false;
 let connectedClients = 0;
+let mediaStatus = { files: 0, ready: 0, failed: 0, clients: 0 }; // phones that have loaded the deploy's buffers
 let midiDeviceNames = [];
 let currentPatchName = null;
 
@@ -143,8 +144,13 @@ async function buildLaptopAudio(patch) {
   laptopBoxes.clear();
   laptopInlets.clear();
   for (const b of patch.boxes) laptopBoxes.set(b.id, b);
-  // No laptop audio: no AudioContext, no microphone.
-  if (laptopBoxes.size === 0) return;
+  // No laptop audio: no AudioContext, no microphone. A context the last patch
+  // made drops that patch's buffers.
+  const buffers = patch.buffers ?? [];
+  if (laptopBoxes.size === 0 && buffers.length === 0) {
+    if (ctrlAudioCtx) await syncBuffers(ctrlAudioCtx, ctrlWorkletModulesLoaded, []);
+    return;
+  }
 
   initCtrlAudio();
 
@@ -189,6 +195,15 @@ async function buildLaptopAudio(patch) {
   ctrlOutputGuard.connect(ctrlOutputClamp);
   ctrlOutputClamp.connect(ctrlAudioCtx.destination);
   ctrlOutputStage = [ctrlOutputGuard, ctrlOutputClamp];
+
+  // Ctrl-side buffer~: load before the engines; each length leaves its box's
+  // outlet on the server (as fftPeaks~ results do).
+  const { lengths, errors } = await syncBuffers(ctrlAudioCtx, ctrlWorkletModulesLoaded, buffers);
+  if (errors.length > 0) {
+    for (const e of errors) console.error(e);
+    notify(errors.map((e) => "✗ " + e));
+  }
+  for (const [id, seconds] of lengths) send({ type: "buffer-length", box: id, seconds });
 
   // Create engines
   for (const [id, b] of laptopBoxes) {
@@ -462,6 +477,11 @@ const mainEditor = new PatchEditor(canvas, {
     // Client count (position relative to the border in screen space)
     const borderScreen = mainEditor.screenFromPatch(0, mainEditor.borderY);
     ctx.fillText(connectedClients + " client" + (connectedClients !== 1 ? "s" : ""), w - 12, borderScreen.y + 8);
+    // Phones that have the deploy's buffers (buffer~), while it has any
+    if (mediaStatus.files > 0) {
+      const failed = mediaStatus.failed > 0 ? `, ${mediaStatus.failed} failed` : "";
+      ctx.fillText(`${mediaStatus.ready} of ${mediaStatus.clients} loaded${failed}`, w - 12, borderScreen.y + 22);
+    }
     ctx.textAlign = "left";
   }
 });
@@ -768,6 +788,9 @@ function connectWS() {
         notify(msg.errors.map((e) => "⚠ " + e));
       } else if (msg.type === "apply-rejected") {
         notify(["✗ apply rejected, previous patch still running", ...msg.errors]);
+      } else if (msg.type === "media") {
+        mediaStatus = msg;
+        mainEditor.render();
       } else if (msg.type === "count") {
         connectedClients = msg.clients;
         mainEditor.render();
