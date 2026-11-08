@@ -15,8 +15,8 @@ import {
   clearPatchState, getBorderY, setAuthoredPatch, setBorderY, setPatchNextId,
 } from "./patch-state.ts";
 import {
-  MAX_DEPTH, PORT_TYPES, boxTypeName, boxBinding, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
-  boxHeight, faceContents, groupArgs, isAudioBox, isOffSide, positionSide, routerY, sideOf, wholeSide,
+  ABS_NAME, LIB_NAME, MAX_DEPTH, PORT_TYPES, boxTypeName, boxBinding, cableTypeProblem, getBoxDef, getBoxPorts, getInletDef, getOutletDef,
+  boxHeight, faceContents, groupArgs, isOffSide, positionSide, routerY, sideOf, wholeSide,
 } from "./public/gpi-types.js";
 
 export interface PortSpec { name: string; type: string; description: string }
@@ -41,12 +41,8 @@ export interface AbstractionDef {
 
 // --- Names ---
 
-// An abstraction name is `lib/name`: exactly one `/`, each part letters,
-// digits, `_`, `-` and `~`, starting with a letter, digit or `_`. No spaces (a
-// box's type is its first word) and no dots (no path tricks).
-const NAME_PART = "[A-Za-z0-9_][A-Za-z0-9_~-]*";
-const ABS_NAME = new RegExp(`^${NAME_PART}/${NAME_PART}$`);
-export const LIB_NAME = new RegExp(`^${NAME_PART}$`);
+// The `lib/name` pattern is gpi-types' (the editor's too).
+export { LIB_NAME };
 
 export function isAbstractionName(name: string): boolean {
   return ABS_NAME.test(name);
@@ -144,20 +140,10 @@ function bindingOf(text: string, loaded: Map<string, AbstractionDef>): string {
   return absOf(text, loaded)?.side ?? boxBinding(text);
 }
 
-// Can a source of type `src` feed inlet `dstInlet` of `dstText`? Audio lands
-// on audio inlets, or on the number inlets of a built-in audio box (its
-// AudioParams); nothing else lands on an audio inlet. An abstraction's number
-// inlet is not an AudioParam. Returns the problem, or null.
+// Can a source of type `src` feed inlet `dstInlet` of `dstText`? The rule is
+// gpi-types' cableTypeProblem (the editor's too); the inlet comes from `loaded`.
 function typeProblem(src: string, dstText: string, dstInlet: number, loaded: Map<string, AbstractionDef>): string | null {
-  const dst = inletSpec(dstText, dstInlet, loaded)?.type;
-  if (dst === undefined) return null;
-  if (src === "audio") {
-    if (dst === "audio") return null;
-    if (dst === "number" && !absOf(dstText, loaded) && isAudioBox(dstText)) return null;
-    return `audio into a ${dst} inlet`;
-  }
-  if (dst === "audio") return `${src} into an audio inlet`;
-  return null;
+  return cableTypeProblem(src, dstText, inletSpec(dstText, dstInlet, loaded));
 }
 
 // Index of an `inlet i` / `outlet i` box, or null if it isn't exactly that.
@@ -171,10 +157,11 @@ const ARG_REF = /\$(\d+)/g;
 // --- Contents against the header ---
 
 // Problems with an abstraction's contents, one line each, all errors:
-// its declared side against the boxes inside (a router, or a box bound to the
+// unknown box types; its declared side against the boxes inside (a router, or a box bound to the
 // other side); the inlet/outlet boxes against the header (one `inlet i` per
 // header inlet, no gaps, no extras, explicit indices); port types against the
-// wiring inside; a `$n` with no declared arg; containing itself. `loaded`
+// wiring inside, and nested instances' port counts; an inlet wired straight to an outlet; a `$n` with no
+// declared arg; containing itself. `loaded`
 // gives nested abstractions; `def` itself need not be in it.
 export function checkAbstraction(def: AbstractionDef, loaded: Map<string, AbstractionDef>): string[] {
   const all = new Map(loaded).set(def.name, def);
@@ -192,6 +179,7 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
       m.set(i, [...(m.get(i) ?? []), id]);
       continue;
     }
+    if (text.trim() && !getBoxDef(text) && !all.has(type)) { err(`unknown box type "${type}"`); continue; }
     const b = bindingOf(text, all);
     if (b === "border") err(`contains router "${text}": an abstraction lives on a single side`);
     else if ((b === "ctrl" || b === "synth") && b !== def.side) err(`is declared ${def.side} but contains ${b}-bound "${text}"`);
@@ -220,6 +208,22 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
   for (const [, c] of def.cables) {
     const src = def.boxes.get(c.srcBox), dst = def.boxes.get(c.dstBox);
     if (!src || !dst) { err(`cable ${c.srcBox}:${c.srcOutlet} → ${c.dstBox}:${c.dstInlet} has a missing end`); continue; }
+    // Expansion rewires through a box on each side; a bare inlet → outlet
+    // cable has nothing to land on, so it is refused rather than dropped.
+    if (boxTypeName(src.text) === "inlet" && boxTypeName(dst.text) === "outlet") {
+      err(`inlet ${portIndex(src.text)} is wired directly to outlet ${portIndex(dst.text)}: put a box between`);
+      continue;
+    }
+    // A nested instance's ports are its header's.
+    const srcAbs = absOf(src.text, all), dstAbs = absOf(dst.text, all);
+    if (srcAbs && c.srcOutlet >= srcAbs.outlets.length) {
+      err(`cable from "${src.text}" outlet ${c.srcOutlet}: no such outlet (it has ${srcAbs.outlets.length})`);
+      continue;
+    }
+    if (dstAbs && c.dstInlet >= dstAbs.inlets.length) {
+      err(`cable into "${dst.text}" inlet ${c.dstInlet}: no such inlet (it has ${dstAbs.inlets.length})`);
+      continue;
+    }
     const fromInlet = inletOf(src), toOutlet = outletOf(dst);
     const srcType = fromInlet?.type ?? outletSpec(src.text, c.srcOutlet, all)?.type;
     if (srcType === undefined) continue;
@@ -255,6 +259,20 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
     }
   };
   visit(def, [def.name]);
+  return errors;
+}
+
+// The checks for saving `def` over `loaded` (the registry): its own contents,
+// and every other abstraction against the registry with `def` in it, so a save
+// can't leave the library unloadable (a user of `def` wired to a port its new
+// header dropped, a cycle through it). Every problem is an error.
+export function checkSave(def: AbstractionDef, loaded: Map<string, AbstractionDef>): string[] {
+  const candidate = new Map(loaded).set(def.name, def);
+  const errors = checkAbstraction(def, candidate);
+  for (const name of [...candidate.keys()].sort()) {
+    if (name === def.name) continue;
+    for (const e of checkAbstraction(candidate.get(name)!, candidate)) errors.push(`saving "${def.name}" would break ${e}`);
+  }
   return errors;
 }
 
@@ -333,11 +351,10 @@ export function expandAbstractions(
         localToGlobal.set(localId, globalId);
 
         // Argument substitution: $0=instanceId, $1=args[0], $2=args[1], ...
-        let text = intBox.text;
-        text = text.replace(/\$0/g, instanceId);
-        for (let i = 0; i < args.length; i++) {
-          text = text.replace(new RegExp("\\$" + (i + 1) + "(?!\\d)", "g"), args[i]);
-        }
+        // One pass with a function, so an arg is inserted as written: its own
+        // `$&`, `$$` or `$1` is neither a replacement pattern nor substituted again.
+        const text = intBox.text.replace(ARG_REF, (ref: string, n: string) =>
+          n === "0" ? instanceId : args[Number(n) - 1] ?? ref);
 
         // Side inheritance: cloned boxes get Y of instance box
         const clonedBox = { ...intBox, text, x: intBox.x, y: box.y };
@@ -486,6 +503,19 @@ function offSideProblem(box: Box, borderY: number, binding: string, h: number): 
 // values cross the border through a router, never on a bare cable. A bound box
 // must sit wholly on its own side. The editor refuses these and auto-routes the rest;
 // this catches patch files edited by hand and anything else that bypasses it.
+// Port types on every cable of the expanded graph, by the editor's rule, so a
+// cable the editor refuses is refused here too (hand-edited files).
+function findTypeProblems(boxes: Map<number, Box>, cables: Map<number, Cable>): string[] {
+  const problems = new Set<string>();
+  for (const [, c] of cables) {
+    const src = boxes.get(c.srcBox), dst = boxes.get(c.dstBox);
+    if (!src || !dst) continue;
+    const problem = cableTypeProblem(getOutletDef(src.text, c.srcOutlet)?.type, dst.text, getInletDef(dst.text, c.dstInlet));
+    if (problem) problems.add(`cable "${src.text}" outlet ${c.srcOutlet} → "${dst.text}" inlet ${c.dstInlet}: ${problem}`);
+  }
+  return [...problems];
+}
+
 function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>, borderY: number): string[] {
   const problems = new Set<string>();
   for (const [, box] of boxes) {
@@ -538,6 +568,12 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   for (const name of [...used].sort()) errors.push(...checkAbstraction(loaded.get(name)!, loaded));
   if (errors.length > 0) return result(errors);
 
+  // `$n` means an abstraction's arg; in the patch itself there is none to fill in.
+  for (const [, box] of boxes) {
+    if (/\$\d/.test(box.text ?? "")) errors.push(`"${box.text}": $n is an abstraction's arg; the patch has none`);
+  }
+  if (errors.length > 0) return result(errors);
+
   // An instance sits on its declared side; its contents take their side from it.
   for (const [, box] of boxes) {
     const a = absOf(box.text, loaded);
@@ -550,7 +586,7 @@ export function checkApply(msg: any, loaded: Map<string, AbstractionDef>, curren
   errors.push(...findUnknownBoxTypes(boxes, loaded).map((t) => `unknown box type "${t}"`), ...findBadArgs(boxes));
   if (errors.length > 0) return result(errors);
   for (const [, box] of boxes) box.side = sideOf(box, borderY);
-  errors.push(...findSideViolations(boxes, cables, borderY));
+  errors.push(...findTypeProblems(boxes, cables), ...findSideViolations(boxes, cables, borderY));
   return result(errors);
 }
 

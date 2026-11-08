@@ -1,4 +1,4 @@
-import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, faceContents, boxTypeName, boxBinding, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -222,6 +222,51 @@ class PatchEditor {
     this.cableSelection.clear();
     // Fit view to show all boxes
     this.zoomToFit();
+  }
+
+  // After the abstraction registry loads (startup, a save): every instance
+  // takes its header's port counts, and a cable to a port that no longer
+  // exists is dropped. Returns one line per dropped cable, and one per faced
+  // instance its new face size takes off its side, for the caller to show
+  // (notes/abstractions.md, step 6).
+  syncAbstractionPorts() {
+    for (const box of this.boxes.values()) {
+      if (!isAbstraction(box.text)) continue;
+      const p = getBoxPorts(box.text);
+      box.inlets = p.inlets;
+      box.outlets = p.outlets;
+    }
+    const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+    const dropped = [];
+    for (const [id, c] of [...this.cables]) {
+      const src = this.boxes.get(c.srcBox), dst = this.boxes.get(c.dstBox);
+      let line = null;
+      if (dst && isAbstraction(dst.text) && c.dstInlet >= dst.inlets) {
+        line = `"${boxTypeName(dst.text)}": cable to inlet ${c.dstInlet} dropped (now ${plural(dst.inlets, "inlet")})`;
+      } else if (src && isAbstraction(src.text) && c.srcOutlet >= src.outlets) {
+        line = `"${boxTypeName(src.text)}": cable from outlet ${c.srcOutlet} dropped (now ${plural(src.outlets, "outlet")})`;
+      }
+      if (!line) continue;
+      this.cables.delete(id);
+      this.cableSelection.delete(id);
+      dropped.push(line);
+    }
+    const cut = dropped.length;
+    // A faced instance takes its size from the header too (boxWidth and
+    // boxHeight read the face live). A face that changed may no longer lie
+    // wholly on its side: listed, not moved; apply refuses it until it is.
+    if (this.showBorder) {
+      for (const box of this.boxes.values()) {
+        const face = faceOf(box.text);
+        if (!face || !isOffSide(box, this.borderY)) continue;
+        dropped.push(`"${boxTypeName(box.text)}": its face is now ${face.w}×${face.h} and no longer lies wholly on the ${boxBinding(box.text)} side; move it`);
+      }
+    }
+    if (cut > 0) {
+      this.dirty = true;
+      this.onDirty();
+    }
+    return dropped;
   }
 
   getBounds(boxes) {
@@ -1740,17 +1785,16 @@ class PatchEditor {
     if (this.mode === "cabling" && this.cableFrom) {
       const inlet = this.hitTestInlet(m.x, m.y);
       if (inlet && inlet.boxId !== this.cableFrom.boxId) {
-        // Validate cable types:
-        // - audio → audio: OK (signal routing)
-        // - audio → number: OK (AudioParam modulation)
-        // - number → audio: REJECTED (can't send control to audio bus — use sig~)
-        // - number → number: OK (control)
+        // Port types, by the rule apply uses (gpi-types cableTypeProblem):
+        // audio into audio or a built-in audio box's AudioParam; nothing
+        // else into audio (bridge with sig~).
         const srcBoxObj = this.boxes.get(this.cableFrom.boxId);
-        const srcDef = getDef(srcBoxObj?.text);
-        const srcIsAudio = getOutletDef(srcBoxObj?.text, this.cableFrom.index)?.type === "audio";
-        const dstIsAudio = this.isAudioInlet(inlet.boxId, inlet.index);
-        if (!srcIsAudio && dstIsAudio) {
-          // number → audio: rejected, use sig~ to bridge
+        const dstBoxObj = this.boxes.get(inlet.boxId);
+        const typeProblem = cableTypeProblem(
+          getOutletDef(srcBoxObj?.text, this.cableFrom.index)?.type,
+          dstBoxObj?.text, getInletDef(dstBoxObj?.text, inlet.index));
+        if (typeProblem) {
+          this.onError(["✗ cable rejected: " + typeProblem]);
           this.cableFrom = null;
           this.mode = "idle";
           this.canvas.style.cursor = "default";

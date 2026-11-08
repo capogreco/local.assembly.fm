@@ -8,8 +8,8 @@
  */
 
 import { boxes, cables, clearPatchState, ctrlState, getBorderY, getPatchNextId, setBorderY } from "../patch-state.ts";
-import { applyPatch, checkAbstraction, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { boxSize, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
+import { applyPatch, checkAbstraction, checkSave, isAbstractionName, parseAbstraction, type AbstractionDef } from "../apply-check.ts";
+import { boxSize, cableTypeProblem, getBoxPorts, getInletDef, getOutletDef, sideOf, useAbstractions } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const CTRL_Y = 100, SYNTH_Y = 600;
@@ -101,6 +101,12 @@ console.log("save: port types against the wiring");
   });
   check("audio inlet into an audio inlet", audioIn("dac~").length === 0, JSON.stringify(audioIn("dac~")));
   check("audio inlet into an AudioParam (osc~ frequency)", audioIn("osc~").length === 0, JSON.stringify(audioIn("osc~")));
+  check("audio inlet into a message inlet (adsr~ gate) rejected", audioIn("adsr~ 0.1 0.1 0.5 0.3").some((e) => /audio into a number inlet \(a message inlet/.test(e)), JSON.stringify(audioIn("adsr~ 0.1 0.1 0.5 0.3")));
+  check("audio inlet into an AudioParam (adsr~ attack)", errs({
+    inlets: [port("sig", "audio")], outlets: [],
+    boxes: [[1, { text: "inlet 0" }], [2, { text: "adsr~ 0.1 0.1 0.5 0.3" }]],
+    cables: [[3, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 1 }]],
+  }).length === 0);
   check("audio inlet into a value box rejected", audioIn("* 2").some((e) => /inlet 0 \(sig, audio\) → "\* 2" inlet 0: audio into a number inlet/.test(e)), JSON.stringify(audioIn("* 2")));
   check("number inlet into an audio inlet rejected", audioIn("dac~", [port("v", "number")]).some((e) => /number into an audio inlet/.test(e)), JSON.stringify(audioIn("dac~", [port("v", "number")])));
   const outFrom = (src: string, type: string) => errs({
@@ -111,6 +117,55 @@ console.log("save: port types against the wiring");
   check("audio outlet fed by audio", outFrom("osc~ 440", "audio").length === 0);
   check("number outlet fed by audio rejected", outFrom("osc~ 440", "number").some((e) => /outlet 0 \(out, number\): fed by audio from "osc~ 440"/.test(e)), JSON.stringify(outFrom("osc~ 440", "number")));
   check("audio outlet fed by number rejected", outFrom("+ 1", "audio").some((e) => /outlet 0 \(out, audio\): fed by number/.test(e)), JSON.stringify(outFrom("+ 1", "audio")));
+}
+
+console.log("save: an inlet wired straight to an outlet");
+{
+  const e = errs({
+    inlets: [port("a", "number"), port("b", "number")], outlets: [port("out", "number")],
+    boxes: [[1, { text: "inlet 0" }], [2, { text: "inlet 1" }], [3, { text: "outlet 0" }]],
+    cables: [[4, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]],
+  });
+  check("refused", e.some((m) => /^"t\/x": inlet 1 is wired directly to outlet 0: put a box between$/.test(m)), JSON.stringify(e));
+}
+
+console.log("save: nested ports and unknown types");
+{
+  const inner = new Map([["t/x", def()]]);
+  const outer = (c: [number, unknown]) => checkAbstraction(def({
+    name: "t/y", inlets: [], outlets: [],
+    boxes: [[1, { text: "+ 1" }], [2, { text: "t/x" }], [3, { text: "print" }]],
+    cables: [c],
+  }), inner);
+  const intoInlet = outer([4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 1 }]);
+  check("cable into a nested inlet out of range", intoInlet.some((m) => /^"t\/y": cable into "t\/x" inlet 1: no such inlet \(it has 1\)$/.test(m)), JSON.stringify(intoInlet));
+  const fromOutlet = outer([4, { srcBox: 2, srcOutlet: 2, dstBox: 3, dstInlet: 0 }]);
+  check("cable from a nested outlet out of range", fromOutlet.some((m) => /^"t\/y": cable from "t\/x" outlet 2: no such outlet \(it has 1\)$/.test(m)), JSON.stringify(fromOutlet));
+  check("in range accepted", outer([4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }]).length === 0);
+  const typo = errs({ boxes: [[1, { text: "inlet 0" }], [2, { text: "mul 2" }], [3, { text: "outlet 0" }]], cables: [] });
+  check("unknown inner box type", typo.some((m) => /^"t\/x": unknown box type "mul"$/.test(m)), JSON.stringify(typo));
+  const unsaved = errs({ boxes: [[1, { text: "inlet 0" }], [2, { text: "t/nope" }], [3, { text: "outlet 0" }]], cables: [] });
+  check("unknown nested abstraction", unsaved.some((m) => /unknown box type "t\/nope"/.test(m)), JSON.stringify(unsaved));
+}
+
+console.log("save: the whole library is checked with the new version in");
+{
+  const user = def({
+    name: "t/user", inlets: [], outlets: [],
+    boxes: [[1, { text: "+ 1" }], [2, { text: "t/x" }], [3, { text: "print" }]],
+    cables: [[4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }], [5, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]],
+  });
+  const lib = new Map([["t/x", def()], ["t/user", user]]);
+  check("unchanged save accepted", checkSave(def(), lib).length === 0, JSON.stringify(checkSave(def(), lib)));
+  const noIn = def({ inlets: [], boxes: [[2, { text: "* 2" }], [3, { text: "outlet 0" }]], cables: [[5, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]] });
+  const e = checkSave(noIn, lib);
+  check("dropping an inlet a user wires refused", e.some((m) => /^saving "t\/x" would break "t\/user": cable into "t\/x" inlet 0: no such inlet \(it has 0\)$/.test(m)), JSON.stringify(e));
+  const toSynth = def({ side: "synth" });
+  const s = checkSave(toSynth, new Map(lib).set("t/user", { ...user, side: "ctrl" }));
+  check("changing side under a user refused", s.some((m) => /would break "t\/user": is declared ctrl but contains synth-bound "t\/x"/.test(m)), JSON.stringify(s));
+  const cyc = def({ boxes: [[1, { text: "inlet 0" }], [2, { text: "t/user" }], [6, { text: "* 2" }], [3, { text: "outlet 0" }]], cables: [[4, { srcBox: 1, srcOutlet: 0, dstBox: 6, dstInlet: 0 }], [5, { srcBox: 6, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]] });
+  const c = checkSave(cyc, lib);
+  check("a cycle through a user refused", c.some((m) => /contains itself/.test(m)), JSON.stringify(c));
 }
 
 console.log("save: $n needs a declared arg");
@@ -206,6 +261,20 @@ console.log("apply: instance maps, chained through nesting");
   check("ctrl state carries the maps", JSON.stringify(st.instances) === JSON.stringify(Object.fromEntries(r.instances)), JSON.stringify(st.instances));
 }
 
+console.log("apply: args are inserted as written");
+{
+  const sym = new Map(loaded).set("t/sym", def({
+    name: "t/sym", inlets: [], outlets: [],
+    args: [{ name: "s", type: "symbol", description: "" }],
+    boxes: [[1, { text: "print $1" }]], cables: [],
+  }));
+  for (const arg of ["a$&b", "x$$y", "q$`r"]) {
+    reset();
+    const r = applyPatch(msg([box(1, `t/sym ${arg}`, CTRL_Y)]), sym);
+    check(`"${arg}" kept`, r.errors.length === 0 && [...boxes.values()].some((b) => b.text === `print ${arg}`), JSON.stringify([...boxes.values()].map((b) => b.text)) + JSON.stringify(r.errors));
+  }
+}
+
 console.log("apply: boundary errors");
 {
   const cases: [string, ReturnType<typeof msg>, RegExp][] = [
@@ -219,6 +288,14 @@ console.log("apply: boundary errors");
       /^"t\/x" inlet 0 \(in, number\): fed by audio from "osc~"$/],
     ["audio outlet into a value box", msg([box(1, "t/gain~ 1", SYNTH_Y), box(2, "+ 1", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]),
       /^"t\/gain~ 1" outlet 0 \(out, audio\): into "\+ 1" inlet 0: audio into a number inlet$/],
+    ["audio into a message inlet (plain boxes)", msg([box(1, "osc~ 440", SYNTH_Y), box(2, "adsr~ 0.1 0.1 0.5 0.3", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]),
+      /^cable "osc~ 440" outlet 0 → "adsr~ 0.1 0.1 0.5 0.3" inlet 0: audio into a number inlet \(a message inlet, not an AudioParam\)$/],
+    ["number into an audio inlet (plain boxes)", msg([box(1, "+ 1", SYNTH_Y), box(2, "dac~", SYNTH_Y)], [cable(1, 1, 0, 2, 0)]),
+      /^cable "\+ 1" outlet 0 → "dac~" inlet 0: number into an audio inlet$/],
+    ["$n in the patch itself", msg([box(1, "* $1", CTRL_Y)]),
+      /^"\* \$1": \$n is an abstraction's arg; the patch has none$/],
+    ["$n as an instance's arg", msg([box(1, "t/gain~ $1", SYNTH_Y)]),
+      /^"t\/gain~ \$1": \$n is an abstraction's arg; the patch has none$/],
     ["missing arg", msg([box(1, "t/gain~", SYNTH_Y)]),
       /^"t\/gain~" arg 1 \(gain, number\): missing$/],
     ["arg not a number", msg([box(1, "t/gain~ loud", SYNTH_Y)]),
@@ -263,6 +340,14 @@ console.log("apply: a faced instance lies wholly on its side");
   check("three units tall, two above the line: overhangs", over.errors.some((e) => /"t\/faced" is bound to the ctrl side but overhangs the border/.test(e)), JSON.stringify(over.errors));
 }
 
+console.log("cable types: one rule for the editor and apply");
+{
+  check("audio into an AudioParam", cableTypeProblem("audio", "osc~", getInletDef("osc~", 0)) === null);
+  check("audio into adsr~ gate refused", cableTypeProblem("audio", "adsr~", getInletDef("adsr~", 0)) !== null);
+  check("audio into an abstraction's number inlet refused", (useAbstractions(loaded), cableTypeProblem("audio", "t/x", getInletDef("t/x", 0)) !== null));
+  useAbstractions(new Map());
+}
+
 console.log("editor lookups (useAbstractions)");
 {
   useAbstractions(loaded);
@@ -291,6 +376,43 @@ console.log("bundled libraries: headers and contents pass");
     check(`${name} contents`, e.length === 0, JSON.stringify(e));
   }
   check("common/double is ctrl, common/quantiser synth", libs.get("common/double")?.side === "ctrl" && libs.get("common/quantiser")?.side === "synth");
+}
+
+console.log("editor: instance ports follow the registry (step 6)");
+{
+  // patch-editor.js reads a theme at import; give it just enough of a browser.
+  // deno-lint-ignore no-explicit-any
+  const g = globalThis as any;
+  g.matchMedia ??= () => ({ matches: false, addEventListener() {} });
+  g.document ??= { documentElement: { dataset: {} } };
+  const { PatchEditor, abstractionTypes } = await import("../public/patch-editor.js");
+  abstractionTypes.set("t/x", def());
+  const ed = Object.create(PatchEditor.prototype);
+  let dirtied = false;
+  Object.assign(ed, {
+    boxes: new Map([[1, { text: "+ 1", inlets: 2, outlets: 1 }], [2, { text: "t/x", inlets: 1, outlets: 1 }], [3, { text: "print", inlets: 1, outlets: 0 }]]),
+    cables: new Map([
+      [10, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
+      [11, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 2 }],
+      [12, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }],
+      [13, { srcBox: 2, srcOutlet: 1, dstBox: 3, dstInlet: 0 }],
+    ]),
+    cableSelection: new Set([11]),
+    onDirty: () => { dirtied = true; },
+  });
+  // A header with two inlets and one outlet, as after a save.
+  abstractionTypes.set("t/x", def({ inlets: [port("a", "number"), port("b", "number")], boxes: [[1, { text: "inlet 0" }], [9, { text: "inlet 1" }], [2, { text: "* 2" }], [3, { text: "outlet 0" }]] }));
+  const dropped: string[] = ed.syncAbstractionPorts();
+  const b = ed.boxes.get(2);
+  check("instance re-ported", b.inlets === 2 && b.outlets === 1, JSON.stringify(b));
+  check("stale cables dropped", JSON.stringify([...ed.cables.keys()]) === JSON.stringify([10, 12]), JSON.stringify([...ed.cables.keys()]));
+  check("each listed", JSON.stringify(dropped) === JSON.stringify([
+    `"t/x": cable to inlet 2 dropped (now 2 inlets)`,
+    `"t/x": cable from outlet 1 dropped (now 1 outlet)`,
+  ]), JSON.stringify(dropped));
+  check("dropped cable unselected, patch dirty", !ed.cableSelection.has(11) && dirtied && ed.dirty === true);
+  check("nothing to drop: not dirty", (ed.dirty = false, ed.syncAbstractionPorts().length === 0 && ed.dirty === false));
+  abstractionTypes.clear();
 }
 
 console.log(`\n${pass} pass, ${fail} fail`);
