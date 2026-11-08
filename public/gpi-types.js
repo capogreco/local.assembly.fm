@@ -917,10 +917,16 @@ function knobLabelWidth(text) {
   return Math.max(0, ...labels.map((l) => l.length * LABEL_CHAR_W));
 }
 
+// The text a comment shows: `comment` is dropped; `//` stays, as drawn.
+function commentText(text) {
+  return text.replace(/^comment\s*/, "");
+}
+
 // Width of a text box: room for its text (and a knob's value label, drawn
 // inside it after the text) and its ports with a gap between each, at least
 // two units, rounded up to whole units so the right edge is on the grid too.
 function textBoxWidth(text, ports) {
+  if (boxTypeName(text) === "comment") text = commentText(text);
   const label = boxTypeName(text) === "knob" ? BOX_PAD_X + knobLabelWidth(text) : 0;
   const w = Math.max(text.length * CHAR_W + label + BOX_PAD_X * 2, ports * PORT_W + (ports - 1) * PORT_GAP, 2 * GRID);
   return Math.ceil(w / GRID) * GRID;
@@ -1157,5 +1163,5 @@ function cableTypeProblem(src, dstText, dstDef) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, abstractionsUsing, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
+export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, abstractionsUsing, commentText, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
 

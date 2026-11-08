@@ -205,6 +205,10 @@ console.log("save: the face");
   check("no GUI box inside rejected", empty.some((e) => /face: no GUI box inside/.test(e)), JSON.stringify(empty));
   const label = with_([[10, { x: 0, y: 0, text: "comment hi" }]]);
   check("a comment counts", label.length === 0, JSON.stringify(label));
+  check("a comment is as wide as the text it shows", boxSize("comment hi").w === 40 && boxSize("// hi").w === 60, JSON.stringify([boxSize("comment hi"), boxSize("// hi")]));
+  // "comment " plus 15 characters: 15 × 7.2 + 16 = 124 → 140px, from (20, 20) to 160, inside a 10-unit face.
+  const wide = with_([[10, { x: 20, y: 20, text: "comment abcdefghijklmno" }]]);
+  check("the face check sizes a comment as drawn", wide.length === 0, JSON.stringify(wide));
   // A faced abstraction counts as a GUI box of its parent, at its face's size.
   const inner = def({ name: "t/inner", face: { x: 0, y: 0, w: 3, h: 2, hideName: true },
     boxes: [[1, { x: 0, y: 200, text: "inlet 0" }], [2, { x: 0, y: 0, text: "toggle" }], [3, { x: 0, y: 260, text: "outlet 0" }]],

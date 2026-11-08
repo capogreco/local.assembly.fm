@@ -1,4 +1,4 @@
-import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, commentText, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -1210,7 +1210,7 @@ class PatchEditor {
     this.ctx.font = COMMENT_FONT;
     this.ctx.fillStyle = selected ? COLORS.text : COLORS.commentText;
     this.ctx.textBaseline = "middle";
-    this.ctx.fillText(text.replace(/^comment\s*/, ""), x + BOX_PAD_X, y + BOX_HEIGHT / 2);
+    this.ctx.fillText(commentText(text), x + BOX_PAD_X, y + BOX_HEIGHT / 2);
   }
 
   // A knob's value: inside its box (width w), right-aligned (textBoxWidth
