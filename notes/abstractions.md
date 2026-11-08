@@ -111,6 +111,22 @@ Steps 1, 2, 3 and 5, and the header panel from 4.
   `patches/archive/sendup_test.json`, is synth-side), both in `libs/common`
   (a placeholder name).
 
+Review fixes (feat/abstractions, merged into feat/faces 2026-11-08):
+- One cable type rule, `cableTypeProblem` in gpi-types, for the editor and
+  apply; audio never goes into a `message: true` inlet (adsr~ gate).
+- Save also refuses an inlet wired straight to an outlet, a nested
+  instance's missing ports, and unknown inner box types. `checkSave` checks
+  the whole library before writing, and the server rolls back a write that
+  fails to reload.
+- A `$n` in the patch itself is an apply error; args go in as written
+  (function replacer, so `$&` and the like stay literal).
+- `PatchEditor.syncAbstractionPorts()`: ctrl loads the registry before it
+  connects, then after every registry or state load instances take their
+  header's ports, and cables to ports that are gone are dropped and listed.
+  A faced instance whose new face no longer lies wholly on its side is
+  listed too (not moved).
+- `ABS_NAME` and `LIB_NAME` come from gpi-types.
+
 ## Decided (Thomas, 2026-11-08, second round)
 
 - **Names are always explicit.** A library abstraction is always written
