@@ -123,6 +123,25 @@ console.log("save: an inlet wired straight to an outlet");
   check("refused", e.some((m) => /^"t\/x": inlet 1 is wired directly to outlet 0: put a box between$/.test(m)), JSON.stringify(e));
 }
 
+console.log("save: nested ports and unknown types");
+{
+  const inner = new Map([["t/x", def()]]);
+  const outer = (c: [number, unknown]) => checkAbstraction(def({
+    name: "t/y", inlets: [], outlets: [],
+    boxes: [[1, { text: "+ 1" }], [2, { text: "t/x" }], [3, { text: "print" }]],
+    cables: [c],
+  }), inner);
+  const intoInlet = outer([4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 1 }]);
+  check("cable into a nested inlet out of range", intoInlet.some((m) => /^"t\/y": cable into "t\/x" inlet 1: no such inlet \(it has 1\)$/.test(m)), JSON.stringify(intoInlet));
+  const fromOutlet = outer([4, { srcBox: 2, srcOutlet: 2, dstBox: 3, dstInlet: 0 }]);
+  check("cable from a nested outlet out of range", fromOutlet.some((m) => /^"t\/y": cable from "t\/x" outlet 2: no such outlet \(it has 1\)$/.test(m)), JSON.stringify(fromOutlet));
+  check("in range accepted", outer([4, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }]).length === 0);
+  const typo = errs({ boxes: [[1, { text: "inlet 0" }], [2, { text: "mul 2" }], [3, { text: "outlet 0" }]], cables: [] });
+  check("unknown inner box type", typo.some((m) => /^"t\/x": unknown box type "mul"$/.test(m)), JSON.stringify(typo));
+  const unsaved = errs({ boxes: [[1, { text: "inlet 0" }], [2, { text: "t/nope" }], [3, { text: "outlet 0" }]], cables: [] });
+  check("unknown nested abstraction", unsaved.some((m) => /unknown box type "t\/nope"/.test(m)), JSON.stringify(unsaved));
+}
+
 console.log("save: $n needs a declared arg");
 {
   const one = [{ name: "k", type: "number", description: "" }];

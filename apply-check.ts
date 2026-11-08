@@ -143,10 +143,10 @@ const ARG_REF = /\$(\d+)/g;
 // --- Contents against the header ---
 
 // Problems with an abstraction's contents, one line each, all errors:
-// its declared side against the boxes inside (a router, or a box bound to the
+// unknown box types; its declared side against the boxes inside (a router, or a box bound to the
 // other side); the inlet/outlet boxes against the header (one `inlet i` per
 // header inlet, no gaps, no extras, explicit indices); port types against the
-// wiring inside; an inlet wired straight to an outlet; a `$n` with no
+// wiring inside, and nested instances' port counts; an inlet wired straight to an outlet; a `$n` with no
 // declared arg; containing itself. `loaded`
 // gives nested abstractions; `def` itself need not be in it.
 export function checkAbstraction(def: AbstractionDef, loaded: Map<string, AbstractionDef>): string[] {
@@ -165,6 +165,7 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
       m.set(i, [...(m.get(i) ?? []), id]);
       continue;
     }
+    if (text.trim() && !getBoxDef(text) && !all.has(type)) { err(`unknown box type "${type}"`); continue; }
     const b = bindingOf(text, all);
     if (b === "border") err(`contains router "${text}": an abstraction lives on a single side`);
     else if ((b === "ctrl" || b === "synth") && b !== def.side) err(`is declared ${def.side} but contains ${b}-bound "${text}"`);
@@ -197,6 +198,16 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
     // cable has nothing to land on, so it is refused rather than dropped.
     if (boxTypeName(src.text) === "inlet" && boxTypeName(dst.text) === "outlet") {
       err(`inlet ${portIndex(src.text)} is wired directly to outlet ${portIndex(dst.text)}: put a box between`);
+      continue;
+    }
+    // A nested instance's ports are its header's.
+    const srcAbs = absOf(src.text, all), dstAbs = absOf(dst.text, all);
+    if (srcAbs && c.srcOutlet >= srcAbs.outlets.length) {
+      err(`cable from "${src.text}" outlet ${c.srcOutlet}: no such outlet (it has ${srcAbs.outlets.length})`);
+      continue;
+    }
+    if (dstAbs && c.dstInlet >= dstAbs.inlets.length) {
+      err(`cable into "${dst.text}" inlet ${c.dstInlet}: no such inlet (it has ${dstAbs.inlets.length})`);
       continue;
     }
     const fromInlet = inletOf(src), toOutlet = outletOf(dst);
