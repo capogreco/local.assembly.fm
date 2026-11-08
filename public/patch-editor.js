@@ -1,10 +1,10 @@
-import { BOX_TYPES, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, commentText, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, MAX_DEPTH, GRID, SNAP, BOX_HEIGHT, snapToGrid, snapPos, routerY, textBoxWidth, formatValue, knobArgs, commentText, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
 
 // Colours come from the active theme (theme.js); COLORS is that live palette.
-// GRID and BOX_HEIGHT come from gpi-types.js: the side rule needs them.
+// GRID, SNAP and BOX_HEIGHT come from gpi-types.js: the side rule needs them.
 const BOX_PAD_X = 8, PORT_W = 8, PORT_H = 3, PORT_HIT = 8, BORDER_HANDLE = 8;
 const FONT = '12px "IBM Plex Mono", "Fira Mono", "Courier New", monospace';
 const SMALL_FONT = '10px "IBM Plex Mono", monospace';
@@ -214,10 +214,10 @@ class PatchEditor {
     this.nextId = data.nextId || 1;
     if (data.borderY !== undefined) this.borderY = snapToGrid(data.borderY);
     // The grid is binding: patches saved before it snap as they load, and
-    // routers sit on the border.
+    // routers straddle the border.
     for (const [, box] of this.boxes) {
-      box.x = snapToGrid(box.x);
-      box.y = this.isRouterType(box.text) ? routerY(this.borderY) : snapToGrid(box.y);
+      box.x = snapPos(box.x);
+      box.y = this.isRouterType(box.text) ? routerY(this.borderY) : snapPos(box.y);
     }
     this.selection.clear();
     this.cableSelection.clear();
@@ -589,8 +589,8 @@ class PatchEditor {
 
     layoutRegion(synthBoxes, this.borderY + BORDER_PAD);
     // Snap to the grid. Widths and gaps are whole units, so rounding each x
-    // moves neighbours at most a unit closer and never into each other.
-    for (const [, box] of this.boxes) { box.x = snapToGrid(box.x); box.y = snapToGrid(box.y); }
+    // moves neighbours at most half a unit closer and never into each other.
+    for (const [, box] of this.boxes) { box.x = snapPos(box.x); box.y = snapPos(box.y); }
     this.zoomToFit();
     this.dirty = true;
     this.onDirty();
@@ -650,10 +650,10 @@ class PatchEditor {
     };
   }
 
-  // The grid cell under patch point m: its top-left dot, where a box made
-  // there goes.
+  // The half-unit cell under patch point m: its top-left corner (a dot or
+  // halfway between), where a box made there goes.
   gridCell(m) {
-    return { x: Math.floor(m.x / GRID) * GRID, y: Math.floor(m.y / GRID) * GRID };
+    return { x: Math.floor(m.x / SNAP) * SNAP, y: Math.floor(m.y / SNAP) * SNAP };
   }
 
   screenFromPatch(px, py) {
@@ -874,13 +874,14 @@ class PatchEditor {
   }
 
   // Put a newly placed box where its type belongs: routers on the border,
-  // bound boxes on their side. Used where a box lands without a drag to
-  // refuse (text commit, paste).
+  // bound boxes on their side, clear of the router row (which straddles the
+  // line). Used where a box lands without a drag to refuse (text commit, paste).
   placeOnSide(box) {
     if (!this.showBorder) return;
-    if (this.isRouterType(box.text)) { box.y = routerY(this.borderY); return; }
+    const rowTop = routerY(this.borderY);
+    if (this.isRouterType(box.text)) { box.y = rowTop; return; }
     if (!isOffSide(box, this.borderY)) return;
-    box.y = this.sideOfBox(box) === "synth" ? this.borderY + GRID : this.borderY - this.boxHeight(box) - GRID;
+    box.y = this.sideOfBox(box) === "synth" ? rowTop + BOX_HEIGHT : rowTop - this.boxHeight(box);
   }
 
   isRouterType(text) { return boxBinding(text) === "border"; }
@@ -914,7 +915,7 @@ class PatchEditor {
     } else {
       routerId = this.nextId++;
       const ports = getBoxPorts("all 1");
-      this.boxes.set(routerId, { x: snapToGrid(midX - GRID), y: routerY(this.borderY), text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
+      this.boxes.set(routerId, { x: snapPos(midX - GRID), y: routerY(this.borderY), text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
       this.cables.set(this.nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
       this.cables.set(this.nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet });
     }
@@ -1640,27 +1641,28 @@ class PatchEditor {
     }
 
     if (this.mode === "resizing-border") {
-      // The border sits on a row of dots, low enough to leave a row for routers.
+      // The border sits on a row of dots (whole units, not SNAP), low enough
+      // to leave room for the router row above it.
       const newY = Math.max(2 * GRID, snapToGrid(m.y));
       const oldY = this.borderY;
       if (newY === oldY) return;
       this.borderY = newY;
-      // Pushed boxes stay on the grid, touching the line.
+      // Pushed boxes stay on the grid, touching the router row.
       const PAD = 0;
       // Piston: a box on the side the membrane moves into, which the new line
       // touches, is pushed wholly clear of it, keeping its side (taken against
       // the old line). Then cascade-resolve overlaps in the sweep direction so
       // the push propagates through stacked boxes instead of squashing them.
-      // The row just above the line is the routers' (routerY), so a ctrl box
-      // is pushed clear of that row too, as placeOnSide places it.
-      const ctrlLimit = routerY(newY);
+      // The router row straddles the line (routerY .. + BOX_HEIGHT), so a box
+      // is pushed clear of that whole row, as placeOnSide places it.
+      const ctrlLimit = routerY(newY), synthLimit = ctrlLimit + BOX_HEIGHT;
       for (const [id, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
           box.y = ctrlLimit;
           continue;
         }
         const side = this.sideOf(box, oldY), h = this.boxHeight(box, id);
-        if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
+        if (newY > oldY && side === "synth" && box.y < synthLimit) box.y = synthLimit + PAD;
         else if (newY < oldY && side === "ctrl" && box.y + h > ctrlLimit) box.y = ctrlLimit - h - PAD;
       }
       this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
@@ -1676,8 +1678,8 @@ class PatchEditor {
       for (const [id, b] of this.dragSnapshot.boxes) this.boxes.set(id, { ...b });
       this.nextId = this.dragSnapshot.nextId;
 
-      // Live snap: the drag moves in whole units, so boxes stay on the grid.
-      const dx = snapToGrid(m.x - this.dragStart.x), dy = snapToGrid(m.y - this.dragStart.y);
+      // Live snap: the drag moves in half units, so boxes stay on the grid.
+      const dx = snapPos(m.x - this.dragStart.x), dy = snapPos(m.y - this.dragStart.y);
       for (const [id, orig] of this.dragBoxPositions) {
         const box = this.boxes.get(id);
         if (!box) continue;
@@ -1972,13 +1974,16 @@ class PatchEditor {
     // Arrow key nudging
     if (this.selection.size > 0 && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault();
-      const step = GRID; // one unit per press: the grid is binding
+      // Half a unit per press, a whole unit with Shift: the grid is binding.
+      const step = e.shiftKey ? GRID : SNAP;
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
       const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
       const before = new Map([...this.boxes].map(([id, b]) => [id, { x: b.x, y: b.y }]));
+      // Routers stay on the border, as in a drag: they nudge sideways only.
+      const ddy = (box) => this.isRouterType(box.text) ? 0 : dy;
       for (const id of this.selection) {
         const box = this.boxes.get(id);
-        if (box) { box.x += dx; box.y += dy; }
+        if (box) { box.x += dx; box.y += ddy(box); }
       }
       // Same rule as a drop: a nudge that takes a bound box off side, or audio
       // across the border, doesn't happen.
@@ -1986,7 +1991,7 @@ class PatchEditor {
       if (problem) {
         for (const id of this.selection) {
           const box = this.boxes.get(id);
-          if (box) { box.x -= dx; box.y -= dy; }
+          if (box) { box.x -= dx; box.y -= ddy(box); }
         }
         this.onError(["✗ move cancelled: " + problem]);
       } else {

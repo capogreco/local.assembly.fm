@@ -40,9 +40,12 @@ so a performer could edit mid-show without switching modes. Its costs:
 The editor's 20px grid is binding, not decoration. It keeps patches neat and
 gives them Pd's look.
 
-- **Each box's top-left corner sits on a grid dot.** Creating, dragging,
-  pasting and arrow-key nudges all move in whole units. Old patches snap
-  when they load.
+- **Each box's top-left corner sits on a grid dot, or halfway between dots
+  on either axis** (`SNAP`, 10px; decided 2026-11-08, so routers can sit
+  on both sides of the membrane). Creating, dragging, pasting, tidy and
+  arrow-key nudges all move in half units. Old patches snap when they load.
+  Sizes stay whole units (heights, widths, faces) and the dots are still
+  drawn every 20px.
 - **Boxes are one unit (20px) tall**, replacing `BOX_HEIGHT` 22. A box's
   bottom edge, where its outlets sit, lies on the next row of dots.
 - **Widths round up to whole units**, so the right edge is on the grid too.
@@ -50,24 +53,29 @@ gives them Pd's look.
   last port flush with the right edge, and any others spread evenly between.
   A box placed directly under another gets a vertical cable from left outlet
   to left inlet.
-- **The border sits on a row of dots.**
-- **Routers sit in the row just above the border**, their bottom edge (and
-  outlets) on the line: `routerY(borderY) = borderY - BOX_HEIGHT` in
-  `gpi-types.js`, used by the editor and by apply. At height 22 a router
-  straddled the line (`borderY - 11`); with one-unit boxes and the border on
-  a dot row, straddling would put its top half a unit off the grid, so it
-  takes the last ctrl row instead. Routers are bound `border`, so their
-  position never decides their side. A box in the row just below the line
-  (top on the line) is wholly synth; a box in the row above (bottom on the
-  line) is wholly ctrl.
+- **The border sits on a row of dots** (whole units; border drags move in
+  whole rows).
+- **Routers straddle the border**, their vertical centre on the line, half
+  on each side: `routerY(borderY) = borderY - BOX_HEIGHT / 2` in
+  `gpi-types.js`, used by the editor and by apply. Routers are bound
+  `border`, so their position never decides their side.
+- **Side rule unchanged, judged against the line:** a bound box must lie
+  wholly on its side (bottom on the line is wholly ctrl, top on the line
+  wholly synth); a free box goes by its centre (on the line counts as
+  synth). The router row (`routerY` .. `routerY + BOX_HEIGHT`) is kept
+  clear by placement, not by the rule: placing a bound box on its side and
+  the border piston put ctrl boxes' bottoms on the row's top and synth
+  boxes' tops on its bottom.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
 
-Built 2026-11-08 (`feat/grid`): `GRID`, `BOX_HEIGHT = GRID`, `snapToGrid` and
-`routerY` live in `gpi-types.js`. The editor snaps on load (x, y and
-`borderY`), live while dragging, on create (the cell under the pointer),
+Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
+`BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
+units: positions) and `routerY` live in `gpi-types.js`. The editor snaps on
+load (x, y and `borderY`), live while dragging, on create (the cell under the pointer),
 paste, duplicate, Tab-create (one empty row below), tidy, and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
-land touching it). Arrow keys nudge one unit per press, Shift or not.
+land touching the router row). Arrow keys nudge half a unit per press, a
+whole unit with Shift; routers nudge sideways only.
 Apply doesn't refuse off-grid positions: the grid is the editor's job, and
 the side rules (`positionSide`, `wholeSide`) still work for any position.
 

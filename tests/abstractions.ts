@@ -197,6 +197,11 @@ console.log("save: the face");
   check("bottom edge counts too", below.length === 0, JSON.stringify(below));
   const low = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 0, y: 50, text: "toggle" }]]);
   check("a box over the bottom edge rejected", low.some((e) => /"toggle" crosses/.test(e)), JSON.stringify(low));
+  // Positions snap to half units, the face to whole ones. "toggle" is 60px wide.
+  const half = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 130, y: 30, text: "toggle" }]]);
+  check("a box at a half position wholly inside accepted", half.length === 0, JSON.stringify(half));
+  const halfOut = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 150, y: 30, text: "toggle" }]]);
+  check("a box at a half position across the edge rejected", halfOut.some((e) => /"toggle" crosses/.test(e)), JSON.stringify(halfOut));
   const outside = with_([[10, { x: 20, y: 20, text: "knob 0.5 0 1" }], [11, { x: 400, y: 400, text: "knob" }]]);
   check("a GUI box wholly outside is fine (not shown)", outside.length === 0, JSON.stringify(outside));
   const hidden = with_([[10, { x: 20, y: 20, text: "comment hi" }], [11, { x: 100, y: 20, text: "+ 1 2 3 4 5 6 7 8 9 10" }]]);

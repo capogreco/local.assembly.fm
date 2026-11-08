@@ -1,4 +1,4 @@
-import { GRID, PORT_TYPES, boxTypeName, snapToGrid } from "./gpi-types.js";
+import { GRID, PORT_TYPES, boxTypeName, snapPos } from "./gpi-types.js";
 import { toggleTheme } from "./theme.js";
 import { PatchEditor, COLORS, SMALL_FONT, loadAbstractions } from "./patch-editor.js";
 
@@ -321,7 +321,7 @@ window.addEventListener("keydown", (e) => {
     for (const [oldId, box] of data.boxes) {
       const newId = editor.nextId++;
       idMap.set(oldId, newId);
-      editor.boxes.set(newId, { ...box, x: snapToGrid(box.x) + GRID, y: snapToGrid(box.y) + GRID });
+      editor.boxes.set(newId, { ...box, x: snapPos(box.x) + GRID, y: snapPos(box.y) + GRID });
       newSel.push(newId);
     }
     for (const [, c] of data.cables) {

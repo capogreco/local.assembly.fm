@@ -8,7 +8,7 @@
 
 import { boxes, boxValues, cables, clearPatchState, ctrlState, getPatchNextId, getBorderY, setBorderY } from "../patch-state.ts";
 import { applyPatch, checkAbstraction, type AbstractionDef } from "../apply-check.ts";
-import { BOX_HEIGHT as H, GRID, movesOffSide } from "../public/gpi-types.js";
+import { BOX_HEIGHT as H, GRID, SNAP, isOffSide, movesOffSide, positionSide, routerY, snapPos, snapToGrid, wholeSide } from "../public/gpi-types.js";
 
 const BORDER = 400;
 const CTRL_Y = 100, SYNTH_Y = 600;
@@ -112,7 +112,7 @@ console.log("valid patch accepted");
   const sides = Object.fromEntries([...boxes].filter(([id]) => id <= 6).map(([id, b]) => [id, b.side]));
   check("sides stamped", JSON.stringify(sides) === JSON.stringify({ 1: "ctrl", 2: "border", 3: "synth", 5: "synth" }), JSON.stringify(sides));
   check("every box has a side", [...boxes.values()].every((b) => b.side !== undefined));
-  check("router snapped to the row above the border", boxes.get(2)!.y === BORDER - H);
+  check("router snapped to straddle the border", boxes.get(2)!.y === BORDER - H / 2);
   check("free box follows position (ewing~ synth-side)", boxes.get(5)!.side === "synth");
   check("clone of ctrl-bound inner box is ctrl", [...boxes.values()].some((b) => b.text === "key" && b.side === "ctrl" && b !== boxes.get(1)));
 }
@@ -216,7 +216,32 @@ console.log("router unchanged");
   const r = applyPatch(msg([box(1, "all 1", SYNTH_Y)]), loaded);
   check("accepted", r.errors.length === 0, JSON.stringify(r.errors));
   check("side is border", boxes.get(1)!.side === "border");
-  check("snapped to borderY - BOX_HEIGHT (routerY)", boxes.get(1)!.y === BORDER - H, String(boxes.get(1)!.y));
+  check("snapped to borderY - BOX_HEIGHT / 2 (routerY)", boxes.get(1)!.y === BORDER - H / 2, String(boxes.get(1)!.y));
+}
+
+console.log("half-unit grid: positions on dots or halfway, routers straddle");
+{
+  check("SNAP is half a unit", SNAP === GRID / 2);
+  check("snapPos rounds to half units", snapPos(14) === 10 && snapPos(16) === 20 && snapPos(-4) === 0 && snapPos(25) === 30 && snapPos(24) === 20);
+  check("snapToGrid still rounds to whole units (the border)", snapToGrid(14) === 20 && snapToGrid(9) === 0);
+  const r = { x: 0, y: routerY(BORDER), text: "all 1" };
+  check("router centre on the line", r.y + H / 2 === BORDER && r.y % SNAP === 0);
+  check("router straddles: on neither side wholly", wholeSide(r, BORDER, H) === null);
+  check("router never off side", !isOffSide(r, BORDER));
+  const at = (text: string, y: number) => ({ x: 0, y, text });
+  // Half a unit either side of the router row's edges.
+  check("ctrl box clear of the router row: wholly ctrl", wholeSide(at("key", routerY(BORDER) - H), BORDER) === "ctrl" && !isOffSide(at("key", routerY(BORDER) - H), BORDER));
+  check("synth box clear of the router row: wholly synth", wholeSide(at("touch", routerY(BORDER) + H), BORDER) === "synth" && !isOffSide(at("touch", routerY(BORDER) + H), BORDER));
+  check("ctrl box half a unit over the line is off side", isOffSide(at("key", BORDER - H + SNAP), BORDER));
+  check("synth box half a unit over the line is off side", isOffSide(at("touch", BORDER - SNAP), BORDER));
+  check("free box half a unit above the line row → ctrl", positionSide(at("+ 1", BORDER - H - SNAP), BORDER) === "ctrl");
+  check("free box half a unit below the line → synth", positionSide(at("+ 1", BORDER + SNAP), BORDER) === "synth");
+  check("free box straddling like a router → synth (centre on the line)", positionSide(at("+ 1", routerY(BORDER)), BORDER) === "synth");
+  reset();
+  const a = applyPatch(msg([box(1, "key", BORDER - H - SNAP), box(2, "all 1", BORDER), box(3, "touch", BORDER + SNAP), box(4, "+ 1", BORDER - H - SNAP, 100), box(5, "+ 2", BORDER + SNAP, 100)]), loaded);
+  check("half positions next to the border accepted", a.errors.length === 0, JSON.stringify(a.errors));
+  const sides = [1, 2, 3, 4, 5].map((id) => boxes.get(id)!.side).join(" ");
+  check("and sided as drawn", sides === "ctrl border synth ctrl synth", sides);
 }
 
 console.log("a reconnecting ctrl gets the patch as authored, not the expanded graph");

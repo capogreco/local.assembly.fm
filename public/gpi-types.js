@@ -855,24 +855,33 @@ function boxBinding(text) {
 }
 
 // The editor's grid, in patch units. It is binding: every box's top-left
-// corner sits on a grid dot, and the border sits on a row of dots.
+// corner sits on a grid dot or halfway between dots, on either axis (SNAP).
+// Sizes stay whole units (box height, widths, faces), and the border sits on
+// a row of dots.
 const GRID = 20;
+
+// Positions snap to half units.
+const SNAP = GRID / 2;
 
 // Height of a box in patch units: one grid unit. The side rule needs it, so
 // it lives here (the editor draws with it, apply snaps routers with it).
 const BOX_HEIGHT = GRID;
 
-// Nearest grid dot coordinate.
+// Nearest grid dot coordinate: the border, and sizes.
 function snapToGrid(v) {
   return Math.round(v / GRID) * GRID;
 }
 
-// Where a router sits: in the row just above the border, its bottom edge
-// (and so its outlets) on the border line. A router can't straddle the line
-// as it did at height 22: with the border on a dot row and boxes one unit
-// tall, straddling would put its top half a unit off the grid.
+// Nearest position a box's corner may take: a dot or halfway between.
+function snapPos(v) {
+  return Math.round(v / SNAP) * SNAP;
+}
+
+// Where a router sits: straddling the border, its vertical centre on the
+// line, half on the ctrl side and half on the synth side. The router row is
+// routerY(b) .. routerY(b) + BOX_HEIGHT.
 function routerY(borderY) {
-  return borderY - BOX_HEIGHT;
+  return borderY - BOX_HEIGHT / 2;
 }
 
 // How deep abstractions may nest: expansion at apply, and faces drawn
@@ -1012,6 +1021,9 @@ function positionSide(box, borderY, h = boxHeight(box)) {
 
 // The side a box lies wholly on, or null if it straddles the border. A
 // bottom edge on the line is wholly ctrl; a top edge on the line, wholly synth.
+// The router row straddles the line: a box overlapping half of it (bottom
+// or top edge on the line) is still wholly on its side. The editor places
+// and pushes boxes clear of the whole row (routerY).
 function wholeSide(box, borderY, h = boxHeight(box)) {
   if (box.y + h <= borderY) return "ctrl";
   if (box.y >= borderY) return "synth";
@@ -1163,5 +1175,5 @@ function cableTypeProblem(src, dstText, dstDef) {
 }
 
 // --- Exports ---
-export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, BOX_HEIGHT, snapToGrid, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, abstractionsUsing, commentText, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
+export { BOX_TYPES, PORT_TYPES, ABS_NAME, LIB_NAME, MAX_DEPTH, GRID, SNAP, BOX_HEIGHT, snapToGrid, snapPos, routerY, textBoxWidth, formatValue, knobArgs, faceOf, boxHeight, boxSize, guiKind, faceContents, abstractionsUsing, commentText, boxTypeName, getBoxPorts, groupArgs, bufferArgs, getBoxDef, useAbstractions, getAbstractionDef, boxBinding, positionSide, wholeSide, sideOf, isOffSide, movesOffSide, getInletDef, getOutletDef, deployInletDefs, hasAudioIn, hasAudioOut, isDac, isAudioBox, cableTypeProblem };
 
