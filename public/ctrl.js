@@ -608,10 +608,20 @@ function openAbstractionForEdit(text) {
   window.open(`/abs-editor.html?name=${encodeURIComponent(name)}`, `abs-${name}`, "width=800,height=600");
 }
 
+// Every abstraction lives in a library and is written library/name; it picks
+// a side. The name and side are checked again when it is saved.
 function newAbstraction() {
-  const name = prompt("Abstraction name:");
+  const name = prompt("New abstraction, as library/name (e.g. common/double):")?.trim();
   if (!name) return;
-  window.open(`/abs-editor.html?name=${encodeURIComponent(name)}`, `abs-${name}`, "width=800,height=600");
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_~-]*\/[A-Za-z0-9_][A-Za-z0-9_~-]*$/.test(name)) {
+    alert(`"${name}": write it as library/name (letters, digits, _ - ~)`);
+    return;
+  }
+  if (abstractionTypes.has(name)) { openAbstractionForEdit(name); return; }
+  const side = prompt(`Side for ${name}: ctrl or synth`)?.trim();
+  if (!side) return;
+  if (side !== "ctrl" && side !== "synth") { alert(`side must be ctrl or synth, not "${side}"`); return; }
+  window.open(`/abs-editor.html?name=${encodeURIComponent(name)}&side=${side}`, `abs-${name}`, "width=800,height=600");
 }
 
 // Refresh abstractions when abs-editor saves

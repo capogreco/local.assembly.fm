@@ -90,6 +90,27 @@ rows, `CC_SOURCE` and `findBoxByText` go.
 7. The BBC2 migration, then `grain-voice~` once `buffer~`/`play~` exist, with
    media collected after expansion.
 
+## Built (2026-11-08, feat/abstractions)
+
+Steps 1, 2, 3 and 5, and the header panel from 4.
+- **Header** in the file: `name`, `side`, `description`, `args`, `inlets`,
+  `outlets`; unknown fields are refused. `parseAbstraction` in
+  `apply-check.ts`. gpi-types' `useAbstractions` gives the editor ports,
+  types and sides for instances; `boxBinding` returns the declared side.
+- **Save, load and apply** run the same `checkAbstraction`. A bad library
+  file stops the server and names the file. Apply also checks each instance's
+  args and each cable on it, nested ones after their args are filled in.
+- **Types across a boundary.** Audio must meet audio. One exception, as for
+  built-ins: inside an abstraction, an audio inlet may feed a number inlet of
+  a built-in audio box (an AudioParam), and an audio outlet may feed one
+  outside. An abstraction's own number inlet is not an AudioParam.
+- **Args.** Missing, too many, or a non-number for a `number` arg are errors.
+- **Delete** is refused while the running patch, or another abstraction,
+  uses it. Rename is not built.
+- `double` is `ctrl`, `quantiser` is `synth` (its only use, in
+  `patches/archive/sendup_test.json`, is synth-side), both in `libs/common`
+  (a placeholder name).
+
 ## Decided (Thomas, 2026-11-08, second round)
 
 - **Names are always explicit.** A library abstraction is always written

@@ -1,0 +1,1 @@
+{"boxes": [[1, {"x": 30, "y": 30, "text": "common/double", "inlets": 0, "outlets": 0}], [2, {"x": 30, "y": 70, "text": "comment Multiplies a number by 2. Ctrl side.", "inlets": 0, "outlets": 0}], [3, {"x": 30, "y": 95, "text": "comment Inlet: value. Outlet: value times 2.", "inlets": 0, "outlets": 0}]], "cables": [], "nextId": 4}

@@ -1,4 +1,4 @@
-import { GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, positionSide, sideOf } from "./gpi-types.js";
+import { GRID, BOX_HEIGHT, snapToGrid, routerY, boxTypeName, boxBinding, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isAudioBox, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -25,66 +25,42 @@ const INTERACTIVE_TYPES = new Set(["toggle", "event", "fan", "knob"]);
 const KNOB_DRAG_STEP = 0.005, KNOB_DRAG_STEP_FINE = 0.0005;
 
 // --- abstraction registry ---
+// name ("lib/name") → header { name, side, description, args, inlets, outlets },
+// straight from the file. gpi-types reads it too (useAbstractions), so an
+// instance's ports, port types and side resolve as for a built-in box.
 
 const abstractionTypes = new Map();
+useAbstractions(abstractionTypes);
 
 async function loadAbstractions() {
   try {
     const res = await fetch("/abstractions");
     const names = await res.json();
+    const fresh = await Promise.all(names.map(async (name) => {
+      const r = await fetch(`/abstractions/${encodeURIComponent(name)}`);
+      if (!r.ok) throw new Error(`${name}: ${r.status}`);
+      const { side, description, args, inlets, outlets } = await r.json();
+      return { name, side, description, args, inlets, outlets };
+    }));
     abstractionTypes.clear();
-    for (const name of names) {
-      const absRes = await fetch(`/abstractions/${encodeURIComponent(name)}`);
-      const data = await absRes.json();
-      let maxInlet = -1, maxOutlet = -1;
-      for (const [, box] of data.boxes) {
-        const type = boxTypeName(box.text);
-        const idx = parseInt(box.text.split(/\s+/)[1]) || 0;
-        if (type === "inlet") maxInlet = Math.max(maxInlet, idx);
-        if (type === "outlet") maxOutlet = Math.max(maxOutlet, idx);
-      }
-      abstractionTypes.set(name, {
-        inlets: maxInlet + 1,
-        outlets: maxOutlet + 1,
-        def: { description: `Abstraction: ${name}`, inlets: [], outlets: [] },
-        data,
-      });
-    }
-    // Binding is inferred from contents, so it needs every abstraction loaded
-    // (nested ones too). A bad one stays free and throws at its first sideOf.
-    for (const [name, abs] of abstractionTypes) {
-      const { binding, error } = boxBinding(name, absLookup);
-      if (error) console.error(error);
-      else if (binding !== "free") abs.def.binding = binding;
-    }
+    for (const def of fresh) abstractionTypes.set(def.name, def);
     console.log(`Loaded ${abstractionTypes.size} abstraction(s)`);
   } catch (e) {
     console.error("Failed to load abstractions:", e);
   }
 }
 
-// Inner boxes of a loaded abstraction, for gpi-types' binding inference.
-function absLookup(name) {
-  const abs = abstractionTypes.get(name);
-  return abs ? abs.data.boxes.map(([, b]) => b) : null;
-}
-
 function isAbstraction(text) {
   return abstractionTypes.has(boxTypeName(text));
 }
 
-function getPorts(text) {
-  const name = boxTypeName(text);
-  const abs = abstractionTypes.get(name);
-  if (abs) return { inlets: abs.inlets, outlets: abs.outlets };
-  return getBoxPorts(text);
-}
-
+// A box type's documentation: the built-in row, or the abstraction's header
+// shaped like one (args as a one-line summary).
 function getDef(text) {
-  const name = boxTypeName(text);
-  const abs = abstractionTypes.get(name);
-  if (abs) return abs.def;
-  return getBoxDef(text);
+  const abs = abstractionTypes.get(boxTypeName(text));
+  if (!abs) return getBoxDef(text);
+  const args = abs.args.map((a) => `${a.name}:${a.type}`).join(" ");
+  return { description: `${abs.description} (${abs.side} side)`, args: args || undefined, inlets: abs.inlets, outlets: abs.outlets };
 }
 
 // --- utility ---
@@ -212,7 +188,7 @@ class PatchEditor {
     this.boxes.clear();
     this.cables.clear();
     for (const [id, box] of data.boxes) {
-      const p = getPorts(box.text);
+      const p = getBoxPorts(box.text);
       box.inlets = p.inlets;
       box.outlets = p.outlets;
       this.boxes.set(id, box);
@@ -752,21 +728,13 @@ class PatchEditor {
 
   // --- Routing ---
 
-  // A bad abstraction on disk (mixed binding, router inside) makes sideOf
-  // throw. Report it and fall back to position so pointer handlers never die
-  // mid-drag; the server rejects the patch at apply.
   sideOfBox(box, borderY = this.borderY) {
-    try {
-      return sideOf(box, borderY, absLookup);
-    } catch (e) {
-      this.onError(["✗ " + (e instanceof Error ? e.message : e)]);
-      return positionSide(box, borderY);
-    }
+    return sideOf(box, borderY);
   }
 
   // Side of a box against a line other than this.borderY (the border resize).
   sideOf(box, borderY) {
-    try { return sideOf(box, borderY, absLookup); } catch { return positionSide(box, borderY); } // reported by sideOfBox
+    return sideOf(box, borderY);
   }
 
   isSynthSide(boxId) {
@@ -784,9 +752,7 @@ class PatchEditor {
     for (const [id, box] of this.boxes) {
       const prev = before.get(id);
       const from = prev ? { ...box, x: prev.x, y: prev.y } : null;
-      let offSide;
-      try { offSide = movesOffSide(from, beforeY, box, this.borderY, absLookup); } catch { continue; } // reported by sideOfBox
-      if (offSide) {
+      if (movesOffSide(from, beforeY, box, this.borderY)) {
         const binding = this.sideOfBox(box);
         return `"${box.text}" is bound to the ${binding} side`;
       }
@@ -800,13 +766,11 @@ class PatchEditor {
   placeOnSide(box) {
     if (!this.showBorder) return;
     if (this.isRouterType(box.text)) { box.y = routerY(this.borderY); return; }
-    let offSide;
-    try { offSide = isOffSide(box, this.borderY, absLookup); } catch { return; } // reported by sideOfBox
-    if (!offSide) return;
+    if (!isOffSide(box, this.borderY)) return;
     box.y = this.sideOfBox(box) === "synth" ? this.borderY + GRID : this.borderY - BOX_HEIGHT - GRID;
   }
 
-  isRouterType(text) { return boxBinding(text).binding === "border"; }
+  isRouterType(text) { return boxBinding(text) === "border"; }
 
   findNearestAllRouter(nearX) {
     let best = null, bestDist = Infinity;
@@ -827,7 +791,7 @@ class PatchEditor {
       const router = this.boxes.get(routerId);
       const oldChannels = parseInt(router.text.split(/\s+/)[1]) || 1;
       router.text = "all " + (oldChannels + 1);
-      const ports = getPorts(router.text);
+      const ports = getBoxPorts(router.text);
       router.inlets = ports.inlets;
       router.outlets = ports.outlets;
       const channel = oldChannels;
@@ -836,7 +800,7 @@ class PatchEditor {
       this.sortRouterChannels(routerId);
     } else {
       routerId = this.nextId++;
-      const ports = getPorts("all 1");
+      const ports = getBoxPorts("all 1");
       this.boxes.set(routerId, { x: snapToGrid(midX - GRID), y: routerY(this.borderY), text: "all 1", inlets: ports.inlets, outlets: ports.outlets });
       this.cables.set(this.nextId++, { srcBox: srcBoxId, srcOutlet, dstBox: routerId, dstInlet: 0 });
       this.cables.set(this.nextId++, { srcBox: routerId, srcOutlet: 0, dstBox: dstBoxId, dstInlet });
@@ -885,7 +849,7 @@ class PatchEditor {
       return;
     }
     router.text = "all " + (oldChannels - 1);
-    const ports = getPorts(router.text);
+    const ports = getBoxPorts(router.text);
     router.inlets = ports.inlets;
     router.outlets = ports.outlets;
     for (const [, c] of this.cables) {
@@ -1300,7 +1264,7 @@ class PatchEditor {
       this.pushUndo();
       const newText = this.input.value.trim();
       box.text = newText;
-      const ports = getPorts(newText);
+      const ports = getBoxPorts(newText);
       box.inlets = ports.inlets;
       box.outlets = ports.outlets;
       // Prune invalid cables
@@ -1569,7 +1533,7 @@ class PatchEditor {
         const boxId = this.hitTestBox(m.x, m.y);
         if (boxId !== null) {
           const box = this.boxes.get(boxId);
-          const def = box ? getBoxDef(box.text) : null;
+          const def = box ? getDef(box.text) : null;
           if (def) {
             let tip = `<span class="tt-name">${boxTypeName(box.text)}</span>`;
             if (def.args) tip += ` <span class="tt-type">${def.args}</span>`;
@@ -1932,4 +1896,4 @@ class PatchEditor {
   }
 }
 
-export { PatchEditor, platformMod, COLORS, GRID, BOX_HEIGHT, snapToGrid, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getPorts, getDef, distToSeg };
+export { PatchEditor, platformMod, COLORS, GRID, BOX_HEIGHT, snapToGrid, BOX_PAD_X, PORT_W, PORT_H, PORT_HIT, BORDER_HANDLE, FONT, SMALL_FONT, COMMENT_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef, distToSeg };

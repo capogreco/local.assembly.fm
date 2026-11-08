@@ -8,11 +8,13 @@ Status: sketch, nothing built. Release 1 = core + one library (the maker's), dro
 libs/<lib>/
   lib.json                 box rows + engine blocks
   worklets/*.js            AudioWorkletProcessor modules
-  abstractions/*.json      same format as abstractions/
-  help/*.json              help patches, normal patch format
-help/                      core help patches (moved out of abstractions/)
-abstractions/              user abstractions (unchanged)
+  abstractions/*.json      abstractions with a header (notes/abstractions.md), written <lib>/<name>
+  help/*.json              help patches, normal patch format (<name>-help.json)
+help/                      core help patches
 ```
+
+Built (2026-11-08): `libs/<lib>/abstractions` and `libs/<lib>/help`. The old
+top-level `abstractions/` is gone; `double` and `quantiser` are in `libs/common`.
 
 ## 2. lib.json
 
