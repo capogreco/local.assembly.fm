@@ -146,7 +146,8 @@ const ARG_REF = /\$(\d+)/g;
 // its declared side against the boxes inside (a router, or a box bound to the
 // other side); the inlet/outlet boxes against the header (one `inlet i` per
 // header inlet, no gaps, no extras, explicit indices); port types against the
-// wiring inside; a `$n` with no declared arg; containing itself. `loaded`
+// wiring inside; an inlet wired straight to an outlet; a `$n` with no
+// declared arg; containing itself. `loaded`
 // gives nested abstractions; `def` itself need not be in it.
 export function checkAbstraction(def: AbstractionDef, loaded: Map<string, AbstractionDef>): string[] {
   const all = new Map(loaded).set(def.name, def);
@@ -192,6 +193,12 @@ export function checkAbstraction(def: AbstractionDef, loaded: Map<string, Abstra
   for (const [, c] of def.cables) {
     const src = def.boxes.get(c.srcBox), dst = def.boxes.get(c.dstBox);
     if (!src || !dst) { err(`cable ${c.srcBox}:${c.srcOutlet} → ${c.dstBox}:${c.dstInlet} has a missing end`); continue; }
+    // Expansion rewires through a box on each side; a bare inlet → outlet
+    // cable has nothing to land on, so it is refused rather than dropped.
+    if (boxTypeName(src.text) === "inlet" && boxTypeName(dst.text) === "outlet") {
+      err(`inlet ${portIndex(src.text)} is wired directly to outlet ${portIndex(dst.text)}: put a box between`);
+      continue;
+    }
     const fromInlet = inletOf(src), toOutlet = outletOf(dst);
     const srcType = fromInlet?.type ?? outletSpec(src.text, c.srcOutlet, all)?.type;
     if (srcType === undefined) continue;

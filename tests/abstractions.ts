@@ -113,6 +113,16 @@ console.log("save: port types against the wiring");
   check("audio outlet fed by number rejected", outFrom("+ 1", "audio").some((e) => /outlet 0 \(out, audio\): fed by number/.test(e)), JSON.stringify(outFrom("+ 1", "audio")));
 }
 
+console.log("save: an inlet wired straight to an outlet");
+{
+  const e = errs({
+    inlets: [port("a", "number"), port("b", "number")], outlets: [port("out", "number")],
+    boxes: [[1, { text: "inlet 0" }], [2, { text: "inlet 1" }], [3, { text: "outlet 0" }]],
+    cables: [[4, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }]],
+  });
+  check("refused", e.some((m) => /^"t\/x": inlet 1 is wired directly to outlet 0: put a box between$/.test(m)), JSON.stringify(e));
+}
+
 console.log("save: $n needs a declared arg");
 {
   const one = [{ name: "k", type: "number", description: "" }];
