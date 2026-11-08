@@ -37,12 +37,46 @@
       font-size: 12px; padding: 0; display: none; z-index: 10;
       box-sizing: border-box;
     }
+    #header-panel {
+      position: fixed; top: 28px; right: 8px; width: 340px; max-height: calc(100% - 36px);
+      overflow-y: auto; z-index: 15; padding: 8px 10px;
+      background: var(--bg); color: var(--fg);
+      border: 1px solid var(--popup-border); border-radius: 4px;
+      font-size: 11px; -webkit-user-select: text; user-select: text;
+    }
+    #header-panel.hidden { display: none; }
+    #header-panel .hp-label { color: var(--hint); display: inline-block; width: 78px; }
+    #header-panel .hp-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+    #header-panel .hp-head { color: var(--title-fg); margin: 10px 0 4px; display: flex; justify-content: space-between; }
+    #header-panel input, #header-panel select, #header-panel textarea, #header-panel button {
+      font: inherit; color: var(--fg); background: var(--bg);
+      border: 1px solid var(--popup-border); border-radius: 2px; padding: 1px 3px;
+    }
+    #header-panel textarea { width: 100%; resize: vertical; }
+    #header-panel button { cursor: pointer; }
+    #header-panel button:hover { color: var(--control-hover); }
+    #header-panel .hp-entry { display: grid; grid-template-columns: 22px 1fr 82px 18px; gap: 3px; margin-bottom: 3px; }
+    #header-panel .hp-entry .hp-desc { grid-column: 2 / 4; }
+    #header-panel .hp-idx { color: var(--hint); align-self: center; }
+    #header-panel .hp-foot { margin-top: 10px; color: var(--hint); }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <input id="box-input" type="text" autocomplete="off" spellcheck="false">
   <div id="tooltip"></div>
+  <div id="header-panel">
+    <div class="hp-row"><span class="hp-label">name</span><span id="hp-name"></span></div>
+    <div class="hp-row"><span class="hp-label">side</span>
+      <select id="hp-side"><option value="">(choose)</option><option value="ctrl">ctrl</option><option value="synth">synth</option></select></div>
+    <div><span class="hp-label">description</span></div>
+    <textarea id="hp-desc" rows="3"></textarea>
+    <div class="hp-list" data-list="args"></div>
+    <div class="hp-list" data-list="inlets"></div>
+    <div class="hp-list" data-list="outlets"></div>
+    <div class="hp-foot"><button id="hp-sync" type="button">inlets/outlets from boxes</button></div>
+    <div class="hp-foot">i hides this panel</div>
+  </div>
   <script type="module" src="abs-editor.js"></script>
 </body>
 </html>
