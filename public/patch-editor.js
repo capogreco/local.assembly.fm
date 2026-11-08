@@ -208,6 +208,39 @@ class PatchEditor {
     this.zoomToFit();
   }
 
+  // After the abstraction registry loads (startup, a save): every instance
+  // takes its header's port counts, and a cable to a port that no longer
+  // exists is dropped. Returns one line per dropped cable, for the caller to
+  // show (notes/abstractions.md, step 6).
+  syncAbstractionPorts() {
+    for (const box of this.boxes.values()) {
+      if (!isAbstraction(box.text)) continue;
+      const p = getBoxPorts(box.text);
+      box.inlets = p.inlets;
+      box.outlets = p.outlets;
+    }
+    const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+    const dropped = [];
+    for (const [id, c] of [...this.cables]) {
+      const src = this.boxes.get(c.srcBox), dst = this.boxes.get(c.dstBox);
+      let line = null;
+      if (dst && isAbstraction(dst.text) && c.dstInlet >= dst.inlets) {
+        line = `"${boxTypeName(dst.text)}": cable to inlet ${c.dstInlet} dropped (now ${plural(dst.inlets, "inlet")})`;
+      } else if (src && isAbstraction(src.text) && c.srcOutlet >= src.outlets) {
+        line = `"${boxTypeName(src.text)}": cable from outlet ${c.srcOutlet} dropped (now ${plural(src.outlets, "outlet")})`;
+      }
+      if (!line) continue;
+      this.cables.delete(id);
+      this.cableSelection.delete(id);
+      dropped.push(line);
+    }
+    if (dropped.length > 0) {
+      this.dirty = true;
+      this.onDirty();
+    }
+    return dropped;
+  }
+
   getBounds(boxes) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     const boxWidth = 200; // Approximate box width

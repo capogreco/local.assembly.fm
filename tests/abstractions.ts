@@ -301,5 +301,42 @@ console.log("bundled libraries: headers and contents pass");
   check("common/double is ctrl, common/quantiser synth", libs.get("common/double")?.side === "ctrl" && libs.get("common/quantiser")?.side === "synth");
 }
 
+console.log("editor: instance ports follow the registry (step 6)");
+{
+  // patch-editor.js reads a theme at import; give it just enough of a browser.
+  // deno-lint-ignore no-explicit-any
+  const g = globalThis as any;
+  g.matchMedia ??= () => ({ matches: false, addEventListener() {} });
+  g.document ??= { documentElement: { dataset: {} } };
+  const { PatchEditor, abstractionTypes } = await import("../public/patch-editor.js");
+  abstractionTypes.set("t/x", def());
+  const ed = Object.create(PatchEditor.prototype);
+  let dirtied = false;
+  Object.assign(ed, {
+    boxes: new Map([[1, { text: "+ 1", inlets: 2, outlets: 1 }], [2, { text: "t/x", inlets: 1, outlets: 1 }], [3, { text: "print", inlets: 1, outlets: 0 }]]),
+    cables: new Map([
+      [10, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 0 }],
+      [11, { srcBox: 1, srcOutlet: 0, dstBox: 2, dstInlet: 2 }],
+      [12, { srcBox: 2, srcOutlet: 0, dstBox: 3, dstInlet: 0 }],
+      [13, { srcBox: 2, srcOutlet: 1, dstBox: 3, dstInlet: 0 }],
+    ]),
+    cableSelection: new Set([11]),
+    onDirty: () => { dirtied = true; },
+  });
+  // A header with two inlets and one outlet, as after a save.
+  abstractionTypes.set("t/x", def({ inlets: [port("a", "number"), port("b", "number")], boxes: [[1, { text: "inlet 0" }], [9, { text: "inlet 1" }], [2, { text: "* 2" }], [3, { text: "outlet 0" }]] }));
+  const dropped: string[] = ed.syncAbstractionPorts();
+  const b = ed.boxes.get(2);
+  check("instance re-ported", b.inlets === 2 && b.outlets === 1, JSON.stringify(b));
+  check("stale cables dropped", JSON.stringify([...ed.cables.keys()]) === JSON.stringify([10, 12]), JSON.stringify([...ed.cables.keys()]));
+  check("each listed", JSON.stringify(dropped) === JSON.stringify([
+    `"t/x": cable to inlet 2 dropped (now 2 inlets)`,
+    `"t/x": cable from outlet 1 dropped (now 1 outlet)`,
+  ]), JSON.stringify(dropped));
+  check("dropped cable unselected, patch dirty", !ed.cableSelection.has(11) && dirtied && ed.dirty === true);
+  check("nothing to drop: not dirty", (ed.dirty = false, ed.syncAbstractionPorts().length === 0 && ed.dirty === false));
+  abstractionTypes.clear();
+}
+
 console.log(`\n${pass} pass, ${fail} fail`);
 if (fail > 0) Deno.exit(1);

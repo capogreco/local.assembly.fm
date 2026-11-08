@@ -625,12 +625,22 @@ function newAbstraction() {
   window.open(`/abs-editor.html?name=${encodeURIComponent(name)}&side=${side}`, `abs-${name}`, "width=800,height=600");
 }
 
+// Instances take their header's ports; cables to ports that are gone are
+// dropped and listed. Runs after every registry load and every state load.
+function syncAbstractionPorts() {
+  const dropped = mainEditor.syncAbstractionPorts();
+  if (dropped.length > 0) notify(["✗ abstraction ports changed:", ...dropped]);
+  mainEditor.render();
+}
+
+async function reloadAbstractions() {
+  await loadAbstractions();
+  syncAbstractionPorts();
+}
+
 // Refresh abstractions when abs-editor saves
 window.addEventListener("message", async (e) => {
-  if (e.data?.type === "abs-saved") {
-    await loadAbstractions();
-    mainEditor.render();
-  }
+  if (e.data?.type === "abs-saved") await reloadAbstractions();
 });
 
 // --- Keyboard ---
@@ -765,7 +775,8 @@ function connectWS() {
         mainEditor.applied = true;
         mainEditor.dirty = false;
         mainEditor.undoStack.length = 0;
-        mainEditor.render();
+        // The running patch may predate a header change (apply comes later).
+        syncAbstractionPorts();
       } else if (msg.type === "values") {
         for (const u of msg.updates) mainEditor.boxValues.set(u.id, u.value);
         mainEditor.render();
@@ -897,6 +908,7 @@ async function initMIDI() {
 
 // --- Init ---
 
-connectWS();
+// The registry first, so the first state's instances get their header's ports.
 initMIDI();
-loadAbstractions();
+await reloadAbstractions();
+connectWS();
