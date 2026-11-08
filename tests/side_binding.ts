@@ -441,5 +441,120 @@ console.log("editor: zone from type on commit; creation, Tab and paste keep side
   check("tidy: every box keeps its side", JSON.stringify(sidesBefore) === JSON.stringify(sidesAfter), JSON.stringify(sidesAfter));
 }
 
+console.log("editor: a border drag never changes a box's side; drags, border drags and nudges are one undo step each");
+{
+  // deno-lint-ignore no-explicit-any
+  const g = globalThis as any;
+  g.matchMedia ??= () => ({ matches: false, addEventListener() {} });
+  g.document ??= { documentElement: { dataset: {} } };
+  const { PatchEditor } = await import("../public/patch-editor.js");
+  // deno-lint-ignore no-explicit-any
+  function mk(list: [number, any][]) {
+    const errs: string[] = [];
+    const ed = Object.create(PatchEditor.prototype);
+    Object.assign(ed, {
+      boxes: new Map(list), cables: new Map(), selection: new Set(), cableSelection: new Set(), boxValues: new Map(),
+      undoStack: [], maxUndo: 50, borderY: BORDER, showBorder: true, editingBoxId: null, input: null, nextId: 100,
+      zoom: 1, panX: 0, panY: 0, mode: "idle", isPanning: false, spaceHeld: false, dragStart: null, dragSnapshot: null, gestureUndo: null,
+      canvas: { getBoundingClientRect: () => ({ left: 0, top: 0 }), style: {} },
+      onDirty() {}, zoomToFit() {}, render() {}, onError(l: string[]) { errs.push(...l); },
+    });
+    return { ed, errs };
+  }
+  const ev = (y: number, x = 50) => ({ clientX: x, clientY: y, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, button: 0, preventDefault() {} });
+  // A border drag as _onMouseDown starts one on the handle.
+  // deno-lint-ignore no-explicit-any
+  function dragBorder(ed: any, ys: number[]) {
+    ed.mode = "resizing-border";
+    ed.gestureUndo = ed.serialize();
+    // deno-lint-ignore no-explicit-any
+    ed.resizeSnapshot = { borderY: ed.borderY, boxes: new Map([...ed.boxes].map(([id, b]: [number, any]) => [id, { x: b.x, y: b.y }])) };
+    for (const y of ys) ed._onMouseMove(ev(y));
+    ed._onMouseUp(ev(ys[ys.length - 1]));
+  }
+  // deno-lint-ignore no-explicit-any
+  const sides = (ed: any) => [...ed.boxes.values()].map((b: any) => wholeSide(b, ed.borderY, H) ?? "straddle").join(" ");
+  const u = (y: number, text: string, x = 0) => ({ x, y, text, inlets: 1, outlets: 1 });
+
+  {
+    const { ed, errs } = mk([[1, u(BORDER, "+ 1")], [2, u(BORDER, "+ 2")], [3, u(BORDER, "+ 3")]]);
+    dragBorder(ed, [BORDER - GRID]);
+    check("border up past stacked free synth boxes: they stay synth", ed.borderY === BORDER - GRID && sides(ed) === "synth synth synth" && errs.length === 0, `${ed.borderY} ${sides(ed)} ${errs}`);
+    // deno-lint-ignore no-explicit-any
+    check("and stay where they were", [...ed.boxes.values()].every((b: any) => b.y === BORDER));
+  }
+  {
+    const { ed, errs } = mk([[1, u(BORDER, "touch")], [2, u(BORDER, "touch")], [3, u(BORDER, "touch")]]);
+    dragBorder(ed, [BORDER - GRID]);
+    check("border up past stacked synth-bound boxes: not cancelled", ed.borderY === BORDER - GRID && errs.length === 0, `${ed.borderY} ${errs}`);
+  }
+  {
+    // Two overlapping ctrl boxes far from the line, and a stack the piston pushes.
+    const { ed } = mk([[1, u(CTRL_Y, "+ 1")], [2, u(CTRL_Y + SNAP, "+ 2")], [3, u(BORDER, "+ 3")], [4, u(BORDER + H, "+ 4")], [5, u(BORDER + H + SNAP, "+ 5", 300)]]);
+    dragBorder(ed, [BORDER + GRID]);
+    const y = (id: number) => ed.boxes.get(id).y;
+    check("border down: overlaps far away left alone", y(1) === CTRL_Y && y(2) === CTRL_Y + SNAP);
+    check("border down: the piston pushes snug and the stack moves on", y(3) === BORDER + GRID && y(4) === BORDER + GRID + H, `${y(3)} ${y(4)}`);
+    check("border down: a box the push never reaches stays", y(5) === BORDER + H + SNAP);
+    check("border down: every box keeps its side", sides(ed) === "ctrl ctrl synth synth synth", sides(ed));
+  }
+  {
+    const { ed } = mk([[1, u(BORDER - H, "+ 1")], [2, u(BORDER - H, "+ 2")], [3, u(BORDER, "touch")]]);
+    dragBorder(ed, [BORDER - 2 * GRID]);
+    check("border up: a stacked ctrl pair pushed up, still ctrl", sides(ed) === "ctrl ctrl synth" && ed.boxes.get(1).y !== ed.boxes.get(2).y, sides(ed));
+  }
+
+  {
+    const { ed } = mk([[1, u(SYNTH_Y, "touch")]]);
+    dragBorder(ed, [BORDER + GRID]);
+    check("border drag is one undo step", ed.undoStack.length === 1);
+    ed.undo();
+    check("undo restores the border from before the drag", ed.borderY === BORDER, String(ed.borderY));
+    dragBorder(ed, [BORDER]);
+    check("a border drag that changes nothing pushes no step", ed.undoStack.length === 0);
+  }
+  // A box drag as _onMouseDown starts one on a box.
+  // deno-lint-ignore no-explicit-any
+  function dragBox(ed: any, id: number, dy: number, alt = false) {
+    const box = ed.boxes.get(id);
+    ed._onMouseDown({ ...ev(box.y + 5, box.x + 5), altKey: alt });
+    ed._onMouseMove(ev(box.y + 5 + dy, box.x + 5));
+    ed._onMouseUp(ev(box.y + 5 + dy, box.x + 5));
+  }
+  {
+    const { ed } = mk([[1, u(SYNTH_Y, "touch")]]);
+    dragBox(ed, 1, 2 * GRID);
+    check("box drag moves", ed.boxes.get(1).y === SYNTH_Y + 2 * GRID, String(ed.boxes.get(1).y));
+    check("box drag is one undo step", ed.undoStack.length === 1);
+    ed.undo();
+    check("undo puts the box back", ed.boxes.get(1).y === SYNTH_Y, String(ed.boxes.get(1).y));
+  }
+  {
+    const { ed, errs } = mk([[1, u(SYNTH_Y, "touch")]]);
+    dragBox(ed, 1, -(SYNTH_Y - CTRL_Y));
+    check("cancelled box drag: no step", errs.length === 1 && ed.undoStack.length === 0 && ed.boxes.get(1).y === SYNTH_Y);
+  }
+  {
+    const { ed } = mk([[1, u(SYNTH_Y, "touch")]]);
+    dragBox(ed, 1, 2 * GRID, true);
+    check("Option-drag duplicates", ed.boxes.size === 2);
+    check("Option-drag is one undo step", ed.undoStack.length === 1);
+    ed.undo();
+    check("undo removes the duplicate", ed.boxes.size === 1 && ed.boxes.get(1).y === SYNTH_Y);
+  }
+  {
+    const { ed, errs } = mk([[1, u(SYNTH_Y, "touch")], [2, u(BORDER + SNAP, "touch", 300)]]);
+    ed.selection.add(1);
+    const key = (k: string) => ed.onKeyDown({ key: k, shiftKey: false, preventDefault() {} });
+    key("ArrowDown"); key("ArrowDown");
+    check("each nudge is an undo step", ed.undoStack.length === 2 && ed.boxes.get(1).y === SYNTH_Y + 2 * SNAP);
+    ed.undo();
+    check("undo takes back one nudge", ed.boxes.get(1).y === SYNTH_Y + SNAP, String(ed.boxes.get(1).y));
+    ed.selection.clear(); ed.selection.add(2); ed.undoStack = [];
+    key("ArrowUp"); key("ArrowUp");
+    check("a cancelled nudge pushes no step", errs.length === 1 && ed.undoStack.length === 1 && ed.boxes.get(2).y === BORDER, `${errs} ${ed.undoStack.length}`);
+  }
+}
+
 console.log(`\n${pass} pass, ${fail} fail`);
 if (fail > 0) Deno.exit(1);

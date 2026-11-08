@@ -119,6 +119,7 @@ class PatchEditor {
     this.cableFrom = null;
     this.dragSnapshot = null;
     this.resizeSnapshot = null;
+    this.gestureUndo = null;  // serialized patch at a gesture's start (pushGestureUndo)
     this.mousePos = { x: 0, y: 0 };
     this.editingBoxId = null;
     this.knobDrag = null;
@@ -302,11 +303,21 @@ class PatchEditor {
 
   // --- Undo ---
 
-  pushUndo() {
-    this.undoStack.push(this.serialize());
+  // `state` is a serialized patch to return to (default: now). A gesture
+  // (drag, Option-drag, border drag) keeps the state from its start and
+  // pushes it at the drop, if the patch changed (pushGestureUndo).
+  pushUndo(state = this.serialize()) {
+    this.undoStack.push(state);
     if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
     this.dirty = true;
     this.onDirty();
+  }
+
+  // End of a gesture: one undo step back to its start, if anything changed.
+  pushGestureUndo() {
+    const state = this.gestureUndo;
+    this.gestureUndo = null;
+    if (state && state !== this.serialize()) this.pushUndo(state);
   }
 
   undo() {
@@ -612,38 +623,47 @@ class PatchEditor {
     return xOverlap && yOverlap;
   }
 
-  // Piston cascade: after a membrane displacement, resolve any remaining
-  // box overlaps by pushing in the sweep direction until settled.
-  // `direction` is "down" (synth side was squeezed — push lower boxes further
-  // down) or "up" (ctrl side was squeezed — push upper boxes further up).
-  // Routers are anchored to the border and skipped.
-  cascadeOverlaps(direction, PAD) {
+  // Piston cascade: after a membrane displacement, resolve the overlaps the
+  // push made, pushing in the sweep direction until settled. `direction` is
+  // "down" (the synth side was squeezed: push lower boxes further down) or
+  // "up" (the ctrl side: push upper boxes further up). Only boxes on the
+  // squeezed `side` (against `lineY`, the line before this step) take part,
+  // and only overlaps involving a box already moved (`moved`, ids the piston
+  // pushed; a box pushed here joins it): overlaps that were already there
+  // stay. Every push is away from the line, so no box changes side. Routers
+  // are anchored to the border and skipped.
+  cascadeOverlaps(direction, PAD, side, lineY, moved) {
     const ids = [];
     for (const [id, box] of this.boxes) {
-      if (!this.isRouterType(box.text)) ids.push(id);
+      if (!this.isRouterType(box.text) && this.sideOf(box, lineY) === side) ids.push(id);
     }
     const MAX_ITERS = ids.length + 5;
     for (let iter = 0; iter < MAX_ITERS; iter++) {
-      let moved = false;
+      let pushed = false;
       for (let i = 0; i < ids.length; i++) {
         const a = this.boxes.get(ids[i]);
         for (let j = i + 1; j < ids.length; j++) {
+          if (!moved.has(ids[i]) && !moved.has(ids[j])) continue;
           const b = this.boxes.get(ids[j]);
           if (!this.boxesAABBOverlap(ids[i], a, ids[j], b)) continue;
           const ha = this.boxHeight(a, ids[i]), hb = this.boxHeight(b, ids[j]);
+          // Level boxes: push the one not yet moved, so a pushed box stays snug.
+          const tie = a.y === b.y && moved.has(ids[j]) && !moved.has(ids[i]);
+          let id;
           if (direction === "down") {
             // Push the lower of the two further down
-            if (a.y >= b.y) { a.y = b.y + hb + PAD; }
-            else { b.y = a.y + ha + PAD; }
+            if (a.y > b.y || (a.y === b.y && tie)) { a.y = b.y + hb + PAD; id = ids[i]; }
+            else { b.y = a.y + ha + PAD; id = ids[j]; }
           } else {
             // Push the upper of the two further up
-            if (a.y <= b.y) { a.y = b.y - ha - PAD; }
-            else { b.y = a.y - hb - PAD; }
+            if (a.y < b.y || (a.y === b.y && tie)) { a.y = b.y - ha - PAD; id = ids[i]; }
+            else { b.y = a.y - hb - PAD; id = ids[j]; }
           }
-          moved = true;
+          moved.add(id);
+          pushed = true;
         }
       }
-      if (!moved) break;
+      if (!pushed) break;
     }
   }
 
@@ -1592,6 +1612,7 @@ class PatchEditor {
 
     if (this.hitTestBorderHandle(m.x, m.y)) {
       this.mode = "resizing-border";
+      this.gestureUndo = this.serialize();
       // The piston moves boxes as well as the border; keep both to restore.
       this.resizeSnapshot = {
         borderY: this.borderY,
@@ -1622,9 +1643,10 @@ class PatchEditor {
         this.selection.add(boxId);
       }
 
+      // The whole gesture (duplicate and move) is one undo step, back to now.
+      this.gestureUndo = this.serialize();
       // Option+drag: duplicate
       if (e.altKey && this.selection.size > 0) {
-        this.pushUndo();
         const idMap = new Map();
         const newSel = new Set();
         for (const oldId of this.selection) {
@@ -1717,16 +1739,17 @@ class PatchEditor {
       // cascade-resolve overlaps in the sweep direction so the push
       // propagates through stacked boxes instead of squashing them. Routers
       // ride the line.
+      const moved = new Set();
       for (const [id, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
           box.y = routerY(newY);
           continue;
         }
         const side = this.sideOf(box, oldY), h = this.boxHeight(box, id);
-        if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
-        else if (newY < oldY && side === "ctrl" && box.y + h > newY) box.y = newY - h - PAD;
+        if (newY > oldY && side === "synth" && box.y < newY) { box.y = newY + PAD; moved.add(id); }
+        else if (newY < oldY && side === "ctrl" && box.y + h > newY) { box.y = newY - h - PAD; moved.add(id); }
       }
-      this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
+      this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD, newY > oldY ? "synth" : "ctrl", oldY, moved);
       this.render();
       return;
     }
@@ -1863,9 +1886,8 @@ class PatchEditor {
         }
         this.onError(["✗ border move cancelled: " + problem]);
         this.render();
-      } else {
-        this.pushUndo();
       }
+      this.pushGestureUndo();
       this.resizeSnapshot = null;
       this.mode = "idle";
       this.canvas.style.cursor = "default";
@@ -1936,9 +1958,10 @@ class PatchEditor {
         this.nextId = this.dragSnapshot.nextId;
         this.onError(["✗ move cancelled: " + dropProblem]);
         this.render();
-      } else if (moved) {
-        this.pushUndo();
       }
+      // An Option-drag's duplicates stay even when its move is cancelled, so
+      // that is a change too.
+      this.pushGestureUndo();
       this.mode = "idle";
       this.dragStart = null;
       this.dragBoxPositions = null;
@@ -2040,6 +2063,7 @@ class PatchEditor {
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
       const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
       const before = new Map([...this.boxes].map(([id, b]) => [id, { x: b.x, y: b.y }]));
+      const undoState = this.serialize();  // one undo step per press, if it happens
       // Routers stay on the border, as in a drag: they nudge sideways only.
       const ddy = (box) => this.isRouterType(box.text) ? 0 : dy;
       for (const id of this.selection) {
@@ -2056,7 +2080,7 @@ class PatchEditor {
         }
         this.onError(["✗ move cancelled: " + problem]);
       } else {
-        this.dirty = true;
+        this.pushUndo(undoState);
       }
       this.render();
       return true;
