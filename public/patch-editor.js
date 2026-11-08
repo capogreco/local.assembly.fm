@@ -25,6 +25,9 @@ const INTERACTIVE_TYPES = new Set(Object.entries(BOX_TYPES).filter(([, d]) => d.
 // Knob sensitivity: normalised units per screen pixel of vertical drag.
 const KNOB_DRAG_STEP = 0.005, KNOB_DRAG_STEP_FINE = 0.0005;
 
+// Routers carry ctrl to synth only; values go up through sendup and uplink.
+const ROUTER_TO_CTRL = "a router's outlets feed the synth side only; values go up through sendup and uplink";
+
 // --- abstraction registry ---
 // name ("lib/name") → header { name, side, description, args, inlets, outlets,
 // face }, straight from the file, plus `boxes` (a Map) for drawing the face.
@@ -352,18 +355,14 @@ class PatchEditor {
     const before = this.serialize();
     const scope = this.selection.size > 0 ? [...this.selection].filter((id) => this.boxes.has(id)) : [...this.boxes.keys()];
 
-    // Snap. Rounding is monotone and the border sits on a dot row, so a box
-    // wholly on a side stays there. Overlaps a snap makes are pushed apart,
-    // away from the line, as the border piston does.
-    const moved = new Set();
+    // Snap. A loaded patch is already snapped, so this only catches a box
+    // put off the grid some other way. Rounding is monotone and the border
+    // sits on a dot row, so a box wholly on a side stays there; an overlap a
+    // snap makes is left, as overlaps already there are.
     for (const id of scope) {
       const box = this.boxes.get(id);
-      const x = snapPos(box.x), y = this.isRouterType(box.text) && this.showBorder ? routerY(this.borderY) : snapPos(box.y);
-      if (x !== box.x || y !== box.y) { box.x = x; box.y = y; moved.add(id); }
-    }
-    if (moved.size > 0 && this.showBorder) {
-      this.cascadeOverlaps("down", 0, "synth", this.borderY, new Set(moved));
-      this.cascadeOverlaps("up", 0, "ctrl", this.borderY, new Set(moved));
+      box.x = snapPos(box.x);
+      box.y = this.isRouterType(box.text) && this.showBorder ? routerY(this.borderY) : snapPos(box.y);
     }
 
     // Straighten: how far a box would move to sit under its source (0: it
@@ -429,11 +428,18 @@ class PatchEditor {
   // and only overlaps involving a box already moved (`moved`, ids the piston
   // pushed; a box pushed here joins it): overlaps that were already there
   // stay. Every push is away from the line, so no box changes side. Routers
-  // are anchored to the border and skipped.
-  cascadeOverlaps(direction, PAD, side, lineY, moved) {
+  // are anchored to the border and skipped. `orderY` (id → y, the gesture's
+  // start) keeps the stack's order: boxes the piston leaves level are taken
+  // nearest the line first, so the one that began farther from it is pushed
+  // farther, whatever the ids.
+  cascadeOverlaps(direction, PAD, side, lineY, moved, orderY = null) {
     const ids = [];
     for (const [id, box] of this.boxes) {
       if (!this.isRouterType(box.text) && this.sideOf(box, lineY) === side) ids.push(id);
+    }
+    if (orderY) {
+      const y = (id) => orderY.get(id) ?? this.boxes.get(id).y;
+      ids.sort((a, b) => direction === "down" ? y(a) - y(b) : y(b) - y(a));
     }
     const MAX_ITERS = ids.length + 5;
     for (let iter = 0; iter < MAX_ITERS; iter++) {
@@ -652,16 +658,19 @@ class PatchEditor {
     return getOutletDef(srcBox.text, cable.srcOutlet)?.type === "audio";
   }
 
-  // Audio never crosses the border, and routers carry events and values only.
-  // Returns a reason string, or null when the cable is fine.
-  audioCableProblem(srcBoxId, srcOutlet, dstBoxId) {
+  // Audio never crosses the border, routers carry events and values only, and
+  // a router's outlets feed the synth side only (on the server a router is a
+  // sink; apply refuses the same). Returns a reason string, or null when the
+  // cable is fine.
+  cableBorderProblem(srcBoxId, srcOutlet, dstBoxId) {
     const src = this.boxes.get(srcBoxId), dst = this.boxes.get(dstBoxId);
     if (!src || !dst) return null;
-    return this.audioProblemAt(src, srcOutlet, dst, this.borderY);
+    return this.cableProblemAt(src, srcOutlet, dst, this.borderY);
   }
 
-  // audioCableProblem for boxes at given positions, against a given line.
-  audioProblemAt(src, srcOutlet, dst, borderY) {
+  // cableBorderProblem for boxes at given positions, against a given line.
+  cableProblemAt(src, srcOutlet, dst, borderY) {
+    if (this.showBorder && this.isRouterType(src.text) && this.sideOfBox(dst, borderY) === "ctrl") return ROUTER_TO_CTRL;
     if (getOutletDef(src.text, srcOutlet)?.type !== "audio") return null;
     if (this.isRouterType(src.text) || this.isRouterType(dst.text)) return "routers carry events and values, not audio";
     if (this.showBorder && this.sideOfBox(src, borderY) !== this.sideOfBox(dst, borderY)) return "audio can't cross the border; events and values cross through routers";
@@ -672,14 +681,14 @@ class PatchEditor {
   // boundSideViolation: `before` holds each box's position (id → {x, y}) when
   // the move began, against beforeY, and a cable already a problem then
   // doesn't block the move.
-  audioBorderViolation(before, beforeY = this.borderY) {
+  cableBorderViolation(before, beforeY = this.borderY) {
     for (const c of this.cables.values()) {
       const src = this.boxes.get(c.srcBox), dst = this.boxes.get(c.dstBox);
       if (!src || !dst) continue;
-      const problem = this.audioProblemAt(src, c.srcOutlet, dst, this.borderY);
+      const problem = this.cableProblemAt(src, c.srcOutlet, dst, this.borderY);
       if (!problem) continue;
       const ps = before.get(c.srcBox), pd = before.get(c.dstBox);
-      if (ps && pd && this.audioProblemAt({ ...src, x: ps.x, y: ps.y }, c.srcOutlet, { ...dst, x: pd.x, y: pd.y }, beforeY)) continue;
+      if (ps && pd && this.cableProblemAt({ ...src, x: ps.x, y: ps.y }, c.srcOutlet, { ...dst, x: pd.x, y: pd.y }, beforeY)) continue;
       return problem;
     }
     return null;
@@ -1554,7 +1563,8 @@ class PatchEditor {
         if (newY > oldY && side === "synth" && box.y < newY) { box.y = newY + PAD; moved.add(id); }
         else if (newY < oldY && side === "ctrl" && box.y + h > newY) { box.y = newY - h - PAD; moved.add(id); }
       }
-      if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD, newY > oldY ? "synth" : "ctrl", oldY, moved);
+      const orderY = new Map([...snap.boxes].map(([id, pos]) => [id, pos.y]));
+      if (newY !== oldY) this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD, newY > oldY ? "synth" : "ctrl", oldY, moved, orderY);
       this.render();
       return;
     }
@@ -1682,7 +1692,7 @@ class PatchEditor {
     const m = this.canvasCoords(e);
 
     if (this.mode === "resizing-border") {
-      const problem = this.resizeSnapshot && (this.audioBorderViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY) ?? this.boundSideViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY));
+      const problem = this.resizeSnapshot && (this.cableBorderViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY) ?? this.boundSideViolation(this.resizeSnapshot.boxes, this.resizeSnapshot.borderY));
       if (problem) {
         this.borderY = this.resizeSnapshot.borderY;
         for (const [id, pos] of this.resizeSnapshot.boxes) {
@@ -1718,9 +1728,22 @@ class PatchEditor {
           this.render();
           return;
         }
-        const audioProblem = this.audioCableProblem(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId);
-        if (audioProblem) {
-          this.onError(["✗ cable rejected: " + audioProblem]);
+        const sideProblem = this.cableBorderProblem(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId);
+        if (sideProblem) {
+          this.onError(["✗ cable rejected: " + sideProblem]);
+          this.cableFrom = null;
+          this.mode = "idle";
+          this.canvas.style.cursor = "default";
+          this.render();
+          return;
+        }
+        const srcSynth = this.isSynthSide(this.cableFrom.boxId);
+        const dstSynth = this.isSynthSide(inlet.boxId);
+        const srcBox = this.boxes.get(this.cableFrom.boxId);
+        const dstBox = this.boxes.get(inlet.boxId);
+        // A synth box into a ctrl one would be auto-routed through a router.
+        if (this.showBorder && srcSynth && !dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
+          this.onError(["✗ cable rejected: " + ROUTER_TO_CTRL]);
           this.cableFrom = null;
           this.mode = "idle";
           this.canvas.style.cursor = "default";
@@ -1728,10 +1751,6 @@ class PatchEditor {
           return;
         }
         this.pushUndo();
-        const srcSynth = this.isSynthSide(this.cableFrom.boxId);
-        const dstSynth = this.isSynthSide(inlet.boxId);
-        const srcBox = this.boxes.get(this.cableFrom.boxId);
-        const dstBox = this.boxes.get(inlet.boxId);
         if (this.showBorder && srcSynth !== dstSynth && !this.isRouterType(srcBox?.text) && !this.isRouterType(dstBox?.text)) {
           this.autoRoute(this.cableFrom.boxId, this.cableFrom.index, inlet.boxId, inlet.index);
         } else {
@@ -1754,7 +1773,7 @@ class PatchEditor {
           if (box && (box.x !== orig.x || box.y !== orig.y)) { moved = true; break; }
         }
       }
-      const dropProblem = moved && this.dragSnapshot ? (this.audioBorderViolation(this.dragSnapshot.boxes) ?? this.boundSideViolation(this.dragSnapshot.boxes)) : null;
+      const dropProblem = moved && this.dragSnapshot ? (this.cableBorderViolation(this.dragSnapshot.boxes) ?? this.boundSideViolation(this.dragSnapshot.boxes)) : null;
       if (dropProblem) {
         this.cables.clear();
         for (const [id, c] of this.dragSnapshot.cables) this.cables.set(id, { ...c });
@@ -1877,7 +1896,7 @@ class PatchEditor {
       }
       // Same rule as a drop: a nudge that takes a bound box off side, or audio
       // across the border, doesn't happen.
-      const problem = this.audioBorderViolation(before) ?? this.boundSideViolation(before);
+      const problem = this.cableBorderViolation(before) ?? this.boundSideViolation(before);
       if (problem) {
         for (const id of this.selection) {
           const box = this.boxes.get(id);

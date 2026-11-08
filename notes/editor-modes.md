@@ -87,8 +87,8 @@ gives them Pd's look.
 - **`l` neatens in place** (decided 2026-11-08, replacing the Sugiyama
   auto-layout, which threw the arrangement away). As Pd's Tidy Up: the
   selection, or the whole patch if nothing is selected, in the ctrl
-  editor's edit mode, one undo step. Positions snap to half units (overlaps a snap makes are pushed apart,
-  away from the line, as by the border piston); a box fed
+  editor's edit mode, one undo step. Positions snap to half units (a no-op on any loaded patch, which
+  load already snapped); a box fed
   from above straightens under its source, top-down so chains straighten:
   outlet 0 to inlet 0 with left edges within two units takes the source's
   left edge (the nearest source wins); failing that, another port pair

@@ -77,6 +77,13 @@ console.log("knob is ctrl-bound (decided 2026-11-08)");
   check("synth abstraction holding a knob rejected", abs.some((e) => /contains ctrl-bound "knob 0\.5"/.test(e)), JSON.stringify(abs));
 }
 
+console.log("router outlet into a ctrl box");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "const 1", SYNTH_Y), box(2, "all 1", BORDER), box(3, "knob 0.5 0 1", CTRL_Y)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]), loaded);
+  check("rejected, named", r.errors.some((e) => /cable "all 1" to "knob 0\.5 0 1": a router's outlets feed the synth side only/.test(e)), JSON.stringify(r.errors));
+}
+
 console.log("synth-bound box placed ctrl-side");
 {
   reset();
@@ -491,6 +498,22 @@ console.log("editor: a border drag never changes a box's side; drags, border dra
     check("border up: a stacked ctrl pair pushed up, still ctrl", sides(ed) === "ctrl ctrl synth" && ed.boxes.get(1).y !== ed.boxes.get(2).y, sides(ed));
   }
   {
+    // A stack keeps its order, whatever its ids: the box that began farther
+    // from the line ends farther from it.
+    const syn = () => mk([[1, u(BORDER + H, "+ 1")], [2, u(BORDER, "+ 2")]]);
+    for (const [name, steps] of [["single jump", [BORDER + 2 * GRID]], ["stepwise", [BORDER + GRID, BORDER + 2 * GRID]]] as [string, number[]][]) {
+      const { ed } = syn();
+      dragBorder(ed, steps);
+      check(`border down, ${name}: stack order kept`, ed.boxes.get(2).y === BORDER + 2 * GRID && ed.boxes.get(1).y === BORDER + 2 * GRID + H, `${ed.boxes.get(1).y} ${ed.boxes.get(2).y}`);
+    }
+    const ctl = () => mk([[1, u(BORDER - 2 * H, "+ 1")], [2, u(BORDER - H, "+ 2")]]);
+    for (const [name, steps] of [["single jump", [BORDER - 2 * GRID]], ["stepwise", [BORDER - GRID, BORDER - 2 * GRID]]] as [string, number[]][]) {
+      const { ed } = ctl();
+      dragBorder(ed, steps);
+      check(`border up, ${name}: stack order kept`, ed.boxes.get(2).y === BORDER - 2 * GRID - H && ed.boxes.get(1).y === BORDER - 2 * GRID - 2 * H, `${ed.boxes.get(1).y} ${ed.boxes.get(2).y}`);
+    }
+  }
+  {
     // Within one gesture, pushed boxes spring back as the border retreats.
     const start = () => mk([[1, u(BORDER, "+ 1")], [2, u(BORDER + H, "+ 2")], [3, u(BORDER + 3 * H, "touch")], [4, u(BORDER - H, "key", 200)], [5, u(routerY(BORDER), "all 1", 300)]]);
     // deno-lint-ignore no-explicit-any
@@ -561,6 +584,27 @@ console.log("editor: a border drag never changes a box's side; drags, border dra
     ed.selection.clear(); ed.selection.add(2); ed.undoStack = [];
     key("ArrowUp"); key("ArrowUp");
     check("a cancelled nudge pushes no step", errs.length === 1 && ed.undoStack.length === 1 && ed.boxes.get(2).y === BORDER, `${errs} ${ed.undoStack.length}`);
+  }
+  {
+    // A router's outlets feed the synth side only: the editor refuses a cable
+    // from one into a ctrl box, and a synth-to-ctrl cable it would route so.
+    const mkc = () => mk([[1, u(SYNTH_Y, "const 1")], [2, u(routerY(BORDER), "all 1", 200)], [3, u(CTRL_Y, "+ 1")], [4, u(SYNTH_Y, "osc~", 300)]]);
+    // deno-lint-ignore no-explicit-any
+    const drop = (ed: any, from: number, to: number) => {
+      ed.mode = "cabling"; ed.cableFrom = { boxId: from, index: 0 };
+      ed.hitTestInlet = () => ({ boxId: to, index: 0 });
+      ed._onMouseUp(ev(0));
+    };
+    for (const [name, from, to] of [["router into a ctrl box", 2, 3], ["synth box into a ctrl box", 1, 3]] as [string, number, number][]) {
+      const { ed, errs } = mkc();
+      drop(ed, from, to);
+      check(`cable ${name} refused`, ed.cables.size === 0 && ed.undoStack.length === 0 && /router's outlets feed the synth side only/.test(errs[0] ?? ""), `${ed.cables.size} ${errs}`);
+    }
+    const { ed, errs } = mkc();
+    drop(ed, 2, 4);
+    check("router into a synth box still made", ed.cables.size === 1 && errs.length === 0);
+    drop(ed, 3, 4);
+    check("ctrl into synth still auto-routed", ed.cables.size === 3 && errs.length === 0, `${ed.cables.size} ${errs}`);
   }
 }
 
