@@ -562,9 +562,18 @@ function findSideViolations(boxes: Map<number, Box>, cables: Map<number, Cable>,
     if (!src || !dst) continue;
     const viaRouter = src.side === "border" || dst.side === "border";
     // A router's outlets feed phones (deploy.ts entries); on the server it is a
-    // sink, so a ctrl box cabled from one would never hear from it.
+    // sink, so a ctrl box or router cabled from one would never hear from it.
+    // Its inlets are fed by the server's ctrl graph, which holds no synth box.
+    if (src.side === "border" && dst.side === "border") {
+      problems.add(`cable "${src.text}" to "${dst.text}": a router's outlets feed the synth side only, not another router`);
+      continue;
+    }
     if (src.side === "border" && dst.side === "ctrl") {
       problems.add(`cable "${src.text}" to "${dst.text}": a router's outlets feed the synth side only`);
+      continue;
+    }
+    if (src.side === "synth" && dst.side === "border") {
+      problems.add(`cable "${src.text}" to "${dst.text}": a router's inlets take the ctrl side only`);
       continue;
     }
     if (getOutletDef(src.text, c.srcOutlet)?.type === "audio") {

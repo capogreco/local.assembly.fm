@@ -84,6 +84,19 @@ console.log("router outlet into a ctrl box");
   check("rejected, named", r.errors.some((e) => /cable "all 1" to "knob 0\.5 0 1": a router's outlets feed the synth side only/.test(e)), JSON.stringify(r.errors));
 }
 
+console.log("router inlets take the ctrl side only");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "+ 1", SYNTH_Y), box(2, "all 1", BORDER), box(3, "osc~", SYNTH_Y, 200)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]), loaded);
+  check("synth box into a router rejected, named", r.errors.some((e) => /cable "\+ 1" to "all 1": a router's inlets take the ctrl side only/.test(e)), JSON.stringify(r.errors));
+  reset();
+  const r2 = applyPatch(msg([box(1, "const 1", CTRL_Y), box(2, "all 1", BORDER), box(3, "one", BORDER, 200), box(4, "osc~", SYNTH_Y)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0), cable(3, 3, 0, 4, 0)]), loaded);
+  check("router into a router rejected, named", r2.errors.some((e) => /cable "all 1" to "one": a router's outlets feed the synth side only, not another router/.test(e)), JSON.stringify(r2.errors));
+  reset();
+  const r3 = applyPatch(msg([box(1, "const 1", CTRL_Y), box(2, "all 1", BORDER), box(3, "osc~", SYNTH_Y)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]), loaded);
+  check("ctrl → router → synth applies", r3.errors.length === 0, JSON.stringify(r3.errors));
+}
+
 console.log("synth-bound box placed ctrl-side");
 {
   reset();
@@ -605,6 +618,35 @@ console.log("editor: a border drag never changes a box's side; drags, border dra
     check("router into a synth box still made", ed.cables.size === 1 && errs.length === 0);
     drop(ed, 3, 4);
     check("ctrl into synth still auto-routed", ed.cables.size === 3 && errs.length === 0, `${ed.cables.size} ${errs}`);
+  }
+  {
+    // A router's inlets take the ctrl side only: the editor refuses a cable
+    // into one from a synth box or another router, and a move that would
+    // make one; ctrl into a router stays fine.
+    const mkr = () => mk([[1, u(SYNTH_Y, "+ 1")], [2, u(routerY(BORDER), "all 1", 200)], [3, u(CTRL_Y, "const 1")], [4, u(routerY(BORDER), "one", 400)]]);
+    // deno-lint-ignore no-explicit-any
+    const drop = (ed: any, from: number, to: number) => {
+      ed.mode = "cabling"; ed.cableFrom = { boxId: from, index: 0 };
+      ed.hitTestInlet = () => ({ boxId: to, index: 0 });
+      ed._onMouseUp(ev(0));
+    };
+    for (const [name, from, to, re] of [["synth box into a router", 1, 2, /router's inlets take the ctrl side only/], ["router into a router", 4, 2, /not another router/]] as [string, number, number, RegExp][]) {
+      const { ed, errs } = mkr();
+      drop(ed, from, to);
+      check(`cable ${name} refused`, ed.cables.size === 0 && ed.undoStack.length === 0 && re.test(errs[0] ?? ""), `${ed.cables.size} ${errs}`);
+    }
+    {
+      const { ed, errs } = mkr();
+      drop(ed, 3, 2);
+      check("ctrl box into a router still made", ed.cables.size === 1 && errs.length === 0 && ed.undoStack.length === 1, `${ed.cables.size} ${errs}`);
+      // Dragging its source to the synth side would make it synth → router.
+      dragBox(ed, 3, SYNTH_Y - CTRL_Y);
+      check("drag of a router's source to the synth side cancelled", ed.boxes.get(3).y === CTRL_Y && ed.cables.size === 1 && /router's inlets take the ctrl side only/.test(errs[0] ?? ""), `${ed.boxes.get(3).y} ${errs}`);
+      ed.selection.add(3);
+      const steps = (SYNTH_Y - CTRL_Y) / SNAP;
+      for (let i = 0; i < steps; i++) ed.onKeyDown({ key: "ArrowDown", shiftKey: false, preventDefault() {} });
+      check("nudges never take a router's source to the synth side", wholeSide(ed.boxes.get(3), BORDER, H) === "ctrl" && errs.some((e) => /router's inlets take the ctrl side only/.test(e) && /move cancelled/.test(e)), `${ed.boxes.get(3).y} ${errs}`);
+    }
   }
 }
 

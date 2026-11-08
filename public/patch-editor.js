@@ -28,6 +28,8 @@ const KNOB_DRAG_STEP = 0.005, KNOB_DRAG_STEP_FINE = 0.0005;
 
 // Routers carry ctrl to synth only; values go up through sendup and uplink.
 const ROUTER_TO_CTRL = "a router's outlets feed the synth side only; values go up through sendup and uplink";
+const SYNTH_TO_ROUTER = "a router's inlets take the ctrl side only; values go up through sendup and uplink";
+const ROUTER_TO_ROUTER = "a router's outlets feed the synth side only, not another router";
 
 // --- abstraction registry ---
 // name ("lib/name") → header { name, side, description, args, inlets, outlets,
@@ -723,9 +725,10 @@ class PatchEditor {
   }
 
   // Audio never crosses the border, routers carry events and values only, and
-  // a router's outlets feed the synth side only (on the server a router is a
-  // sink; apply refuses the same). Returns a reason string, or null when the
-  // cable is fine.
+  // a router takes the ctrl side in and feeds the synth side out: nothing
+  // from the synth side or another router into it, nothing from it into the
+  // ctrl side (on the server a router is a sink; apply refuses the same).
+  // Returns a reason string, or null when the cable is fine.
   cableBorderProblem(srcBoxId, srcOutlet, dstBoxId) {
     const src = this.boxes.get(srcBoxId), dst = this.boxes.get(dstBoxId);
     if (!src || !dst) return null;
@@ -734,6 +737,10 @@ class PatchEditor {
 
   // cableBorderProblem for boxes at given positions, against a given line.
   cableProblemAt(src, srcOutlet, dst, borderY) {
+    if (this.showBorder && this.isRouterType(dst.text)) {
+      if (this.isRouterType(src.text)) return ROUTER_TO_ROUTER;
+      if (this.sideOfBox(src, borderY) === "synth") return SYNTH_TO_ROUTER;
+    }
     if (this.showBorder && this.isRouterType(src.text) && this.sideOfBox(dst, borderY) === "ctrl") return ROUTER_TO_CTRL;
     if (getOutletDef(src.text, srcOutlet)?.type !== "audio") return null;
     if (this.isRouterType(src.text) || this.isRouterType(dst.text)) return "routers carry events and values, not audio";
@@ -741,7 +748,7 @@ class PatchEditor {
     return null;
   }
 
-  // An audio cable the move just made a problem. Judged like
+  // A cable the move just made a problem. Judged like
   // boundSideViolation: `before` holds each box's position (id → {x, y}) when
   // the move began, against beforeY, and a cable already a problem then
   // doesn't block the move.
