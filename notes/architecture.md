@@ -59,7 +59,7 @@ Facts from the zone review of 3e00422 (Fable, read not run).
 **Vocabulary.** A box is **free** (its side follows its position against the border) or **bound** (`ctrl` or `synth`, whatever its position). Routers are the **border**. In code: a type's `binding` field is `ctrl`, `synth` or `border`, and no field means free; the border is `borderY` (saved patches too). The client roles share the names (the ctrl page, synth sockets, `serializeSynthPatch`).
 
 **Bindings.**
-- Ctrl-bound: `arc`, `breath`, `bite`, `nod`, `tilt`, `cc`, `key`, `held`, `grid-trig`, `grid-toggle`, `grid-array`, `uplink`, `clients`, `fftPeaks~`. Laptop hardware or server-only state.
+- Ctrl-bound: `arc`, `breath`, `bite`, `nod`, `tilt`, `cc`, `key`, `held`, `grid-trig`, `grid-toggle`, `grid-array`, `uplink`, `clients`, `fftPeaks~`, `knob`. Laptop hardware or server-only state. (`knob` bound 2026-11-08: it was free, and a synth-side knob fired its init at every phone's build. `toggle`, `event` and `fan` stay free for now.)
 - Synth-bound: `sendup`, `screen`, `text`, `touch`, `scope~`. Phone uplink queue, screen, touch, and canvas; `ctrl.js` cannot build any of them. A laptop `scope~` would be a feature of its own.
 - Free: everything else, including `adc~`, `ewing~` and `frog~` (ordinary worklets; their old `synth` zone was a design choice, not a constraint). `adc~` is free for side, but only the laptop can build it today: the phone has no `adc~` handler (main.js:47 adds only `scope~` to the native set), and building one is out of scope here.
 

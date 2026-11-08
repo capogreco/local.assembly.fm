@@ -65,6 +65,18 @@ console.log("ctrl-bound box placed synth-side");
   check("names the box and side", /"key".*ctrl.*synth/.test(r.errors[0] ?? ""), r.errors[0]);
 }
 
+console.log("knob is ctrl-bound (decided 2026-11-08)");
+{
+  reset();
+  const r = applyPatch(msg([box(1, "knob 0.5 0 1", SYNTH_Y)]), loaded);
+  check("synth-side knob rejected", r.errors.length === 1 && /"knob 0\.5 0 1".*ctrl.*synth/.test(r.errors[0] ?? ""), JSON.stringify(r.errors));
+  reset();
+  const ok = applyPatch(msg([box(1, "knob 0.5 0 1", CTRL_Y), box(2, "all 1", BORDER), box(3, "osc~", SYNTH_Y)], [cable(1, 1, 0, 2, 0), cable(2, 2, 0, 3, 0)]), loaded);
+  check("ctrl-side knob through a router accepted", ok.errors.length === 0, JSON.stringify(ok.errors));
+  const abs = checkAbstraction(absDef("t/synth-knob", "synth", ["knob 0.5", "outlet 0"]), loaded);
+  check("synth abstraction holding a knob rejected", abs.some((e) => /contains ctrl-bound "knob 0\.5"/.test(e)), JSON.stringify(abs));
+}
+
 console.log("synth-bound box placed ctrl-side");
 {
   reset();

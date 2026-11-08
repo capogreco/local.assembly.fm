@@ -242,6 +242,9 @@ Display values come through the existing `values` messages.
 6. Grid snapping applies to every box, not only faced instances.
 
 **Built (2026-11-08, feat/faces).** Steps 1–5, 7 and 8 above.
+- `knob` is ctrl-bound (decided 2026-11-08): a synth-side knob fired its
+  init at build on every phone. A synth abstraction can't hold one; a knob
+  reaches phones through a router. `toggle`, `event`, `fan` stay free.
 - `gui` on the BOX_TYPES rows: `control` knob, toggle, event, fan;
   `display` print, scope~ (drawn as a plain box); `label` comment and `//`.
   A faced abstraction counts as a GUI box of its parent (`guiKind` "face").

@@ -73,7 +73,7 @@ const BOX_TYPES = {
   const:          { description: "Constant value. Event inlet re-propagates.", args: "value", example: "const 220",
                     inlets: [{ name: "trigger", type: "event", description: "Re-propagate value" }],
                     outlets: [{ name: "value", type: "number", description: "Constant output" }] },
-  knob:           { gui: "control", description: "Interactive knob. Drag or scroll to change value. Args: init [min] [max] [curve]. Inlet 0 sets the value directly.", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
+  knob:           { binding: "ctrl", gui: "control", description: "Interactive knob. Drag or scroll to change value. Args: init [min] [max] [curve]. Inlet 0 sets the value directly.", args: "init [min] [max] [curve]", example: "knob 0.5 0 1",
                     inlets: [{ name: "set", type: "number", description: "Set the value (clamped to min..max) and output it" }], outlets: [{ name: "value", type: "number", description: "Current value" }] },
   toggle:         { gui: "control", description: "On/off switch. Click or event to flip. Inlet 1 sets value directly.",
                     inlets: [{ name: "trigger", type: "event", description: "Flip state" },
