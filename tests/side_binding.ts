@@ -229,5 +229,25 @@ console.log("editor move judged by where it ends (movesOffSide)");
   check("free box never off side", !movesOffSide(at("+ 1", CTRL_Y), BORDER, at("+ 1", SYNTH_Y), BORDER));
 }
 
+console.log("buffer~ and play~ names are per side");
+{
+  reset();
+  const ok = applyPatch(msg([box(1, "buffer~ a test-phrase.wav", SYNTH_Y), box(2, "play~ a", SYNTH_Y + 40),
+    box(3, "buffer~ a 2", CTRL_Y), box(4, "play~ a", CTRL_Y + 40)]), loaded);
+  check("same name on both sides accepted", ok.errors.length === 0, JSON.stringify(ok.errors));
+  reset();
+  const twice = applyPatch(msg([box(1, "buffer~ a 1", SYNTH_Y), box(2, "buffer~ a 2", SYNTH_Y + 40)]), loaded);
+  check("name twice on one side rejected", twice.errors.some((e) => /defined twice on the synth side/.test(e)), JSON.stringify(twice.errors));
+  reset();
+  const other = applyPatch(msg([box(1, "buffer~ a 1", CTRL_Y), box(2, "play~ a", SYNTH_Y)]), loaded);
+  check("play~ with the buffer on the other side rejected", other.errors.some((e) => /no buffer~ a on the synth side/.test(e)), JSON.stringify(other.errors));
+  reset();
+  const missing = applyPatch(msg([box(1, "buffer~ a no-such-file.wav", SYNTH_Y)]), loaded);
+  check("missing media file rejected", missing.errors.some((e) => /no file public\/media\/no-such-file.wav/.test(e)), JSON.stringify(missing.errors));
+  reset();
+  const path = applyPatch(msg([box(1, "buffer~ a ../server.ts", SYNTH_Y)]), loaded);
+  check("path as file rejected", path.errors.some((e) => /not a path/.test(e)), JSON.stringify(path.errors));
+}
+
 console.log(`\n${pass} pass, ${fail} fail`);
 if (fail > 0) Deno.exit(1);
