@@ -1013,10 +1013,12 @@ function faceContents(def, lookup = defaultLookup) {
   return { shown, crossing };
 }
 
-// Side a free box takes from its position: its centre against the border
-// (a centre exactly on the line counts as synth). `h` is its height. Only a
-// box straddling the line needs it: the editor places such a box wholly on
-// this side when its text is committed (placeOnSide).
+// Side a free box takes from its position. A box wholly on one side is on
+// that side. The editor never makes a free box straddle (creation, drags,
+// nudges, paste all keep boxes wholly on a side), so the centre test below
+// only decides for one that does anyway (an old or hand-edited patch): the
+// side holding more of it, a centre on the line counting as synth. `h` is
+// its height.
 function positionSide(box, borderY, h = boxHeight(box)) {
   return box.y + h / 2 >= borderY ? "synth" : "ctrl";
 }

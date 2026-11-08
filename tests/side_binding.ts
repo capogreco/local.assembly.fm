@@ -338,7 +338,7 @@ console.log("buffer~ and play~ names are per side");
   }
 }
 
-console.log("editor: a free box gets its zone when committed; tidy keeps every box on its side");
+console.log("editor: zone from type on commit; creation, Tab and paste keep sides; tidy keeps every box on its side");
 {
   // patch-editor.js reads a theme at import; give it just enough of a browser.
   // deno-lint-ignore no-explicit-any
@@ -353,15 +353,62 @@ console.log("editor: a free box gets its zone when committed; tidy keeps every b
     onDirty() {}, zoomToFit() {}, render() {},
   });
   const free = (y: number) => ({ x: 0, y, text: "+ 1", inlets: 2, outlets: 1 });
-  const up = free(BORDER - H / 2 - 1);  // off-grid: on the grid only routerY straddles
-  ed.placeOnSide(up);
-  check("straddler, centre above → wholly ctrl, clear of the router row", up.y === routerY(BORDER) - H, String(up.y));
-  const on = free(routerY(BORDER));
-  ed.placeOnSide(on);
-  check("straddler, centre on the line → wholly synth, clear of the router row", on.y === routerY(BORDER) + H, String(on.y));
+  const typed = (text: string, y: number) => ({ x: 0, y, text, inlets: 1, outlets: 1 });
+  // On commit a box's zone comes from its type, landing snug against the line.
+  const syn = typed("touch", routerY(BORDER));
+  ed.placeOnSide(syn);
+  check("synth-bound straddler → top on the line", syn.y === BORDER, String(syn.y));
+  const ctl = typed("key", routerY(BORDER));
+  ed.placeOnSide(ctl);
+  check("ctrl-bound straddler → bottom on the line", ctl.y === BORDER - H, String(ctl.y));
+  const wrong = typed("key", SYNTH_Y);
+  ed.placeOnSide(wrong);
+  check("ctrl-bound box on the synth side → snug above the line", wrong.y === BORDER - H, String(wrong.y));
+  const wrong2 = typed("touch", CTRL_Y);
+  ed.placeOnSide(wrong2);
+  check("synth-bound box on the ctrl side → snug below the line", wrong2.y === BORDER, String(wrong2.y));
+  const rt = typed("all 1", CTRL_Y);
+  ed.placeOnSide(rt);
+  check("router → the border row", rt.y === routerY(BORDER));
+  const home = typed("touch", SYNTH_Y);
+  ed.placeOnSide(home);
+  check("bound box on its side left where it is", home.y === SYNTH_Y);
   const snug = free(BORDER - H);
   ed.placeOnSide(snug);
-  check("snug box left where it is", snug.y === BORDER - H);
+  check("free box wholly on a side left where it is", snug.y === BORDER - H);
+  // Only an old or hand-edited patch has a free straddler: to the side holding more of it.
+  const old = free(routerY(BORDER));
+  ed.placeOnSide(old);
+  check("old-patch free straddler, centre on the line → snug below", old.y === BORDER, String(old.y));
+
+  // Creation never straddles: the box goes wholly on the pointer's side.
+  const cell = (y: number) => ed.gridCell({ x: 33, y }).y;
+  check("click half a unit above the line → bottom on the line", cell(BORDER - 3) === BORDER - H, String(cell(BORDER - 3)));
+  check("click on the line → top on the line", cell(BORDER) === BORDER);
+  check("click just below the line → top on the line", cell(BORDER + 3) === BORDER);
+  check("click a unit above the line → its cell", cell(BORDER - H + 3) === BORDER - H);
+  check("click well away → its cell", cell(CTRL_Y + 13) === CTRL_Y + SNAP && cell(SYNTH_Y + 13) === SYNTH_Y + SNAP);
+  check("cells never straddle", [...Array(60).keys()].every((i) => wholeSide({ y: cell(BORDER - 30 + i) }, BORDER, H) !== null));
+
+  // Tab keeps the source's side.
+  ed.boxes = new Map<number, unknown>([[1, free(CTRL_Y)], [2, free(BORDER - H)], [3, free(BORDER - 2 * H)], [4, free(BORDER)], [5, typed("all 1", routerY(BORDER))]]);
+  const tab = (id: number) => ed.tabCell(id);
+  check("Tab well above the line: one empty row below", tab(1).y === CTRL_Y + 2 * H && tab(1).x === 0);
+  check("Tab from a box a row above the line: snug on the line", tab(3).y === BORDER - H && tab(3).x === 0, JSON.stringify(tab(3)));
+  const t2 = tab(2), w2 = ed.boxWidth(ed.boxes.get(2), 2);
+  check("Tab from a box snug above the line: to its right, still ctrl", t2.y === BORDER - H && t2.x === w2 + GRID, JSON.stringify(t2));
+  check("Tab from a synth box: one empty row below", tab(4).y === BORDER + 2 * H);
+  check("Tab from a router: below, on the synth side", wholeSide({ y: tab(5).y }, BORDER, H) === "synth");
+
+  // Paste keeps each box on the side it was copied from.
+  const pasteYs = (clip: [number, unknown][]) => ed.pastedBoxes(clip).map(([, b]: [number, { y: number }]) => b.y);
+  check("paste away from the line: one unit down", pasteYs([[1, free(CTRL_Y)], [2, free(SYNTH_Y)]]).join() === `${CTRL_Y + H},${SYNTH_Y + H}`);
+  check("paste of a box snug above the line: not moved down", pasteYs([[1, free(BORDER - H)], [2, free(CTRL_Y)]]).join() === `${BORDER - H},${CTRL_Y}`);
+  check("paste of a box half a unit above: half a unit down", pasteYs([[1, free(BORDER - H - SNAP)]]).join() === `${BORDER - H}`);
+  check("paste of a box snug below the line: one unit down", pasteYs([[1, free(BORDER)]]).join() === `${BORDER + H}`);
+  check("paste moves one unit right", ed.pastedBoxes([[1, free(CTRL_Y)]])[0][1].x === GRID);
+  check("paste puts a router on the border", pasteYs([[1, typed("all 1", 0)]]).join() === `${routerY(BORDER)}`);
+
   const before = new Map([[1, { x: 0, y: CTRL_Y }]]);
   ed.boxes.set(1, free(routerY(BORDER)));
   check("drag onto the line cancelled", /would cross the border/.test(ed.boundSideViolation(before) ?? ""));

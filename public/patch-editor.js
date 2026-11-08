@@ -1,4 +1,4 @@
-import { BOX_TYPES, MAX_DEPTH, GRID, SNAP, BOX_HEIGHT, snapToGrid, snapPos, routerY, textBoxWidth, formatValue, knobArgs, commentText, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, useAbstractions } from "./gpi-types.js";
+import { BOX_TYPES, MAX_DEPTH, GRID, SNAP, BOX_HEIGHT, snapToGrid, snapPos, routerY, textBoxWidth, formatValue, knobArgs, commentText, faceOf, faceContents, boxTypeName, boxBinding, cableTypeProblem, getAbstractionDef, getBoxPorts, getBoxDef, getInletDef, getOutletDef, isOffSide, movesOffSide, sideOf, wholeSide, useAbstractions } from "./gpi-types.js";
 import { COLORS, onThemeChange } from "./theme.js";
 
 // --- constants ---
@@ -656,9 +656,45 @@ class PatchEditor {
   }
 
   // The half-unit cell under patch point m: its top-left corner (a dot or
-  // halfway between), where a box made there goes.
+  // halfway between), where a box made there goes; wholly on the pointer's
+  // side of the line (on the line counts as synth), so a click within half a
+  // unit above the line makes a box snug above it, not one straddling it.
   gridCell(m) {
-    return { x: Math.floor(m.x / SNAP) * SNAP, y: Math.floor(m.y / SNAP) * SNAP };
+    const y = Math.floor(m.y / SNAP) * SNAP;
+    return { x: Math.floor(m.x / SNAP) * SNAP, y: this.keepNewBoxOnSide(y, m.y >= this.borderY) };
+  }
+
+  // Where Tab puts a new box below box srcId: one empty row below it. A
+  // source wholly on the ctrl side keeps its new box on that side: if one
+  // row below would cross the line, the box goes as low as the side allows
+  // (bottom on the line), and if that would overlap the source, to the right
+  // of it instead, one empty unit apart, bottoms aligned.
+  tabCell(srcId) {
+    const src = this.boxes.get(srcId), h = this.boxHeight(src, srcId);
+    const below = { x: src.x, y: src.y + h + GRID };
+    if (!this.showBorder || wholeSide(src, this.borderY, h) !== "ctrl") return below;
+    const y = this.keepNewBoxOnSide(below.y, false);
+    if (y >= src.y + h) return { x: src.x, y };
+    return { x: src.x + this.boxWidth(src, srcId) + GRID, y: src.y + h - BOX_HEIGHT };
+  }
+
+  // Pasted copies of clipboard boxes ([id, box] pairs), not yet added: one
+  // unit right and one down, snapped. The step down is cut short so no box
+  // wholly on the ctrl side crosses the line (boxes keep the side they were
+  // copied from); then each lands in its zone (placeOnSide).
+  pastedBoxes(clipBoxes) {
+    let dy = GRID;
+    if (this.showBorder) {
+      for (const [, box] of clipBoxes) {
+        const b = { ...box, x: snapPos(box.x), y: snapPos(box.y) }, h = this.boxHeight(b);
+        if (!this.isRouterType(b.text) && wholeSide(b, this.borderY, h) === "ctrl") dy = Math.min(dy, this.borderY - h - b.y);
+      }
+    }
+    return clipBoxes.map(([oldId, box]) => {
+      const pasted = { x: snapPos(box.x) + GRID, y: snapPos(box.y) + dy, text: box.text, inlets: box.inlets, outlets: box.outlets };
+      this.placeOnSide(pasted);
+      return [oldId, pasted];
+    });
   }
 
   screenFromPatch(px, py) {
@@ -881,18 +917,31 @@ class PatchEditor {
     return null;
   }
 
-  // Put a box where it belongs once its text is committed (or it is pasted):
-  // routers on the border; any other box that straddles the line, or a bound
-  // box on the wrong side, wholly on its side, clear of the router row (which
-  // straddles the line). A free box's side is the one its centre is on (on
-  // the line counts as synth): that is when it gets its zone. Used where a
-  // box lands without a drag to refuse (text commit, paste).
+  // Put a box in its zone once its text is committed (or it is pasted): the
+  // zone comes from its type. A router goes on the border row; a bound box
+  // that straddles the line or lies on the other side goes snug against the
+  // line on its own side (top on the line for synth, bottom on it for ctrl).
+  // A free box has no zone from its type and never straddles in the editor
+  // (creation, drag, nudge, paste can't make it), so it stays put; one that
+  // straddles anyway (an old or hand-edited patch) goes snug to the side
+  // holding more of it (sideOf; a centre on the line counts as synth). Used
+  // where a box lands without a drag to refuse (text commit, paste).
   placeOnSide(box) {
     if (!this.showBorder) return;
-    const rowTop = routerY(this.borderY);
-    if (this.isRouterType(box.text)) { box.y = rowTop; return; }
-    if (!isOffSide(box, this.borderY, this.boxHeight(box))) return;
-    box.y = this.sideOfBox(box) === "synth" ? rowTop + BOX_HEIGHT : rowTop - this.boxHeight(box);
+    if (this.isRouterType(box.text)) { box.y = routerY(this.borderY); return; }
+    const h = this.boxHeight(box);
+    if (!isOffSide(box, this.borderY, h)) return;
+    box.y = this.sideOfBox(box) === "synth" ? this.borderY : this.borderY - h;
+  }
+
+  // Where a new one-unit box goes for a point on a side of the line: `y`
+  // moved, if need be, so the box lies wholly on that side (`below` true:
+  // synth, top at the line at least; false: ctrl, bottom on the line at
+  // most). New boxes are free until their text is committed, so they must
+  // not straddle.
+  keepNewBoxOnSide(y, below) {
+    if (!this.showBorder) return y;
+    return below ? Math.max(y, this.borderY) : Math.min(y, this.borderY - BOX_HEIGHT);
   }
 
   isRouterType(text) { return boxBinding(text) === "border"; }
@@ -1660,23 +1709,22 @@ class PatchEditor {
       const oldY = this.borderY;
       if (newY === oldY) return;
       this.borderY = newY;
-      // Pushed boxes stay on the grid, touching the router row.
+      // Pushed boxes stay on the grid, snug against the line.
       const PAD = 0;
       // Piston: a box on the side the membrane moves into, which the new line
-      // touches, is pushed wholly clear of it, keeping its side (taken against
-      // the old line). Then cascade-resolve overlaps in the sweep direction so
-      // the push propagates through stacked boxes instead of squashing them.
-      // The router row straddles the line (routerY .. + BOX_HEIGHT), so a box
-      // is pushed clear of that whole row, as placeOnSide places it.
-      const ctrlLimit = routerY(newY), synthLimit = ctrlLimit + BOX_HEIGHT;
+      // crosses, is pushed wholly back onto its side (taken against the old
+      // line), snug against the line, as placeOnSide places it. Then
+      // cascade-resolve overlaps in the sweep direction so the push
+      // propagates through stacked boxes instead of squashing them. Routers
+      // ride the line.
       for (const [id, box] of this.boxes) {
         if (this.isRouterType(box.text)) {
-          box.y = ctrlLimit;
+          box.y = routerY(newY);
           continue;
         }
         const side = this.sideOf(box, oldY), h = this.boxHeight(box, id);
-        if (newY > oldY && side === "synth" && box.y < synthLimit) box.y = synthLimit + PAD;
-        else if (newY < oldY && side === "ctrl" && box.y + h > ctrlLimit) box.y = ctrlLimit - h - PAD;
+        if (newY > oldY && side === "synth" && box.y < newY) box.y = newY + PAD;
+        else if (newY < oldY && side === "ctrl" && box.y + h > newY) box.y = newY - h - PAD;
       }
       this.cascadeOverlaps(newY > oldY ? "down" : "up", PAD);
       this.render();
@@ -2027,7 +2075,7 @@ class PatchEditor {
       if (!srcBox) return true;
       this.pushUndo();
       const id = this.nextId++;
-      this.boxes.set(id, { x: srcBox.x, y: srcBox.y + this.boxHeight(srcBox, srcId) + GRID, text: "", inlets: 1, outlets: 1 });
+      this.boxes.set(id, { ...this.tabCell(srcId), text: "", inlets: 1, outlets: 1 });
       this.cables.set(this.nextId++, { srcBox: srcId, srcOutlet: 0, dstBox: id, dstInlet: 0 });
       this.selection.clear();
       this.selection.add(id);

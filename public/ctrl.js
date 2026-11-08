@@ -6,7 +6,7 @@
  * Also hosts ctrl-side engines (above the border) with audio output to laptop speakers.
  */
 
-import { ABS_NAME, GRID, abstractionsUsing, boxTypeName, getBoxPorts, snapPos } from "./gpi-types.js";
+import { ABS_NAME, abstractionsUsing, boxTypeName, getBoxPorts } from "./gpi-types.js";
 import { PatchEditor, platformMod, COLORS, SMALL_FONT, abstractionTypes, loadAbstractions, isAbstraction, getDef } from "./patch-editor.js";
 import { currentTheme, toggleTheme, onThemeChange } from "./theme.js";
 import { ENGINES, BASE_NATIVE_NODES, createEngine as _createEngine, getEngineOutput, syncBuffers } from "./engine-factory.js";
@@ -712,12 +712,10 @@ window.addEventListener("keydown", (e) => {
     mainEditor.pushUndo();
     const idMap = new Map();
     const newSel = new Set();
-    const offset = GRID;
-    for (const [oldId, box] of clipData.boxes) {
+    // A paste has no drag to refuse: pastedBoxes keeps each box on its side.
+    for (const [oldId, pasted] of mainEditor.pastedBoxes(clipData.boxes)) {
       const newId = mainEditor.nextId++;
       idMap.set(oldId, newId);
-      const pasted = { x: snapPos(box.x) + offset, y: snapPos(box.y) + offset, text: box.text, inlets: box.inlets, outlets: box.outlets };
-      mainEditor.placeOnSide(pasted);  // a paste has no drag to refuse, so a box off side lands wholly on its side
       mainEditor.boxes.set(newId, pasted);
       newSel.add(newId);
     }

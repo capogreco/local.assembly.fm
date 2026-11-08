@@ -66,24 +66,33 @@ gives them Pd's look.
   included, lies wholly on one side: bottom on the line is wholly ctrl, top
   on the line wholly synth. A bound box must lie on its own side; a free
   box on either, and that side is its side.
-- **A free box gets its zone when its text is committed** as an object: if
-  it straddles, it goes wholly to the side its centre is on (on the line
-  counts as synth), clear of the router row, as a bound box off side does
-  (`placeOnSide`; paste too). From then on the zone is checked: a drag or
-  nudge that would leave it straddling is cancelled, as one that takes a
-  bound box off side is; moved wholly across, it takes the other side. A
-  box already off side (an old patch) moves freely until it is back. Apply
-  refuses any box but a router crossing the line, naming it.
+- **A box's zone comes from its type once its text is committed**
+  (`placeOnSide`): a router goes on the border row; a bound box that
+  straddles or lies on the other side goes snug against the line on its own
+  side (top on the line for synth, bottom on it for ctrl). A free box has no
+  zone from its type and stays where it is.
+- **Free boxes never straddle**, because nothing in the editor makes one:
+  a new box goes wholly on the side of the pointer (a click within half a
+  unit above the line makes a box snug above it); Tab keeps the source's
+  side (from a ctrl box too near the line, the new box goes snug on the
+  line, or to the source's right); paste steps less than a unit down when a
+  ctrl box would cross; a drag or nudge that would leave a box straddling is
+  cancelled, as one that takes a bound box off side is. Moved wholly across,
+  a free box takes the other side. A box already off side (an old patch)
+  moves freely until it is back; a free one there goes, on commit or paste,
+  snug to the side holding more of it. Apply still refuses any box but a
+  router crossing the line, naming it: a backstop for patches that didn't
+  come through the editor.
 - **Abstraction faces** are whole units by construction (`abstractions.md`).
 
 Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
 units: positions) and `routerY` live in `gpi-types.js`. The editor snaps on
 load (x, y and `borderY`), live while dragging, on create (the cell under the pointer),
-paste, duplicate, Tab-create (one empty row below), tidy (`l` in the ctrl editor's edit
+paste, duplicate, Tab-create (one empty row below, kept on the source's side), tidy (`l` in the ctrl editor's edit
 mode, one undo step), and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
-land touching the router row). Arrow keys nudge half a unit per press, a
+land snug against the line). Arrow keys nudge half a unit per press, a
 whole unit with Shift; routers nudge sideways only.
 Apply doesn't refuse off-grid positions: the grid is the editor's job, and
 the side rules (`positionSide`, `wholeSide`) still work for any position.
