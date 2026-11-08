@@ -349,8 +349,9 @@ class PatchEditor {
   // page, the one farther from the line goes farther away (up on the ctrl
   // side, down on the synth side). So no box crosses the line or changes
   // side, the border stays, and routers move only across, on the border
-  // row. Repeated until nothing is too close. Then, if the patch no longer
-  // fits the view, the view zooms out (never in) and pans just enough.
+  // row. Repeated until nothing is too close. Then, if a box that moved is
+  // out of view, the view zooms out (never in) and pans just enough to show
+  // the boxes that moved; otherwise it stays.
 
   nudgeApart() {
     if (this.boxes.size === 0) return;
@@ -384,15 +385,19 @@ class PatchEditor {
       const gy = Math.max(B.y - (A.y + h.get(a)), A.y - (B.y + h.get(b)));
       if (gx >= SNAP || gy >= SNAP) return null;
       const options = [];
-      // Across: keep the order (left edge, then id). A box moves across one
+      // Ties (level or aligned boxes) go by the sweep order: the later one
+      // moves, so a pile spreads in one sweep.
+      const later = (p, q) => (rank.get(p) > rank.get(q) ? p : q);
+      // Across: keep the order (left edge, then sweep order). A box moves across one
       // way only: one already pushed the other way (squeezed between boxes
       // that stay) jumps past instead, so pushes can't go back and forth.
-      const [l, r] = A.x < B.x || (A.x === B.x && a < b) ? [a, b] : [b, a];
+      const r = A.x === B.x ? later(a, b) : A.x > B.x ? a : b, l = r === a ? b : a;
       const L = this.boxes.get(l), R = this.boxes.get(r), nx = SNAP - gx;
       if (scope.has(r)) options.push({ id: r, dx: dir.get(r) === -1 ? L.x - SNAP - w.get(r) - R.x : nx, dy: 0 });
       if (scope.has(l)) options.push({ id: l, dx: dir.get(l) === 1 ? R.x + w.get(r) + SNAP - L.x : -nx, dy: 0 });
       // Down the page: the one farther from the line moves farther away.
-      const [t, u] = A.y < B.y || (A.y === B.y && a < b) ? [a, b] : [b, a];
+      const t = A.y === B.y ? later(a, b) : A.y < B.y ? a : b;
+      const u = A.y === B.y ? later(a, b) : A.y > B.y ? a : b;
       const ny = SNAP - gy;
       if (away(t) === "ctrl") options.push({ id: t, dx: 0, dy: -ny });
       if (away(u) === "synth") options.push({ id: u, dx: 0, dy: ny });
@@ -401,10 +406,24 @@ class PatchEditor {
     };
 
     const dir = new Map(); // id → the way it has been pushed across (±1)
-    let moved = false;
-    for (let round = 0; round < 200; round++) {
+    // Sweeps out from the line (ctrl boxes upward, synth boxes downward),
+    // left to right, so a push carries on through the boxes beyond it in
+    // the same sweep. Repeated until a sweep finds nothing too close. Every
+    // push is at least half a unit and a box only ever moves one way on
+    // each axis, so this ends; the guard is a backstop.
+    const fromLine = (id) => {
+      const b = this.boxes.get(id);
+      if (!this.showBorder) return b.y;
+      return isRouter(id) ? 0 : b.y >= this.borderY ? b.y - this.borderY : this.borderY - (b.y + h.get(id));
+    };
+    const rank = new Map();
+    const startPos = new Map(ids.map((id) => [id, [this.boxes.get(id).x, this.boxes.get(id).y]]));
+    const rounds = 4 * ids.length + 10;
+    let settled = false;
+    for (let round = 0; round < rounds; round++) {
       let any = false;
-      const order = ids.slice().sort((a, b) => this.boxes.get(a).y - this.boxes.get(b).y || this.boxes.get(a).x - this.boxes.get(b).x || a - b);
+      const order = ids.slice().sort((a, b) => fromLine(a) - fromLine(b) || this.boxes.get(a).x - this.boxes.get(b).x || a - b);
+      order.forEach((id, i) => rank.set(id, i));
       for (let i = 0; i < order.length; i++) {
         for (let j = i + 1; j < order.length; j++) {
           const a = order[i], b = order[j];
@@ -418,30 +437,34 @@ class PatchEditor {
           any = true;
         }
       }
-      if (!any) break;
-      moved = true;
+      if (!any) { settled = true; break; }
     }
+    if (!settled) console.warn(`l: boxes still too close after ${rounds} sweeps`);
 
     if (this.serialize() === before) return;
     this.pushUndo(before);
-    if (moved) this.showAll();
+    this.showMoved(ids.filter((id) => { const [x, y] = startPos.get(id), b = this.boxes.get(id); return b.x !== x || b.y !== y; }));
     this.render();
   }
 
-  // Zoom out (never in) and pan just enough that every box is in view,
-  // a margin from the edges.
-  showAll() {
+  // After `l`: if the boxes that moved (ids) are all in view, leave the
+  // view; otherwise zoom out (never in) and pan just enough to bring them
+  // in, a margin from the edges.
+  showMoved(ids) {
     const dpr = globalThis.devicePixelRatio || 1;
     const vw = (this.canvas?.width ?? 0) / dpr, vh = (this.canvas?.height ?? 0) / dpr;
     const M = 20;
-    if (!(vw > 2 * M && vh > 2 * M) || this.boxes.size === 0) return;
+    if (!(vw > 2 * M && vh > 2 * M) || ids.length === 0) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [id, box] of this.boxes) {
+    for (const id of ids) {
+      const box = this.boxes.get(id);
       minX = Math.min(minX, box.x);
       minY = Math.min(minY, box.y);
       maxX = Math.max(maxX, box.x + this.boxWidth(box, id));
       maxY = Math.max(maxY, box.y + this.boxHeight(box, id));
     }
+    const z0 = this.zoom;
+    if (minX >= this.panX && maxX <= this.panX + vw / z0 && minY >= this.panY && maxY <= this.panY + vh / z0) return;
     const zoom = Math.min(this.zoom, (vw - 2 * M) / Math.max(1, maxX - minX), (vh - 2 * M) / Math.max(1, maxY - minY));
     if (!(zoom > 0)) return;
     this.zoom = zoom;

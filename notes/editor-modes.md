@@ -94,11 +94,15 @@ gives them Pd's look.
   down on the synth side), so the border never moves, no box crosses it,
   and routers move only across, on the border row. With a selection, only
   its boxes move and the rest are in the way; with none, the whole patch.
-  Ctrl editor, edit mode, one undo step (none if nothing moves). If the
-  patch then doesn't fit the view, the view zooms out (never in) and pans
-  just enough.
-  - Built: a box pushed across one way and then squeezed the other way (by
-    boxes that stay) jumps past instead, so pushes never go back and forth;
+  Ctrl editor, edit mode, one undo step (none if nothing moves). If a box
+  it moved is out of view, the view zooms out (never in) and pans just
+  enough to show the boxes that moved; otherwise the view stays (zoomed in
+  on part of a big patch, a small nudge doesn't jump out to all of it).
+  - Built: sweeps go out from the line (ctrl boxes upward, synth boxes
+    downward), so a push carries through a stack in one sweep, and level
+    boxes in a pile spread in sweep order. A box pushed across one way and
+    then squeezed the other way (by boxes that stay) jumps past instead, so
+    pushes never go back and forth;
     a Pd-style flush column (touching, one under another) is spaced out
     too.
 

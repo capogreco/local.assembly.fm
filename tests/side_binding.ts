@@ -711,22 +711,54 @@ console.log("editor: l nudges overlapping boxes apart");
     check("l: nothing too close in the selection: no step", ed.undoStack.length === n);
   }
   {
-    // The view: zooms out just enough to show a patch pushed past its edge,
-    // never in.
-    const ed = mk([[1, b(1300, 500, "osc~ 440")], [2, b(1310, 500, "*~ 0.5")]]);
-    ed.zoom = 1;
+    // The view: a box pushed out of view brings the view to it, panning
+    // (and zooming out only if it must); boxes that move within view leave
+    // it alone, however zoomed in; it never zooms in.
+    // deno-lint-ignore no-explicit-any
+    const inView = (ed: any, id: number) => {
+      const o = ed.boxes.get(id);
+      return o.x >= ed.panX && o.x + ed.boxWidth(o, id) <= ed.panX + ed.canvas.width / ed.zoom && o.y >= ed.panY && o.y + ed.boxHeight(o, id) <= ed.panY + ed.canvas.height / ed.zoom;
+    };
+    const ed = mk([[1, b(1340, 500, "+ 1")], [2, b(1370, 500, "+ 1")]]);
     ed.nudgeApart();
-    const right = Math.max(...[...ed.boxes].map(([id, o]: [number, { x: number }]) => o.x + ed.boxWidth(o, id)));
-    check("l: the view pans or zooms out to show every box", right <= ed.panX + 1400 / ed.zoom && ed.zoom <= 1);
-    const z = ed.zoom;
-    ed.boxes.get(2).x = ed.boxes.get(1).x + 10; // overlapping again, still in view
-    ed.panX = -1000; ed.zoom = 0.2;
-    ed.nudgeApart();
-    check("l: never zooms in", ed.zoom === 0.2 && z <= 1);
+    check("l: a box pushed out of view: the view pans just enough to show it", ed.boxes.get(2).x === 1390 && ed.zoom === 1 && ed.panX > 0 && ed.panY === 0 && inView(ed, 2),
+      `${ed.boxes.get(2).x} zoom ${ed.zoom} pan ${ed.panX},${ed.panY}`);
+    const narrow = mk([[1, b(0, 500, "+ 1")], [2, b(30, 500, "+ 1")], [3, b(1340, 500, "+ 1")], [4, b(1370, 500, "+ 1")]]);
+    narrow.canvas = { width: 400, height: 300 };
+    narrow.nudgeApart();
+    check("l: boxes that moved, too far apart for the view: it zooms out to show them all", narrow.zoom < 1 && inView(narrow, 2) && inView(narrow, 4),
+      `zoom ${narrow.zoom} pan ${narrow.panX},${narrow.panY}`);
+    const zoomed = mk([[1, b(1100, 500, "+ 1")], [2, b(1110, 500, "+ 1")], [3, b(5000, 500, "+ 1")]]);
+    zoomed.zoom = 2; zoomed.panX = 1000; zoomed.panY = 400;
+    zoomed.nudgeApart();
+    check("l: zoomed in, a nudge within view leaves the view", close(zoomed).length === 0 && zoomed.undoStack.length === 1 && zoomed.zoom === 2 && zoomed.panX === 1000 && zoomed.panY === 400);
+    const out = mk([[1, b(100, 500, "+ 1")], [2, b(110, 500, "+ 1")]]);
+    out.zoom = 0.2; out.panX = -1000; out.panY = -1000;
+    out.nudgeApart();
+    check("l: never zooms in", out.undoStack.length === 1 && out.zoom === 0.2 && out.panX === -1000);
     const flat = mk([[1, b(0, 500, "osc~ 440")], [2, b(10, 500, "*~ 0.5")]]);
     flat.canvas = { width: 0, height: 0 };
     flat.nudgeApart();
     check("l: a window with no size leaves the view", flat.zoom === 1 && Number.isFinite(flat.panX) && close(flat).length === 0);
+  }
+
+  {
+    // 260 ctrl boxes piled on one spot: the pile spreads up, away from the
+    // line, in one sweep or a few; nothing left too close, and a second
+    // press is a no-op.
+    const list: [number, unknown][] = [];
+    for (let i = 1; i <= 260; i++) list.push([i, b(200, BORDER - 2 * H, "+ 1")]);
+    const ed = mk(list as [number, unknown][]);
+    const warn = console.warn;
+    let warned = false;
+    console.warn = () => { warned = true; };
+    const t0 = performance.now();
+    const r = press(ed);
+    const ms = performance.now() - t0;
+    const once = ed.serialize(), r2 = press(ed);
+    console.warn = warn;
+    check(`l: 260 ctrl boxes on one spot spread out (${Math.round(ms)}ms)`, close(ed).length === 0 && r.ok && !warned && r.stepped === 1, close(ed).slice(0, 5).join());
+    check("l: the pile, pressed again: no-op", ed.serialize() === once && r2.stepped === 0);
   }
 
   // Real patches: nothing too close afterwards; sides, routers, border and
