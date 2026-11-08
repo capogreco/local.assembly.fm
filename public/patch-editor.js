@@ -1225,7 +1225,9 @@ class PatchEditor {
     this.ctx.textAlign = "left";
   }
 
-  // Inlets on the top edge, outlets on the bottom, coloured by port type.
+  // Inlets inside the top edge, outlets inside the bottom, coloured by port
+  // type, as in Pd: nothing of a box protrudes, so it can sit snug against
+  // the border line. Cables meet the edge (inletPos, outletPos).
   drawPorts(box, id) {
     for (let i = 0; i < box.inlets; i++) {
       const p = this.inletPos(box, i, id);
@@ -1237,13 +1239,13 @@ class PatchEditor {
         }
       }
       this.ctx.fillStyle = (iDef?.type === "audio" || iHasAudioCable) ? COLORS.portAudio : iDef?.type === "event" ? COLORS.portEvent : COLORS.port;
-      this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H + 0.5, PORT_W, PORT_H);
+      this.ctx.fillRect(p.x - PORT_W / 2, p.y, PORT_W, PORT_H);
     }
     for (let i = 0; i < box.outlets; i++) {
       const p = this.outletPos(box, i, id);
       const oDef = getOutletDef(box.text, i);
       this.ctx.fillStyle = oDef?.type === "audio" ? COLORS.portAudio : oDef?.type === "event" ? COLORS.portEvent : COLORS.port;
-      this.ctx.fillRect(p.x - PORT_W / 2, p.y - 0.5, PORT_W, PORT_H);
+      this.ctx.fillRect(p.x - PORT_W / 2, p.y - PORT_H, PORT_W, PORT_H);
     }
   }
 
