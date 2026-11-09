@@ -1,51 +1,42 @@
-# Session handoff — 2026-10-30
+# Session handoff — 2026-11-09
 
-This is for a fresh Claude session on another machine. Memory files don't
+For a fresh Claude session, possibly on another machine. Memory files don't
 travel between machines, so this note carries what they held. Internal; replace
-it at the next handoff.
+it at the next handoff. (The 2026-10-30 version is in git history.)
 
 ## State
 
-The branch is `docs/tambourine`. `main` is the previous working version and the
-gig fallback. Don't merge into main until Thomas says so; the plan is after the
-gig.
+The branch is `docs/tambourine`, pushed at `5cd41b6`. `main` is still the old
+working version (181 commits behind); don't merge into it until Thomas says so.
 
-The single-evaluator step is **done**: stages A–D, plus the fixes from two
-Fable reviews. The server now evaluates the ctrl side with the phones'
-`public/graph.js` / `graph-core.js`, and routers are its sinks.
-- Laptop audio is deployed over the ctrl socket (`deploy.ts`:
-  `serializeLaptopPatch`) and built from the server's expanded graph.
-- `emit()` is the only exit for `rv`/`re`.
-- One `replay(to)` serves both phones and the laptop.
-- `deno task test` runs four suites: phone snapshot, server snapshot,
-  side_binding and deploy. All pass.
+Built 2026-11-08, all Fable-reviewed and merged (design notes in brackets):
+- **Grid** (`editor-modes.md`, "Grid"): half-unit positions, 20px boxes,
+  ports drawn inside boxes, routers straddle the border, no other box crosses
+  it, a box's zone comes from its type on commit, border drags push boxes and
+  spring back. `l` nudges overlapping boxes apart (border fixed, zoom out only).
+- **Router cables** (`architecture.md`): ctrl → router → synth is the only
+  flow; router → ctrl, synth → ctrl, synth → router and router → router are
+  refused in the editor and at apply. Knobs are ctrl-bound; fan, toggle and
+  event stay free.
+- **Abstractions** (`abstractions.md`): headers, libraries, faces, and
+  encapsulate (Cmd+Shift+E), saved create-only (409 if the name is taken).
+- **Samples and granular** (`samples-and-granular.md`): `buffer~`, `play~`,
+  `hann~`, `samphold~`, `phasor~` reset and phase. Not `record~`.
+- **Patches:** all but `faces_pitch-amp.json` and `granular_example.json`
+  deleted from `patches/` (retrievable from git); test fixtures live in
+  `tests/fixtures/`.
 
-Checked by Thomas, on the browser and the ensemble client:
-- panharmonium: nothing below 100 Hz.
-- ks_arp: the arp descends, as wired (`sort desc`).
-- frogs: pads work. The MPK must be in note mode, not CC.
-- epimetheus: uplink and swarm work, after the patch fixes below.
-- Editor: nudges into the border are refused.
+`deno task test` runs six suites, all passing.
 
-**Still to check, on phones from the laptop:**
-- epimetheus pad 39 → `delay 0.1 → one` must advance **exactly one** phone
-  per hit (the ensemble can't show this).
-- Editor:
-  - an off-side bound box can be dragged home;
-  - a move is refused only if it *newly* takes an audio cable across the
-    border;
-  - hold ↓ on `key` stops at the line;
-  - Shift+↓ is refused;
-  - a free box crosses;
-  - a border drag pushes `key`;
-  - paste and text commit snap.
-- Keep one ctrl tab open: each tab builds laptop audio and grabs the mic.
+**Still to check in a browser:** encapsulate. Select part of a synth-side
+patch, Cmd+Shift+E, name it, check the instance's cables, double-click into
+it, apply and listen; try a router in the selection, both zones, a taken name,
+a double press. Undo restores the boxes but not the saved file: delete test
+abstractions in `libs/` by hand. On Firefox under Windows or Linux,
+Ctrl+Shift+E opens devtools and can't be blocked.
 
-Patch fixes made during testing (committed):
-- epimetheus:
-  - `touch` outlets 1 and 2 now go to `sendup` (only `tx` was sent before);
-  - `screen 10` → `screen`, so the text layer (z 2) sits above it.
-- frogs: an extra `print` on `key 10`.
+**Thomas will reword** all public-facing text, including the `l` help line
+("L tidies the layout") and help for Cmd+Shift+E.
 
 ## Things to know
 
@@ -98,9 +89,10 @@ Patch fixes made during testing (committed):
   closes). Event-typed ports (triggers) are fired by events only.
 - **Phone semantics win:** `phasor once` stays finished, `delay` fires once,
   `seq` inlet 1 takes a string.
-- **Side rule.** A bound box (ctrl/synth) must sit wholly on its side, and
-  overhanging counts as off side. Only routers (`border`) straddle the line. A
-  free box is sided by its centre. The rule lives only in
+- **Side rule (revised 2026-11-08).** No box but a router crosses the line;
+  every other box lies wholly on one side, and a free box's side is where it
+  lies. A bound box (ctrl/synth) must be on its own side; on commit it is
+  moved snug against the line on that side. The rule lives only in
   `public/gpi-types.js`, shared by the editor and `apply-check.ts`. Editor
   moves are judged by where the box ends up, so an off-side box can be moved
   back.
@@ -130,42 +122,24 @@ Patch fixes made during testing (committed):
 
 ## Next and parked
 
-- **Next:** Thomas finishes `patches/the_fold.json` for the 2026-10-31
-  performance, at the airport. It is wired and simulated, but not yet heard:
-  - `group 2 1 1 1 1`: group 0 is arco (double weight) and gets `const 0` so
-    its metro stays off. Groups 1–4 are pizz.
-  - Pads 40–43 toggle pizz groups 1–4 at periods 0.222/0.333/0.5/0.75, and
-    pad 39 stops all pizz.
-  - Arco: `key 1` → `pad` → `mtof` and `held` count → `all 2`, into `adsr~` →
-    `cute-sine~` on every phone. Group outlet 1 → `== 0` → `* 0.3` → `sig~`
-    → `*~` sets the arco level, so only arco phones are heard.
-  - Arco is mono unison (the last key pressed).
-  - Server and editor need a restart and a reload from disk to pick up
-    tonight's commits.
-- **After the gig:**
+- **Open, encapsulate follow-ups:** a mouse gesture to trigger it (Thomas
+  first liked a gesture, since it could pick ctrl or synth at creation), a
+  better naming UI than the prompt, and de-encapsulate.
+- **Worktrees to remove** once Thomas agrees: `~/Documents/tamb-grid`,
+  `tamb-samples`, `tamb-abs`, `tamb-faces`, and their `feat/*` branches (all
+  merged).
+- **Still open from the 2026-10-30 list:**
   - merge to main;
-  - per-voice ensemble viewport tiles (see `network-and-modes.md`, Rung 0a);
-  - the ctrl.js auto-create side fix;
+  - per-voice ensemble viewport tiles (`network-and-modes.md`, Rung 0a);
+  - ctrl.js MIDI auto-create side fix (see above);
   - the Bun swap;
-  - **group-scoped routers** (Fable's design C): name a partition
-    (`group 5 fold`) and target it (`all @fold:4`, `assign @fold:4`), for
-    polyphonic arco across only the arco phones, with no gating;
-  - **router vs cable mismatch for triggers:** `processRouterValue`
-    (`public/graph.js` ~280) writes a value into an event-typed trigger, but a
-    cable drops it. Make the two paths agree;
-  - **patches saved from the editor are root-owned**, because the server runs
-    under sudo, so they can't be edited directly afterwards;
-  - the `run_deno` sudo line passes only `MODE` (a `HOST_DOMAIN` override is
-    dropped);
-  - delete the legacy `/opt/homebrew/etc/dnsmasq.d/assembly.conf`;
-  - the `group` help text in `gpi-types.js` was written by an agent, for
-    Thomas to rewrite.
-- **Network (updated 2026-10-30, evening).** The Beryl AX is configured and
-  working on the laptop side. The setup is in `dev_log.md` (2026-10-30), and
-  the `local.tamb.fm` cert is issued. It hasn't been tested with phones or
-  load yet, so bring the old rig as a backup. In performance mode the banner's
-  ctrl and ensemble links are `https://127.0.0.1/…`, which is what works on
-  the laptop. See `network-and-modes.md` and `openwrt-router.md`, including the
-  friction note there.
-- **Parked:** laptop DNS decoupling, salvaged network hardware, and the 240 Hz
-  tick paradigm.
+  - group-scoped routers (`group 5 fold`, `all @fold:4`);
+  - router vs cable mismatch for triggers (`processRouterValue` in
+    `public/graph.js` writes a value into an event-typed trigger; a cable
+    drops it);
+  - patches saved from the editor are root-owned (server runs under sudo);
+  - the `group` help text, for Thomas to rewrite.
+- **Next big item:** the fresh-repo checklist in `notes/launch.md`.
+- **Parked:** live granulation (`record~`), breath/bite/nod/tilt as
+  abstractions, a presentation mode, laptop DNS decoupling, salvaged network
+  hardware, and the 240 Hz tick paradigm.

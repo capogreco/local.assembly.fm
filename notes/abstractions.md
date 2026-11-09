@@ -68,7 +68,7 @@ panel for editing the header. Help patches sit beside the abstraction.
   them.
 - *Delete:* refused while the running patch uses the abstraction.
 - *Run mode:* allows only `h`.
-- *Encapsulate (decided 2026-11-08, built on feat/faces):* Cmd+Shift+E
+- *Encapsulate (decided and built 2026-11-08, on docs/tambourine at 5cd41b6):* Cmd+Shift+E
   (Ctrl+Shift+E elsewhere; Max's shortcut), ctrl editor, edit mode. Asks
   for `library/name` (as Shift+N) and turns the selection into a new
   abstraction plus one instance of it. Refused, nothing changed: empty

@@ -110,7 +110,7 @@ Built 2026-11-08 (`feat/grid`, half units on `feat/faces`): `GRID`, `SNAP`,
 `BOX_HEIGHT = GRID`, `snapToGrid` (whole units: the border), `snapPos` (half
 units: positions) and `routerY` live in `gpi-types.js`. The editor snaps on
 load (x, y and `borderY`), live while dragging, on create (the cell under the pointer),
-paste, duplicate, Tab-create (one empty row below, kept on the source's side), rebuild (`l`, above), and border drags
+paste, duplicate, Tab-create (one empty row below, kept on the source's side), `l` (above), and border drags
 (the border moves in whole rows, at least two rows down, and pushed boxes
 land snug against the line; each step is worked out from the drag's start,
 so pushed boxes spring back as the border retreats, never past where they
@@ -124,7 +124,8 @@ the side rules (`positionSide`, `wholeSide`) still work for any position.
 - A Max-style presentation mode: a second layout of the same patch, for
   playing. Separate question; revisit once edit and run exist.
 - **The abstraction workflow** (flagged by Thomas, 2026-11-06; proposal and
-  decisions now in `abstractions.md`): needs rethinking
+  decisions now in `abstractions.md`; encapsulate, Cmd+Shift+E, built
+  2026-11-08): needs rethinking
   as a whole: creating, editing, saving, and how a saved abstraction's port
   changes reach boxes already in a running patch. For now, run mode blocks
   Shift+N (new abstraction). The abstraction editor and the help popup always
